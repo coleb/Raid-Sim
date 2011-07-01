@@ -14,7 +14,7 @@ def ToonSim(server, name, withStatScaling=True):
             "threads=12",
             "html=%s.html" % name]
     if withStatScaling:
-        args.append("iterations=1000")
+        args.append("iterations=10000")
         args.append("calculate_scale_factors=1")
 
     proc = Popen(args, stdout=logfile)
