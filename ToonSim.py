@@ -7,19 +7,25 @@ dname = os.path.dirname(__file__)
 
 def ToonSim(server, name, withStatScaling=True):
     exe = os.path.join(dname, "engine", "simc")
-    logfile = open("%s.log" % name, 'w')
-
-
+    lname = "%s.log" % name
+    logfile = open(lname, 'w')
     args = [exe, 
             "armory=us,%s,%s" % (server, name),
             "threads=12",
             "html=%s.html" % name]
     if withStatScaling:
-        args.append("iterations=10000")
+        args.append("iterations=1000")
         args.append("calculate_scale_factors=1")
 
     proc = Popen(args, stdout=logfile)
     proc.wait()
+    logfile.close()
+
+    log = open(lname)
+    for line in log:
+        if line.startswith("  DPS: "):
+            fields = line.split()
+            return float(fields[1])
 
 def main(argv=[__name__]):
     if len(argv) != 3:
@@ -29,7 +35,7 @@ def main(argv=[__name__]):
     server = argv[1]
     name   = argv[2]
 
-    ToonSim(server, name, True)
+    print ToonSim(server, name, True)
 
     return 0
 
