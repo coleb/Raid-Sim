@@ -273,6 +273,85 @@ static bool parse_role_string( sim_t* sim,
   return true;
 }
 
+
+// parse_world_lag ========================================================
+
+static bool parse_world_lag( sim_t* sim,
+                               const std::string& name,
+                               const std::string& value )
+{
+  assert( name == "world_lag" );
+
+  sim -> active_player -> world_lag = atof( value.c_str() );
+
+  if ( sim -> active_player -> world_lag < 0.0 )
+  {
+    sim -> active_player -> world_lag = 0.0;
+  }
+
+  sim -> active_player -> world_lag_override = true;
+
+  return true;
+}
+
+
+// parse_world_lag ========================================================
+
+static bool parse_world_lag_stddev( sim_t* sim,
+                               const std::string& name,
+                               const std::string& value )
+{
+  assert( name == "world_lag_stddev" );
+
+  sim -> active_player -> world_lag_stddev = atof( value.c_str() );
+
+  if ( sim -> active_player -> world_lag_stddev < 0.0 )
+  {
+    sim -> active_player -> world_lag_stddev = 0.0;
+  }
+
+  sim -> active_player -> world_lag_stddev_override = true;
+
+  return true;
+}
+
+// parse_brain_lag ========================================================
+
+static bool parse_brain_lag( sim_t* sim,
+                               const std::string& name,
+                               const std::string& value )
+{
+  assert( name == "brain_lag" );
+
+  sim -> active_player -> brain_lag = atof( value.c_str() );
+
+  if ( sim -> active_player -> brain_lag < 0.0 )
+  {
+    sim -> active_player -> brain_lag = 0.0;
+  }
+
+  return true;
+}
+
+
+// parse_brain_lag_stddev ========================================================
+
+static bool parse_brain_lag_stddev( sim_t* sim,
+                               const std::string& name,
+                               const std::string& value )
+{
+  assert( name == "brain_lag_stddev" );
+
+  sim -> active_player -> brain_lag_stddev = atof( value.c_str() );
+
+  if ( sim -> active_player -> brain_lag_stddev < 0.0 )
+  {
+    sim -> active_player -> brain_lag_stddev = 0.0;
+  }
+
+  return true;
+}
+
 } // ANONYMOUS NAMESPACE ===================================================
 
 
@@ -286,9 +365,9 @@ player_t::player_t( sim_t*             s,
                     player_type        t,
                     const std::string& n,
                     race_type          r ) :
-  sim( s ), ptr( s -> dbc.ptr ), name_str( n ),
+  sim( s ), ptr( s -> dbc.ptr ), name_str( n ), target_str( "" ),
   region_str( s->default_region_str ), server_str( s->default_server_str ), origin_str( "unknown" ),
-  next( 0 ), index( -1 ), type( t ), role( ROLE_HYBRID ), level( is_enemy() ? 88 : 85 ), use_pre_potion( 1 ),
+  next( 0 ), index( -1 ), type( t ), role( ROLE_HYBRID ), target( NULL ), level( is_enemy() ? 88 : 85 ), use_pre_potion( 1 ),
   party( 0 ), member( 0 ),
   skill( 0 ), initial_skill( s->default_skill ), distance( 0 ), gcd_ready( 0 ), base_gcd( 1.5 ),
   potion_used( 0 ), sleeping( 1 ), initialized( 0 ),
@@ -296,6 +375,10 @@ player_t::player_t( sim_t*             s,
   vengeance_enabled( false ), vengeance_damage( 0.0 ), vengeance_value( 0.0 ), vengeance_max( 0.0 ),
   active_pets( 0 ), big_hitbox( 0 ), dtr_proc_chance( -1.0 ), dtr_base_proc_chance( -1.0 ),
   reaction_mean( 0.5 ), reaction_stddev( 0.0 ), reaction_nu( 0.5 ),
+  // Latency
+  world_lag( 0.1 ), world_lag_stddev( -1.0 ),
+  brain_lag( -1.0 ), brain_lag_stddev( -1.0 ),
+  world_lag_override( false ), world_lag_stddev_override( false ),
   dbc( s -> dbc ),
   race_str( "" ), race( r ),
   // Haste
@@ -353,6 +436,7 @@ player_t::player_t( sim_t*             s,
   food( FOOD_NONE ),
   // Events
   executing( 0 ), channeling( 0 ), readying( 0 ), in_combat( false ), action_queued( false ),
+  cast_delay_reaction( 0 ), cast_delay_occurred( 0 ),
   // Actions
   action_list( 0 ), action_list_default( 0 ), cooldown_list( 0 ), dot_list( 0 ),
   // Reporting
@@ -587,7 +671,6 @@ bool player_t::init( sim_t* sim )
   if ( sim -> debug )
     log_t::output( sim, "Initializing Players." );
 
-
   bool too_quiet = true; // Check for at least 1 active player
   bool zero_dds = true; // Check for at least 1 player != TANK/HEAL
 
@@ -681,6 +764,7 @@ void player_t::init()
   if ( sim -> debug ) log_t::output( sim, "Initializing player %s", name() );
 
   initialized = 1;
+  init_target();
   init_talents();
   init_spells();
   init_glyphs();
@@ -731,6 +815,8 @@ void player_t::init_base()
   if ( level <= 80 ) health_per_stamina = 10;
   else if ( level <= 85 ) health_per_stamina = ( level - 80 ) / 5 * 4 + 10;
   else if ( level <= MAX_LEVEL ) health_per_stamina = 14;
+  if ( world_lag_stddev < 0 ) world_lag_stddev = world_lag * 0.1;
+  if ( brain_lag_stddev < 0 ) brain_lag_stddev = brain_lag * 0.1;
 }
 
 // player_t::init_items =====================================================
@@ -1237,6 +1323,19 @@ struct execute_pet_action_t : public action_t
   }
 };
 
+// player_t::init_target ============================================================
+
+void player_t::init_target()
+{
+  if ( ! target_str.empty() )
+  {
+      target = sim -> find_player( target_str );
+  }
+  if ( ! target )
+  {
+    target = sim -> target;
+  }
+}
 
 // player_t::init_use_item_actions ==================================================
 
@@ -1309,6 +1408,7 @@ void player_t::init_use_racial_actions( const std::string& append )
 
 void player_t::init_actions()
 {
+
   if ( ! action_list_str.empty() )
   {
     if ( action_list_default && sim -> debug ) log_t::output( sim, "Player %s using default actions", name() );
@@ -1371,6 +1471,7 @@ void player_t::init_actions()
             log_t::output( sim, "Player %s: modify_action=%s", name(), modify_action.c_str() );
 
           action_options = modify_action_options;
+          splits[ i ] = modify_action + "," + modify_action_options;
         }
         a = create_action( action_name, action_options );
       }
@@ -1560,6 +1661,8 @@ void player_t::init_rng()
   rngs.lag_queue    = get_rng( "lag_queue"    );
   rngs.lag_ability  = get_rng( "lag_ability"  );
   rngs.lag_reaction = get_rng( "lag_reaction" );
+  rngs.lag_world    = get_rng( "lag_world"    );
+  rngs.lag_brain    = get_rng( "lag_brain"    );
 }
 
 // player_t::init_stats ====================================================
@@ -2706,6 +2809,9 @@ void player_t::reset()
   readying = 0;
   in_combat = false;
   iteration_dmg = 0;
+  
+  cast_delay_reaction = 0;
+  cast_delay_occurred = 0;
 
   main_hand_weapon.buff_type  = 0;
   main_hand_weapon.buff_value = 0;
@@ -2762,6 +2868,7 @@ void player_t::schedule_ready( double delta_time,
                                bool   waiting )
 {
   assert( ! readying );
+  action_t* was_executing = ( channeling ? channeling : executing );
 
   executing = 0;
   channeling = 0;
@@ -2837,6 +2944,21 @@ void player_t::schedule_ready( double delta_time,
   if ( delta_time == 0 ) delta_time = 0.000001;
 
   readying = new ( sim ) player_ready_event_t( sim, this, delta_time );
+
+  if ( was_executing && was_executing -> gcd() > 0 && ! was_executing -> background && ! was_executing -> proc && ! was_executing -> repeating )
+  {
+    // Record the last ability use time for cast_react
+    cast_delay_occurred = readying -> occurs();
+    cast_delay_reaction = rngs.lag_brain -> gauss( brain_lag, brain_lag_stddev );
+    if ( sim -> debug ) 
+    {
+      log_t::output( sim, "%s %s schedule_ready(): cast_finishes=%f cast_delay=%f", 
+        name_str.c_str(),
+        was_executing -> name_str.c_str(), 
+        readying -> occurs(), 
+        cast_delay_reaction );
+    }
+  }
 }
 
 // player_t::arise ==========================================================
@@ -2916,6 +3038,13 @@ void player_t::halt()
   if (    ranged_attack )    ranged_attack -> cancel();
 }
 
+// player_t::stun() =========================================================
+
+void player_t::stun()
+{
+  halt();
+}
+
 // player_t::moving =========================================================
 
 void player_t::moving()
@@ -2943,7 +3072,6 @@ void player_t::clear_debuffs()
 std::string player_t::print_action_map( int iterations, int precision )
 {
   std::map<std::string,int>::const_iterator it = action_map.begin();
-  std::map<std::string,int>::const_iterator end = action_map.end();
   std::string ret = "Label: Number of executes (Average number of executes per iteration)";
   ret += "<br />\n";
   while ( it != action_map.end() )
@@ -5640,13 +5768,14 @@ bool player_t::create_profile( std::string& profile_str, int save_type, bool sav
   {
     if ( action_list_str.size() > 0 )
     {
-      std::vector<std::string> splits;
-      int num_splits = util_t::string_split( splits, action_list_str, "/" );
-      for ( int i=0; i < num_splits; i++ )
+      int i = 0;
+      for ( action_t* a = action_list; a; a = a -> next )
       {
+        if ( a -> signature_str.empty() ) continue;
         profile_str += "actions";
         profile_str += i ? "+=/" : "=";
-        profile_str += splits[ i ] + term;
+        profile_str += a -> signature_str + term;
+        i++;
       }
     }
   }
@@ -5801,6 +5930,7 @@ void player_t::create_options()
     { "level",                                OPT_INT,      &( level                                  ) },
     { "use_pre_potion",                       OPT_INT,      &( use_pre_potion                         ) },
     { "role",                                 OPT_FUNC,     ( void* ) ::parse_role_string               },
+    { "target",                               OPT_STRING,   &( target_str                             ) },
     { "skill",                                OPT_FLT,      &( initial_skill                          ) },
     { "distance",                             OPT_FLT,      &( distance                               ) },
     { "professions",                          OPT_STRING,   &( professions_str                        ) },
@@ -5814,6 +5944,10 @@ void player_t::create_options()
     { "save_actions",                         OPT_STRING,   &( save_actions_str                       ) },
     { "comment",                              OPT_STRING,   &( comment_str                            ) },
     { "bugs",                                 OPT_BOOL,     &( bugs                                   ) },
+    { "world_lag",                            OPT_FUNC,     ( void* ) ::parse_world_lag                 },
+    { "world_lag_stddev",                     OPT_FUNC,     ( void* ) ::parse_world_lag_stddev          },
+    { "brain_lag",                            OPT_FUNC,     ( void* ) ::parse_brain_lag                 },
+    { "brain_lag_stddev",                     OPT_FUNC,     ( void* ) ::parse_brain_lag_stddev          },
     // Items
     { "meta_gem",                             OPT_STRING,   &( meta_gem_str                           ) },
     { "items",                                OPT_STRING,   &( items_str                              ) },

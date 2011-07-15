@@ -308,6 +308,9 @@ struct warrior_t : public player_t
     initial_rage = 0;
     fiery_attack = NULL;
 
+    distance = 3;
+    default_distance = 3;
+
     create_talents();
     create_glyphs();
     create_options();
@@ -2242,6 +2245,9 @@ struct thunder_clap_t : public warrior_attack_t
     warrior_t* p = player -> cast_warrior();
 
     p -> buffs_thunderstruck -> trigger();
+
+    if ( p -> talents.blood_and_thunder -> rank() && p -> dots_rend && p -> dots_rend ->ticking )
+      p -> dots_rend -> action -> refresh_duration();
   }
 };
 

@@ -16,7 +16,7 @@ void action_t::_init_action_t()
   sim                            = s_player->sim;
   name_str                       = s_token;
   player                         = s_player;
-  target                         = s_player -> sim -> target;
+  target                         = s_player -> target;
   id                             = 0;
   result                         = RESULT_NONE;
   aoe                            = 0;
@@ -190,7 +190,7 @@ action_t::action_t( int               ty,
                     bool              sp ) :
   spell_id_t( p, n ),
   sim( s_player->sim ), type( ty ), name_str( s_token ),
-  player( s_player ), target( s_player -> sim -> target ), school( s ), resource( r ),
+  player( s_player ), target( s_player -> target ), school( s ), resource( r ),
   tree( tr ), special( sp )
 {
   _init_action_t();
@@ -1222,7 +1222,7 @@ void action_t::schedule_execute()
       player -> gcd_ready -= sim -> queue_gcd_reduction;
     }
   }
-  if ( special && time_to_execute > 0 && ! proc )
+  if ( special && time_to_execute > 0 && ! proc && ! background )
   {
     // While an ability is casting, the auto_attack is paused
     // So we simply reschedule the auto_attack by the ability's casttime
@@ -1408,11 +1408,22 @@ void action_t::extend_duration_seconds( double extra_seconds )
 
 void action_t::update_ready()
 {
+  double delay = 0;
   if ( cooldown -> duration > 0 && ! dual )
   {
     if ( sim -> debug ) log_t::output( sim, "%s starts cooldown for %s (%s)", player -> name(), name(), cooldown -> name() );
 
-    cooldown -> start();
+    if ( ! background && ! proc )
+    {
+      double lag, dev;
+
+      lag = player -> world_lag_override ? player -> world_lag : sim -> world_lag;
+      dev = player -> world_lag_stddev_override ? player -> world_lag_stddev : sim -> world_lag_stddev;
+      delay = player -> rngs.lag_world -> gauss( lag, dev );
+      if ( sim -> debug ) log_t::output( sim, "%s delaying the cooldown finish of %s by %f", player -> name(), name(), delay );
+    }
+    
+    cooldown -> start( -1, delay );
   }
   if ( num_ticks )
   {
@@ -1777,6 +1788,36 @@ action_expr_t* action_t::create_expression( const std::string& name_str )
       }
     };
     return new miss_react_expr_t( this );
+  }
+  if ( name_str == "cast_delay" )
+  {
+    struct cast_delay_expr_t : public action_expr_t
+    {
+      cast_delay_expr_t( action_t* a ) : action_expr_t( a, "cast_delay", TOK_NUM ) {}
+      virtual int evaluate()
+      {
+        if ( action -> sim -> debug )
+        {
+          log_t::output( action -> sim, "%s %s cast_delay(): can_react_at=%f cur_time=%f", 
+            action -> player -> name_str.c_str(), 
+            action -> name_str.c_str(), 
+            action -> player -> cast_delay_occurred + action -> player -> cast_delay_reaction,
+            action -> sim -> current_time );
+        }
+        
+        if ( ! action -> player -> cast_delay_occurred ||
+             action -> player -> cast_delay_occurred + action -> player -> cast_delay_reaction < action -> sim -> current_time )
+        {
+          result_num = 1;
+        }
+        else
+        {
+          result_num = 0;
+        }
+        return TOK_NUM;
+      }
+    };
+    return new cast_delay_expr_t( this );
   }
 
   std::vector<std::string> splits;

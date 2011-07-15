@@ -214,6 +214,7 @@ struct hunter_t : public player_t
     summon_pet_str = "";
     hunter_position = "back";
     distance = 40;
+    default_distance = 40;
     base_gcd = 1.0;
     flaming_arrow = NULL;
 
@@ -665,6 +666,7 @@ struct hunter_attack_t : public attack_t
     tick_may_crit          = true;
     normalize_weapon_speed = true;
     consumes_tier12_4pc    = false;
+    dot_behavior      = DOT_REFRESH;
   }
   hunter_attack_t( const char* n, player_t* player, const school_type s=SCHOOL_PHYSICAL, int t=TREE_NONE, bool special=true ) :
       attack_t( n, player, RESOURCE_FOCUS, s, t, special )
@@ -821,7 +823,7 @@ static void trigger_piercing_shots( action_t* a, double dmg )
 
   double piercing_shots_dmg = p -> talents.piercing_shots -> effect1().percent() * dmg;
 
-  if ( p -> merge_piercing_shots > 0 ) // Does not report Ignite seperately.
+  if ( p -> merge_piercing_shots > 0 ) // Does not report Piercing Shots seperately.
   {
     int result = a -> result;
     a -> result = RESULT_HIT;
@@ -861,8 +863,8 @@ static void trigger_piercing_shots( action_t* a, double dmg )
   {
     if ( dot -> tick_event -> occurs() < p -> active_piercing_shots -> travel_event -> occurs() )
     {
-      // Ignite will tick before SPELL_AURA_APPLIED occurs, which means that the current Ignite will
-      // both tick -and- get rolled into the next Ignite.
+      // Piercing Shots will tick before SPELL_AURA_APPLIED occurs, which means that the current Piercing Shots will
+      // both tick -and- get rolled into the next Piercing Shots.
       if ( sim -> log ) log_t::output( sim, "Player %s rolls Piercing Shots.", p -> name() );
       p -> procs_rolled_piercing_shots -> occur();
     }
@@ -4044,7 +4046,7 @@ void hunter_t::armory_extensions( const std::string& region,
     if( pos != std::string::npos ) cdata_str.erase( pos );
 
     js_node_t* pet_js = js_t::create( sim, cdata_str );
-    pet_js = js_t::get_node( pet_js, "Pets" );
+    pet_js = js_t::get_node( pet_js, "Pet.data" );
     if ( sim -> debug ) js_t::print( pet_js, sim -> output_file );
 
     if( ! pet_js )

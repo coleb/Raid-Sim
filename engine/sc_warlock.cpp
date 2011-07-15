@@ -364,6 +364,7 @@ struct warlock_t : public player_t
     tree_type[ WARLOCK_DESTRUCTION ] = TREE_DESTRUCTION;
 
     distance = 40;
+    default_distance = 40;
 
     active_pet                  = 0;
     spells_burning_embers       = 0;
@@ -1710,8 +1711,12 @@ struct doomguard_pet_t : public warlock_guardian_pet_t
       warlock_pet_spell_t( "doombolt", player, "Doom Bolt" )
     {
       //FIXME: Needs testing, but WoL seems to suggest it has been changed from 2.5 to 3.0 sometime after 4.1.
-
       base_execute_time = 3.0;
+
+      //Rough numbers based on report in EJ thread 2011/07/04
+      direct_power_mod  = 1.36; 
+      base_dd_min *= 1.25;
+      base_dd_max *= 1.25;
     }
   };
 
@@ -1744,7 +1749,13 @@ struct doomguard_pet_t : public warlock_guardian_pet_t
 
     warlock_t* o = owner -> cast_warlock();
 
-    m *= 1.0 + ( o -> mastery_spells.master_demonologist -> ok() * snapshot_mastery * o -> mastery_spells.master_demonologist -> effect_base_value( 3 ) / 10000.0 );
+    if ( o -> race == RACE_ORC )
+    {
+      m  *= 1.05;
+    }
+
+    // FIXME: Somehow he gains three times as much from mastery as expected?
+    m *= 1.0 + ( o -> mastery_spells.master_demonologist -> ok() * snapshot_mastery * o -> mastery_spells.master_demonologist -> effect_base_value( 3 ) / 10000.0 ) * 3;
 
     return m;
   }
@@ -4398,7 +4409,7 @@ void warlock_t::init_actions()
       if ( level >= 12 ) action_list_str += "/bane_of_doom,if=target.time_to_die>15&!ticking&miss_react";
       if ( talent_haunt -> rank() ) action_list_str += "/haunt";
       if ( level >= 81 ) action_list_str += "/fel_flame,if=buff.tier11_4pc_caster.react&dot.unstable_affliction.remains<8";
-      if ( level >= 50) action_list_str += "/summon_doomguard";
+      if ( level >= 50) action_list_str += "/summon_doomguard,if=time>10";
       if ( talent_soul_siphon -> rank() ) action_list_str += "/drain_soul,interrupt=1,if=target.health_pct<=25";
       if ( level >= 75) action_list_str += "/shadowflame";
       if ( talent_bane -> rank() == 3 )
@@ -4445,7 +4456,7 @@ void warlock_t::init_actions()
         action_list_str += "/soul_fire,if=buff.empowered_imp.react&buff.empowered_imp.remains<(buff.improved_soul_fire.remains+action.soul_fire.travel_time)";
       }
       if ( talent_chaos_bolt -> ok() ) action_list_str += "/chaos_bolt";
-      if ( level >= 50) action_list_str += "/summon_doomguard";
+      if ( level >= 50) action_list_str += "/summon_doomguard,if=time>10";
       if ( talent_improved_soul_fire -> ok() && level >= 54)
       {
         action_list_str += "/soul_fire,if=buff.improved_soul_fire.remains<(cast_time+travel_time+action.incinerate.cast_time+gcd)&!in_flight";
@@ -4477,7 +4488,7 @@ void warlock_t::init_actions()
           action_list_str += "/soul_fire,if=buff.decimation.react|buff.soulburn.up";
         }
       }
-      if ( level >= 50) action_list_str += "/summon_doomguard,if=buff.metamorphosis.down";
+      if ( level >= 50) action_list_str += "/summon_doomguard,if=time>10";
       action_list_str += "/life_tap,if=mana_pct<=50&buff.bloodlust.down&buff.metamorphosis.down";
       if ( glyphs.imp -> ok() ) action_list_str += "&buff.demon_soul_imp.down";
       else if ( glyphs.lash_of_pain -> ok() ) action_list_str += "&buff.demon_soul_succubus.down";
@@ -4639,10 +4650,11 @@ void player_t::warlock_combat_begin( sim_t* sim )
   
   for ( player_t* p = sim -> player_list; p; p = p -> next )
   {
-    if ( sim -> overrides.dark_intent )
+    if ( sim -> overrides.dark_intent && ! p -> is_pet() )
     {
-      p -> buffs.dark_intent          -> override();
+      p -> buffs.dark_intent          -> override( 1, p -> type == WARLOCK ? 0.03 : 0.01 );
       p -> buffs.dark_intent_feedback -> override( 3 );
+      p -> dark_intent_cb -> active = true;
     }
   }
 

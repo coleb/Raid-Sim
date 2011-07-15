@@ -66,7 +66,8 @@ struct enemy_t : public player_t
   virtual void init_actions();
   virtual double composite_tank_block() SC_CONST;
   virtual void create_options();
-  virtual pet_t* create_pet( const std::string& add_name, const std::string& pet_type );
+  virtual pet_t* create_pet( const std::string& add_name, const std::string& pet_type = std::string());
+  virtual void create_pets();
   virtual pet_t* find_pet( const std::string& add_name );
   virtual double health_percentage() SC_CONST;
   virtual void combat_end();
@@ -377,17 +378,16 @@ void enemy_t::init_actions()
   {
     action_list_str += "/snapshot_stats";
 
-    bool tank = false;
-
     if ( !is_add() )
     {
       for ( player_t* q = sim -> player_list; q; q = q -> next )
       {
         if ( q -> primary_role() != ROLE_TANK )
           continue;
+	if ( !target )
+          target = q;
         action_list_str += "/auto_attack,target=";
         action_list_str += q -> name_str;
-        tank = true;
         break;
       }
     }
@@ -417,6 +417,7 @@ void enemy_t::create_options()
     { "target_health",                    OPT_FLT,    &( fixed_health                      ) },
     { "target_initial_health_percentage", OPT_FLT,    &( initial_health_percentage         ) },
     { "target_fixed_health_percentage",   OPT_FLT,    &( fixed_health_percentage           ) },
+    { "target_tank",                      OPT_STRING, &( target_str                        ) },
     { NULL, OPT_UNKNOWN, NULL }
   };
 
@@ -437,6 +438,19 @@ pet_t* enemy_t::create_pet( const std::string& add_name, const std::string& pet_
   return new enemy_add_t( sim, this, add_name, PET_ENEMY );
 
   return 0;
+}
+
+// enemy_t::create_pets ===================================================
+
+void enemy_t::create_pets()
+{
+  for ( int i=0; i < sim -> target_adds; i++ )
+  {
+    char buffer[ 1024 ];
+    snprintf( buffer, sizeof( buffer ), "Add %i", i );
+
+    create_pet( buffer );
+  }
 }
 
 // enemy_t::find_add =========================================================
@@ -532,6 +546,8 @@ action_t* enemy_add_t::create_action( const std::string& name,
 
   return pet_t::create_action( name, options_str );
 }
+
+
 
 // ==========================================================================
 // PLAYER_T EXTENSIONS

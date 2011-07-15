@@ -491,6 +491,16 @@ static bool parse_fight_style( sim_t*             sim,
     sim -> raid_events_str += "/stun,cooldown=60,duration=2";
     sim -> raid_events_str += "/invulnerable,cooldown=120,duration=3";
   }
+  else if ( util_t::str_compare_ci( value, "LightMovement" ) )
+  {
+    sim -> fight_style = "LightMovement";
+    sim -> raid_events_str = "/movement,players_only=1,first=53,cooldown=85,duration=7,last=360";
+  }
+  else if ( util_t::str_compare_ci( value, "HeavyMovement" ) )
+  {
+    sim -> fight_style = "HeavyMovement";
+    sim -> raid_events_str = "/movement,players_only=1,first=10,cooldown=10,duration=4";
+  }
   else
   {
     log_t::output( sim, "Custom fight style specified: %s", value.c_str() );
@@ -559,6 +569,7 @@ sim_t::sim_t( sim_t* p, int index ) :
   gcd_lag( 0.150 ), gcd_lag_stddev( 0 ),
   channel_lag( 0.250 ), channel_lag_stddev( 0 ),
   queue_gcd_reduction( 0.032 ), strict_gcd_queue( 0 ),
+  world_lag( 0.1 ), world_lag_stddev( -1.0 ),
   travel_variance( 0 ), default_skill( 1.0 ), reaction_time( 0.5 ), regen_periodicity( 0.25 ),
   current_time( 0 ), max_time( 450 ), expected_time( 0 ), vary_combat_length( 0.2 ),
   fixed_time( 0 ),
@@ -572,7 +583,7 @@ sim_t::sim_t( sim_t* p, int index ) :
   save_prefix_str( "save_" ), save_suffix_str( "" ),
   input_is_utf8( false ), main_target_str( "" ),
   big_hitbox( 1 ), dtr_proc_chance( -1.0 ),
-  target_death_pct( 0 ),
+  target_death_pct( 0 ), target_level( -1 ), target_race( "" ), target_adds( 0 ),
   rng( 0 ), deterministic_rng( 0 ), rng_list( 0 ),
   smooth_rng( 0 ), deterministic_roll( 0 ), average_range( 1 ), average_gauss( 0 ), convergence_scale( 2 ),
   timing_wheel( 0 ), wheel_seconds( 0 ), wheel_size( 0 ), wheel_mask( 0 ), timing_slice( 0 ), wheel_granularity( 0.0 ),
@@ -1024,6 +1035,7 @@ bool sim_t::init()
   if (   queue_lag_stddev == 0 )   queue_lag_stddev =   queue_lag * 0.25;
   if (     gcd_lag_stddev == 0 )     gcd_lag_stddev =     gcd_lag * 0.25;
   if ( channel_lag_stddev == 0 ) channel_lag_stddev = channel_lag * 0.25;
+  if ( world_lag_stddev    < 0 ) world_lag_stddev   =   world_lag * 0.1;
 
   // Find Already defined target, otherwise create a new one.
   if ( debug )
@@ -1044,6 +1056,15 @@ bool sim_t::init()
   else
     target = player_t::create( this, "enemy", "Fluffy_Pillow" );
 
+  // Target overrides
+
+  for ( player_t* t = target_list; t; t = t -> next )
+  {
+    if ( target_level >= 0 )
+      t -> level = target_level;
+
+
+  }
 
 
   if ( max_player_level < 0 )
@@ -1061,7 +1082,16 @@ bool sim_t::init()
 
   if ( ! player_t::init( this ) ) return false;
 
+  // Target overrides 2
 
+  for ( player_t* t = target_list; t; t = t -> next )
+  {
+    if ( ! target_race.empty() )
+    {
+      t -> race = util_t::parse_race_type( target_race );
+      t -> race_str = util_t::race_type_string( t -> race );
+    }
+  }
 
   if ( report_precision < 0 ) report_precision = 3;
 
@@ -1580,7 +1610,6 @@ void sim_t::merge( sim_t& other_sim )
     std::map<std::string,int>::const_iterator it1 = p -> action_map.begin();
     std::map<std::string,int>::const_iterator end1 = p -> action_map.end();
     std::map<std::string,int>::const_iterator it2 = other_p -> action_map.begin();
-    std::map<std::string,int>::const_iterator end2 = other_p -> action_map.end();
 
     while ( it1 != end1 )
     {
@@ -1976,6 +2005,8 @@ void sim_t::create_options()
     { "queue_lag_stddev",                 OPT_FLT,    &( queue_lag_stddev                         ) },
     { "queue_gcd_reduction",              OPT_FLT,    &( queue_gcd_reduction                      ) },
     { "strict_gcd_queue",                 OPT_BOOL,   &( strict_gcd_queue                         ) },
+    { "default_world_lag",                OPT_FLT,    &( world_lag                                ) },
+    { "default_world_lag_stddev",         OPT_FLT,    &( world_lag_stddev                         ) },
     { "default_skill",                    OPT_FLT,    &( default_skill                            ) },
     { "reaction_time",                    OPT_FLT,    &( reaction_time                            ) },
     { "travel_variance",                  OPT_FLT,    &( travel_variance                          ) },
@@ -1984,8 +2015,8 @@ void sim_t::create_options()
     { "default_actions",                  OPT_BOOL,   &( default_actions                          ) },
     { "debug",                            OPT_BOOL,   &( debug                                    ) },
     { "html",                             OPT_STRING, &( html_file_str                            ) },
-    { "hosted_html",                      OPT_BOOL,   &( hosted_html                            ) },
-    { "print_styles",                     OPT_BOOL,   &( print_styles                            ) },
+    { "hosted_html",                      OPT_BOOL,   &( hosted_html                              ) },
+    { "print_styles",                     OPT_BOOL,   &( print_styles                             ) },
     { "xml",                              OPT_STRING, &( xml_file_str                             ) },
     { "log",                              OPT_BOOL,   &( log                                      ) },
     { "output",                           OPT_STRING, &( output_file_str                          ) },
@@ -2090,6 +2121,8 @@ void sim_t::create_options()
     { "big_hitbox",                       OPT_BOOL,   &( big_hitbox                               ) },
     { "default_dtr_proc_chance",          OPT_FLT,    &( dtr_proc_chance                          ) },
     { "target_death_pct",                 OPT_FLT,    &( target_death_pct                         ) },
+    { "target_level",                     OPT_INT,    &( target_level                             ) },
+    { "target_race",                      OPT_STRING, &( target_race                              ) },
     // Character Creation
     { "death_knight",                     OPT_FUNC,   ( void* ) ::parse_player                      },
     { "deathknight",                      OPT_FUNC,   ( void* ) ::parse_player                      },

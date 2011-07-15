@@ -466,8 +466,13 @@ static void register_apparatus_of_khazgoroth( item_t* item )
     apparatus_of_khazgoroth_callback_t( player_t* p, bool h ) :
       action_callback_t( p -> sim, p ), heroic( h )
     {
+      double amount = heroic ? 1725 : 1530;
+
+      // It's actually doing more than the tooltip says.
+      amount = heroic ? 2865 : 2540;
+
       apparatus_of_khazgoroth = new buff_t( p, "apparatus_of_khazgoroth", 5, 30.0, 0.0, 1, true ); // TODO: Duration, cd, etc.?
-      blessing_of_khazgoroth  = new stat_buff_t( p, "blessing_of_khazgoroth", STAT_CRIT_RATING, ( heroic ? 1725 : 1530 ), 1, 15.0, 120.0 );
+      blessing_of_khazgoroth  = new stat_buff_t( p, "blessing_of_khazgoroth", STAT_CRIT_RATING, amount, 1, 15.0, 120.0 );
       proc_apparatus_of_khazgoroth_haste   = p -> get_proc( "apparatus_of_khazgoroth_haste"   );
       proc_apparatus_of_khazgoroth_crit    = p -> get_proc( "apparatus_of_khazgoroth_crit"    );
       proc_apparatus_of_khazgoroth_mastery = p -> get_proc( "apparatus_of_khazgoroth_mastery" );
@@ -899,7 +904,7 @@ static void register_matrix_restabilizer( item_t* item )
     proc_t* proc_matrix_restabilizer_mastery;
 
     matrix_restabilizer_callback_t( player_t* p, bool h ) :
-      stat_proc_callback_t( "matrix_restabilizer", p, STAT_CRIT_RATING, 1, heroic ? 1730 : 1532, 0.15, 30.0, 105.0 ), heroic( h )
+      stat_proc_callback_t( "matrix_restabilizer", p, STAT_CRIT_RATING, 1, heroic ? 1834 : 1624, 0.15, 30.0, 105.0 ), heroic( h )
     {
       proc_matrix_restabilizer_haste   = p -> get_proc( "matrix_restabilizer_haste"   );
       proc_matrix_restabilizer_crit    = p -> get_proc( "matrix_restabilizer_crit"    );
@@ -2085,7 +2090,7 @@ bool unique_gear_t::get_equip_encoding( std::string&       encoding,
   else if ( name == "mithril_stopwatch"                   ) e = "OnSpellCast_2040SP_10%_10Dur_50Cd"; // FIXME: Confirm ICD
   else if ( name == "mjolnir_runestone"                   ) e = "OnAttackHit_665Haste_15%_10Dur_45Cd";
   else if ( name == "muradins_spyglass"                   ) e = ( heroic ? "OnSpellDamage_20SP_10Stack_10Dur" : "OnSpellDamage_18SP_10Stack_10Dur" );
-  else if ( name == "necromantic_focus"                   ) e = ( heroic ? "OnSpellTickDamage_48Mastery_10Stack_10Dur" : "OnSpellTickDamage_42Mastery_10Stack_10Dur" );
+  else if ( name == "necromantic_focus"                   ) e = ( heroic ? "OnSpellTickDamage_45Mastery_10Stack_10Dur" : "OnSpellTickDamage_39Mastery_10Stack_10Dur" );
   else if ( name == "needleencrusted_scorpion"            ) e = "OnAttackCrit_678crit_10%_10Dur_50Cd";
   else if ( name == "pandoras_plea"                       ) e = "OnSpellCast_751SP_10%_10Dur_45Cd";
   else if ( name == "petrified_pickled_egg"               ) e = "OnSpellDamage_2040Haste_10%_10Dur_50Cd"; // FIXME: Confirm ICD
@@ -2106,7 +2111,7 @@ bool unique_gear_t::get_equip_encoding( std::string&       encoding,
   else if ( name == "the_hungerer"                        ) e = ( heroic ? "OnAttackHit_1730Haste_100%_15Dur_60Cd" : "OnAttackHit_1532Haste_100%_15Dur_60Cd" );
   else if ( name == "theralions_mirror"                   ) e = ( heroic ? "OnSpellCast_2178Mastery_10%_20Dur_100Cd" : "OnSpellCast_1926Mastery_10%_20Dur_100Cd" ); // TO-DO: Confirm ICD
   else if ( name == "tias_grace"                          ) e = ( heroic ? "OnAttackHit_34Agi_10Stack_15Dur" : "OnAttackHit_34Agi_10Stack_15Dur" );
-  else if ( name == "vessel_of_acceleration"              ) e = ( heroic ? "OnAttackHit_87Crit_5Stack_20Dur" : "OnAttackHit_77Crit_5Stack_20Dur" );
+  else if ( name == "vessel_of_acceleration"              ) e = ( heroic ? "OnAttackHit_93Crit_5Stack_20Dur" : "OnAttackHit_82Crit_5Stack_20Dur" );
   else if ( name == "witching_hourglass"                  ) e = ( heroic ? "OnSpellCast_1710Haste_10%_15Dur_75Cd" : "OnSpellCast_918Haste_10%_15Dur_75Cd" );
   else if ( name == "wrath_of_cenarius"                   ) e = "OnSpellHit_132SP_5%_10Dur";
   else if ( name == "fall_of_mortality"                   ) e = ( heroic ? "OnHealCast_2178Spi_15Dur_75Cd" : "OnHealCast_1926Spi_15Dur_75Cd" );

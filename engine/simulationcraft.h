@@ -76,7 +76,7 @@
 #include "data_definitions.hh"
 
 #define SC_MAJOR_VERSION "420"
-#define SC_MINOR_VERSION "1"
+#define SC_MINOR_VERSION "2"
 #define SC_USE_PTR ( 0 )
 #define SC_BETA ( 0 )
 
@@ -2243,6 +2243,8 @@ struct sim_t
   double      channel_lag, channel_lag_stddev;
   double      queue_gcd_reduction;
   int         strict_gcd_queue;
+    // Latency
+  double      world_lag, world_lag_stddev;
   double      travel_variance, default_skill, reaction_time, regen_periodicity;
   double      current_time, max_time, expected_time, vary_combat_length;
   int         fixed_time;
@@ -2259,7 +2261,12 @@ struct sim_t
   std::string main_target_str;
   int         big_hitbox;
   double      dtr_proc_chance;
+
+  // Target options
   double      target_death_pct;
+  int         target_level;
+  std::string target_race;
+  int         target_adds;
 
   // Data access
   dbc_t       dbc;
@@ -2868,14 +2875,15 @@ struct player_t
 {
   sim_t*      sim;
   bool        ptr;
-  std::string name_str, talents_str, glyphs_str, id_str;
+  std::string name_str, talents_str, glyphs_str, id_str, target_str;
   std::string region_str, server_str, origin_str;
   player_t*   next;
   int         index;
   player_type type;
   role_type   role;
+  player_t*   target;
   int         level, use_pre_potion, party, member;
-  double      skill, initial_skill, distance, gcd_ready, base_gcd;
+  double      skill, initial_skill, distance, default_distance, gcd_ready, base_gcd;
   int         potion_used, sleeping, initialized;
   rating_t    rating;
   pet_t*      pet_list;
@@ -2891,6 +2899,11 @@ struct player_t
   double      dtr_base_proc_chance;
   double      reaction_mean,reaction_stddev,reaction_nu;
   int         infinite_resource[ RESOURCE_MAX ];
+
+  // Latency
+  double      world_lag, world_lag_stddev;
+  double      brain_lag, brain_lag_stddev;
+  bool        world_lag_override, world_lag_stddev_override;
 
   // Data access
   dbc_t       dbc;
@@ -3013,6 +3026,11 @@ struct player_t
   event_t*  readying;
   bool      in_combat;
   bool      action_queued;
+  
+  // Delay time used by "cast_delay" expression to determine when an action 
+  // can be used at minimum after a spell cast has finished, including GCD
+  double    cast_delay_reaction;
+  double    cast_delay_occurred;
 
   // Callbacks
   std::vector<action_callback_t*> all_callbacks;
@@ -3146,6 +3164,7 @@ struct player_t
     buff_t* tricks_of_the_trade;
     buff_t* unholy_frenzy;
     buff_t* volcanic_potion;
+    buff_t* weakened_soul;
     buff_t* wild_magic_potion_crit;
     buff_t* wild_magic_potion_sp;
     buff_t* blessing_of_ancient_kings;
@@ -3243,6 +3262,8 @@ struct player_t
     rng_t* lag_queue;
     rng_t* lag_ability;
     rng_t* lag_reaction;
+    rng_t* lag_world;
+    rng_t* lag_brain;
     void reset() { memset( ( void* ) this, 0x00, sizeof( rngs_t ) ); }
     rngs_t() { reset(); }
   };
@@ -3287,6 +3308,7 @@ struct player_t
   virtual void init_rng();
   virtual void init_stats();
   virtual void init_values();
+  virtual void init_target();
 
   virtual void reset();
   virtual void combat_begin();
@@ -3351,6 +3373,7 @@ struct player_t
   virtual void      interrupt();
   virtual void      halt();
   virtual void      moving();
+  virtual void      stun();
   virtual void      clear_debuffs();
   virtual void      schedule_ready( double delta_time=0, bool waiting=false );
   virtual void      arise();
@@ -3580,6 +3603,7 @@ struct pet_t : public player_t
   virtual void init();
   virtual void init_base();
   virtual void init_talents();
+  virtual void init_target();
   virtual void reset();
   virtual void summon( double duration=0 );
   virtual void dismiss();
@@ -3977,10 +4001,10 @@ struct cooldown_t
   cooldown_t( const std::string& n, player_t* p ) : sim(p->sim), player(p), name_str(n), duration(0), ready(-1), next(0) {}
   cooldown_t( const std::string& n, sim_t* s ) : sim(s), player(0), name_str(n), duration(0), ready(-1), next(0) {}
   void reset() { ready=-1; }
-  void start( double override=-1 )
+  void start( double override=-1, double delay=0 )
   {
     if ( override >= 0 ) duration = override;
-    if ( duration > 0 ) ready = sim -> current_time + duration;
+    if ( duration > 0 ) ready = sim -> current_time + duration + delay;
   }
   double remains()
   {

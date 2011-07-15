@@ -323,6 +323,8 @@ struct death_knight_t : public player_t
     create_talents();
     create_glyphs();
     create_options();
+    
+    default_distance = 0;
   }
 
   // Character Definition
@@ -3903,7 +3905,6 @@ struct unholy_frenzy_t : public spell_t
     update_ready();
     unholy_frenzy_target -> buffs.unholy_frenzy -> trigger( 1 );
   }
-
 };
 
 } // ANONYMOUS NAMESPACE ====================================================
