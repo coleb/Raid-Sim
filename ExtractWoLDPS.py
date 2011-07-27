@@ -1,6 +1,7 @@
 #! /usr/bin/python
 import sys, re
 from urllib2 import urlopen
+from ToonSim import ToonSim
 
 vname = r"rawTableData = "
 scriptRegEx = re.compile(vname)
@@ -16,7 +17,17 @@ class Player:
         self.amount += amount
 
     def GetDPS(self, duration):
-        return self.amount/self.active, self.amount/duration, self.active/duration
+        try:
+            dps = 1000*self.amount/self.active
+        except ZeroDivisionError:
+            dps = 0
+        try:
+            edps = 1000*self.amount/duration
+            act  = 100*self.active/duration
+        except ZeroDivisionError:
+            edps = 0
+            act  = 0
+        return dps, edps, act
 
     def GetName(self):
         return self.name
@@ -27,11 +38,14 @@ class DPSChart:
         self.players = {}
 
     def AddPlayer(self, uid, name, amount, active):
+        print uid, name, amount, active
         assert uid not in self.players
         self.players[uid] = Player(name, amount, active)
 
     def AddPet(self, masterId, amount):
-        assert masterId in self.players
+        if masterId not in self.players:
+            print "Being forced to skip a pet", masterId
+            return
         self.players[masterId].AddPetDamage(amount)
 
     def GetDPS(self):
@@ -56,6 +70,9 @@ def main(argv=[__name__]):
     dpschart = DPSChart(duration)
     rows = rawTableData["rows"]
     for r in rows:
+        del r["nameLink"]
+        print r
+        
         typename = r["typeName"]
         if typename == "player":
             uid = r["uid"]
@@ -70,9 +87,27 @@ def main(argv=[__name__]):
             if masterId is not None:
                 dpschart.AddPet(masterId, amount)
 
-    for dps in dpschart.GetDPS():
-        print dps
-    
+    data = []
+    for name, dps, edps, active in dpschart.GetDPS():
+        noStatScaling = False
+        opt = ToonSim("cenarion-circle", name, noStatScaling)
+
+        percentOfOpt = 0.0
+        if opt > 0.0:
+            percentOfOpt = 100*edps/opt
+
+        data.append((percentOfOpt, opt, edps, dps, active, name))
+
+    data.sort()
+    print "<table>"
+    for percentOfOpt, opt, edps, dps, active, name in data:
+        print "<tr>",
+        fmt = "<td>%6.1f</td><td>%6.0f</td><td>%6.0f</td><td>%6.0f</td><td>%6.1f</td><td>%s</td>"
+        print fmt % (percentOfOpt, opt, edps, dps, active, name)
+        print "</tr>"
+
+    print "</table>"
+
     return 0
 
 if __name__ == "__main__":
