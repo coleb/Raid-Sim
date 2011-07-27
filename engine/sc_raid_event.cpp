@@ -198,11 +198,11 @@ struct movement_event_t : public raid_event_t
       }
       else
       {
-        my_duration = saved_duration;        
+        my_duration = saved_duration;
       }
       if ( my_duration > 0 )
       {
-        p -> buffs.raid_movement -> buff_duration = my_duration; 
+        p -> buffs.raid_movement -> buff_duration = my_duration;
         p -> buffs.raid_movement -> trigger();
       }
       if ( p -> sleeping ) continue;
@@ -278,23 +278,78 @@ struct interrupt_event_t : public raid_event_t
 struct damage_event_t : public raid_event_t
 {
   double amount;
-  double amount_stddev;
-  std::string type;
+  double amount_range;
+  spell_t* raid_damage;
 
   damage_event_t( sim_t* s, const std::string& options_str ) :
-    raid_event_t( s, "damage" ), amount( 1 ), amount_stddev( 0 ), type( "holy" )
+    raid_event_t( s, "damage" ), amount( 1 ), amount_range( 0 ), raid_damage( 0 )
+  {
+    std::string type_str = "holy";
+    option_t options[] =
+    {
+      { "amount",        OPT_FLT, &amount        },
+      { "amount_range",  OPT_FLT, &amount_range },
+      { "type",          OPT_STRING, &type_str   },
+      { NULL, OPT_UNKNOWN, NULL }
+    };
+    parse_options( options, options_str );
+
+    assert( duration == 0 );
+
+    name_str = "raid_damage_" + type_str;
+
+    struct raid_damage_t : public spell_t
+    {
+      raid_damage_t( const char* n, player_t* player, const school_type s ) :
+        spell_t( n, player, RESOURCE_NONE, s )
+      {
+        may_crit = false;
+        background = true;
+        trigger_gcd = 0;
+      }
+    };
+
+    raid_damage = new raid_damage_t( name_str.c_str(), sim -> target, util_t::parse_school_type( type_str ) );
+    raid_damage -> init();
+  }
+
+  virtual void start()
+  {
+    raid_event_t::start();
+
+    int num_affected = ( int ) affected_players.size();
+    for ( int i=0; i < num_affected; i++ )
+    {
+      player_t* p = affected_players[ i ];
+      if ( p -> sleeping ) continue;
+      raid_damage -> base_dd_min = raid_damage -> base_dd_max = rng -> range( amount - amount_range, amount + amount_range );
+      raid_damage -> target = p;
+      raid_damage -> execute();
+    }
+  }
+};
+
+// Heal =====================================================================
+
+struct heal_event_t : public raid_event_t
+{
+  double amount;
+  double amount_range;
+
+  heal_event_t( sim_t* s, const std::string& options_str ) :
+    raid_event_t( s, "heal" ), amount( 1 ), amount_range( 0 )
   {
     option_t options[] =
     {
       { "amount",        OPT_FLT, &amount        },
-      { "amount_stddev", OPT_FLT, &amount_stddev },
-      { "type",          OPT_STRING, &type },
+      { "amount_range", OPT_FLT,  &amount_range },
       { NULL, OPT_UNKNOWN, NULL }
     };
     parse_options( options, options_str );
 
     assert( duration == 0 );
   }
+
   virtual void start()
   {
     raid_event_t::start();
@@ -303,11 +358,10 @@ struct damage_event_t : public raid_event_t
     {
       player_t* p = affected_players[ i ];
       if ( p -> sleeping ) continue;
-      double x = 0;
-      // 5% stddev
-      x = rng -> gauss( amount, amount_stddev );
-      if ( sim -> log ) log_t::output( sim, "%s takes %.0f raid damage.", p -> name(), x );
-      p -> assess_damage( x, util_t::parse_school_type(type), DMG_DIRECT, RESULT_HIT );
+
+      double x = rng -> range( amount - amount_range, amount + amount_range );
+      if ( sim -> log ) log_t::output( sim, "%s takes %.0f raid heal.", p -> name(), x );
+      p -> resource_gain( RESOURCE_HEALTH, x );
     }
   }
 };
@@ -552,6 +606,7 @@ raid_event_t* raid_event_t::create( sim_t* sim,
   if ( name == "movement"     ) return new     movement_event_t( sim, options_str );
   if ( name == "moving"       ) return new     movement_event_t( sim, options_str );
   if ( name == "damage"       ) return new       damage_event_t( sim, options_str );
+  if ( name == "heal"         ) return new         heal_event_t( sim, options_str );
   if ( name == "stun"         ) return new         stun_event_t( sim, options_str );
   if ( name == "vulnerable"   ) return new   vulnerable_event_t( sim, options_str );
 

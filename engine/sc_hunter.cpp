@@ -1108,15 +1108,19 @@ struct claw_t : public hunter_pet_attack_t
   {
     hunter_pet_t* p = ( hunter_pet_t* ) player -> cast_pet();
     hunter_t* o     = p -> owner -> cast_hunter();
-    double c = hunter_pet_attack_t::cost();
+    double basec = hunter_pet_attack_t::cost();
+    double c = basec;
     if ( c == 0 ) return 0;
     if ( p -> buffs_owls_focus -> check() ) return 0;
-    if ( p -> buffs_sic_em -> check() )
-      c *= 1.0 + o -> talents.sic_em -> effect1().percent();
     if ( p -> talents.wild_hunt -> rank() && ( p -> resource_current[ RESOURCE_FOCUS ] > 50 ) )
     {
-      c *= 1.0 + p -> talents.wild_hunt -> rank() * 0.50;
+      c *= 1.0 + p -> talents.wild_hunt -> effect2().percent();
     }
+    if ( p -> buffs_sic_em -> check() )
+    {
+      c -= basec * o -> talents.sic_em -> effect1().percent();
+    }
+
     return c;
   }
 };
@@ -1733,6 +1737,7 @@ void hunter_attack_t::consume_resource()
     if ( amount > 0 )
     {
       p -> gains_tier12_4pc -> add( amount );
+      p -> gains_tier12_4pc -> type = RESOURCE_FOCUS;
       p -> buffs_tier12_4pc -> expire();
     }
   }
@@ -2810,6 +2815,7 @@ void hunter_spell_t::consume_resource()
     if ( amount > 0 )
     {
       p -> gains_tier12_4pc -> add( amount );
+      p -> gains_tier12_4pc -> type = RESOURCE_FOCUS;
       p -> buffs_tier12_4pc -> expire();
     }
   }
@@ -4068,9 +4074,8 @@ void hunter_t::armory_extensions( const std::string& region,
           ! js_t::get_value( pet_level,   pet_records[ i ], "level"    ) ||
           ! js_t::get_value( pet_family,  pet_records[ i ], "familyId" ) )
       {
-        sim -> errorf( "\nHunter %s unable to decode pet name/build/level/familyId\n", name() );
-        sim -> cancel();
-        return;
+        sim -> errorf( "\nHunter %s unable to decode pet name/build/level/familyId for pet %s\n", name(), pet_name.c_str() );
+        continue;
       }
 
       // Pets can have spaces in names, replace with underscore ..

@@ -29,6 +29,11 @@ enum imbue_type_t { IMBUE_NONE=0, FLAMETONGUE_IMBUE, WINDFURY_IMBUE };
 
 struct shaman_t : public player_t
 {
+  double wf_delay;
+  double wf_delay_stddev;
+  double uf_expiration_delay;
+  double uf_expiration_delay_stddev;
+
   // Active
   action_t* active_lightning_charge;
   action_t* active_searing_flames_dot;
@@ -116,6 +121,7 @@ struct shaman_t : public player_t
   rng_t* rng_static_shock;
   rng_t* rng_t12_2pc_caster;
   rng_t* rng_windfury_weapon;
+  rng_t* rng_windfury_delay;
 
   // Talents
 
@@ -185,7 +191,8 @@ struct shaman_t : public player_t
   
   glyph_t* glyph_thunderstorm;
   
-  shaman_t( sim_t* sim, const std::string& name, race_type r = RACE_NONE ) : player_t( sim, SHAMAN, name, r )
+  shaman_t( sim_t* sim, const std::string& name, race_type r = RACE_NONE ) : player_t( sim, SHAMAN, name, r ),
+    wf_delay( 0.95 ), wf_delay_stddev( 0.25 ), uf_expiration_delay( 0.3 ), uf_expiration_delay_stddev( 0.05 )
   {
     if ( race == RACE_NONE ) race = RACE_TAUREN;
 
@@ -243,6 +250,7 @@ struct shaman_t : public player_t
   virtual double    composite_spell_power( const school_type school ) SC_CONST;
   virtual double    composite_player_multiplier( const school_type school, action_t* a = NULL ) SC_CONST;
   virtual double    matching_gear_multiplier( const attribute_type attr ) SC_CONST;
+  virtual void      create_options();
   virtual action_t* create_action( const std::string& name, const std::string& options );
   virtual pet_t*    create_pet   ( const std::string& name, const std::string& type = std::string() );
   virtual void      create_pets();
@@ -917,7 +925,7 @@ struct fire_elemental_pet_t : public pet_t
     owner_int = owner -> intellect();
     owner_sp  = ( owner -> composite_spell_power( SCHOOL_FIRE ) - owner -> spell_power_per_intellect * owner_int ) * owner -> composite_spell_power_multiplier();
 
-    fire_shield -> num_ticks = duration / fire_shield -> base_execute_time;
+    fire_shield -> num_ticks = ( int ) ( duration / fire_shield -> base_execute_time );
     fire_shield -> execute();
 
     cooldown_fire_nova -> start();
@@ -952,15 +960,14 @@ struct fire_elemental_pet_t : public pet_t
 
   virtual double composite_attack_hit() SC_CONST
   {
-      return owner -> composite_spell_hit();
+    return owner -> composite_spell_hit();
   }
 
   virtual double composite_attack_expertise() SC_CONST
   {
-      return owner -> composite_spell_hit() * 26.0 / 17.0; 
+    return owner -> composite_spell_hit() * 26.0 / 17.0; 
   }
-
-
+  
   virtual action_t* create_action( const std::string& name,
                                    const std::string& options_str )
   {
@@ -1038,6 +1045,29 @@ static void trigger_flametongue_weapon( attack_t* a )
 
 // trigger_windfury_weapon ================================================
 
+struct windfury_delay_event_t : public event_t
+{
+  attack_t* wf;
+  double delay;
+
+  windfury_delay_event_t( sim_t* sim, player_t* p, attack_t* wf, double delay ) : 
+    event_t( sim, p ), wf( wf ), delay( delay )
+  {
+    name = "windfury_delay_event";
+    sim -> add_event( this, delay );
+  }
+
+  virtual void execute()
+  {
+    shaman_t* p = player -> cast_shaman();
+
+    p -> procs_windfury -> occur();
+    wf -> execute();
+    wf -> execute();
+    wf -> execute();
+  }
+};
+
 static void trigger_windfury_weapon( attack_t* a )
 {
   shaman_t* p = a -> player -> cast_shaman();
@@ -1052,12 +1082,10 @@ static void trigger_windfury_weapon( attack_t* a )
 
   if ( p -> rng_windfury_weapon -> roll( wf -> proc_chance() ) )
   {
-    p -> cooldowns_windfury_weapon -> start( 3.0 );
+    p -> cooldowns_windfury_weapon -> start( p -> rng_windfury_delay -> gauss( 3.0, 0.3 ) );
 
-    p -> procs_windfury -> occur();
-    wf -> execute();
-    wf -> execute();
-    wf -> execute();
+    // Delay windfury by some time, up to about a second
+    new ( p -> sim ) windfury_delay_event_t( p -> sim, p, wf, p -> rng_windfury_delay -> gauss( p -> wf_delay, p -> wf_delay_stddev ) );
   }
 }
 
@@ -3771,6 +3799,48 @@ struct unleash_elements_buff_t : public buff_t
   }
 };
 
+struct unleash_flame_expiration_delay_t : public event_t
+{
+  buff_t* buff;
+
+  unleash_flame_expiration_delay_t( sim_t* sim, player_t* p, buff_t* b ) : 
+    event_t( sim, p ), buff( b )
+  {
+    shaman_t* s = player -> cast_shaman();
+    name = "unleash_flame_expiration_delay";
+    sim -> add_event( this, sim -> gauss( s -> uf_expiration_delay, s -> uf_expiration_delay_stddev ) );
+  }
+
+  virtual void execute()
+  {
+    // Call real expire after a delay
+    buff -> buff_t::expire();
+  }
+};
+
+struct unleash_flame_buff_t : public unleash_elements_buff_t
+{
+  event_t* expiration_delay;
+
+  unleash_flame_buff_t( player_t* p ) :
+    unleash_elements_buff_t( p, 73683, "unleash_flame" ), expiration_delay( 0 )
+  {
+  }
+
+  bool trigger( int stacks, double value, double chance )
+  {
+    expiration_delay = 0;
+    return buff_t::trigger( stacks, value, chance );
+  }
+
+  void expire()
+  {
+    if ( current_stack <= 0 ) return;
+    if ( expiration_delay ) return;
+    expiration_delay = new ( sim ) unleash_flame_expiration_delay_t( sim, player, this );
+  }
+};
+
 } // ANONYMOUS NAMESPACE ===================================================
 
 // ==========================================================================
@@ -3784,6 +3854,26 @@ void shaman_t::clear_debuffs()
   player_t::clear_debuffs();
   buffs_searing_flames -> expire();
 }
+
+// shaman_t::create_options =================================================
+
+void shaman_t::create_options()
+{
+  player_t::create_options();
+
+  option_t shaman_options[] =
+  {
+    { "wf_delay",                   OPT_FLT,     &( wf_delay                   ) },
+    { "wf_delay_stddev",            OPT_FLT,     &( wf_delay_stddev            ) },
+    { "uf_expiration_delay",        OPT_FLT,     &( uf_expiration_delay        ) },
+    { "uf_expiration_delay_stddev", OPT_FLT,     &( uf_expiration_delay_stddev ) },
+    { NULL,                         OPT_UNKNOWN, NULL                            }
+  };
+
+  option_t::copy( options, shaman_options );
+
+}
+
 // shaman_t::create_action  =================================================
 
 action_t* shaman_t::create_action( const std::string& name,
@@ -4030,9 +4120,9 @@ void shaman_t::init_buffs()
   buffs_shamanistic_rage        = new buff_t                 ( this, talent_shamanistic_rage -> spell_id(),                    "shamanistic_rage"      );
   buffs_spiritwalkers_grace     = new buff_t                 ( this, 79206,                                                    "spiritwalkers_grace",       1.0, 0 );
   // Enhancement T12 4Piece Bonus
-  buffs_stormfire             = new buff_t                 ( this, 99212,                                                    "stormfire"             );
+  buffs_stormfire               = new buff_t                 ( this, 99212,                                                    "stormfire"             );
   buffs_stormstrike             = new buff_t                 ( this, talent_stormstrike -> spell_id(),                         "stormstrike"           );
-  buffs_unleash_flame           = new unleash_elements_buff_t( this, 73683,                                                    "unleash_flame"         );
+  buffs_unleash_flame           = new unleash_elements_buff_t( this, 73683,                                                    "unleash_flame" );
   buffs_unleash_wind            = new unleash_elements_buff_t( this, 73681,                                                    "unleash_wind"          );
   buffs_water_shield            = new buff_t                 ( this, dbc.class_ability_id( type, "Water Shield" ),             "water_shield"          );
 }
@@ -4091,6 +4181,7 @@ void shaman_t::init_rng()
   rng_searing_flames       = get_rng( "searing_flames"       );
   rng_static_shock         = get_rng( "static_shock"         );  
   rng_t12_2pc_caster       = get_rng( "t12_2pc_caster"       );
+  rng_windfury_delay       = get_rng( "windfury_delay"       );
   rng_windfury_weapon      = get_rng( "windfury_weapon"      );
 }
 

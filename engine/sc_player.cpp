@@ -373,12 +373,13 @@ player_t::player_t( sim_t*             s,
   potion_used( 0 ), sleeping( 1 ), initialized( 0 ),
   pet_list( 0 ), last_modified( 0 ), bugs( true ), specialization( TALENT_TAB_NONE ), invert_scaling( 0 ),
   vengeance_enabled( false ), vengeance_damage( 0.0 ), vengeance_value( 0.0 ), vengeance_max( 0.0 ),
-  active_pets( 0 ), big_hitbox( 0 ), dtr_proc_chance( -1.0 ), dtr_base_proc_chance( -1.0 ),
+  active_pets( 0 ), dtr_proc_chance( -1.0 ), dtr_base_proc_chance( -1.0 ),
   reaction_mean( 0.5 ), reaction_stddev( 0.0 ), reaction_nu( 0.5 ),
   // Latency
   world_lag( 0.1 ), world_lag_stddev( -1.0 ),
   brain_lag( -1.0 ), brain_lag_stddev( -1.0 ),
   world_lag_override( false ), world_lag_stddev_override( false ),
+  events( 0 ),
   dbc( s -> dbc ),
   race_str( "" ), race( r ),
   // Haste
@@ -898,7 +899,6 @@ void player_t::init_items()
     break;
   }
 
-
   init_meta_gem( item_stats );
 
   for ( int i=0; i < STAT_MAX; i++ )
@@ -1329,7 +1329,7 @@ void player_t::init_target()
 {
   if ( ! target_str.empty() )
   {
-      target = sim -> find_player( target_str );
+    target = sim -> find_player( target_str );
   }
   if ( ! target )
   {
@@ -1341,74 +1341,70 @@ void player_t::init_target()
 
 void player_t::init_use_item_actions( const std::string& append )
 {
-    int num_items = ( int ) items.size();
-    for ( int i=0; i < num_items; i++ )
+  int num_items = ( int ) items.size();
+  for ( int i=0; i < num_items; i++ )
+  {
+    if ( items[ i ].use.active() )
     {
-      if ( items[ i ].use.active() )
+      action_list_str += "/use_item,name=";
+      action_list_str += items[ i ].name();
+      if ( ! append.empty() )
       {
-        action_list_str += "/use_item,name=";
-        action_list_str += items[ i ].name();
-        if ( ! append.empty() )
-        {
-          action_list_str += append;
-        }
+        action_list_str += append;
       }
     }
+  }
 }
 
-// player_t::init_use_profession_actions ==================================================
+// player_t::init_use_profession_actions ====================================
 
 void player_t::init_use_profession_actions( const std::string& append )
 {
-    // Lifeblood
-    if ( profession[ PROF_HERBALISM ] >= 450 )
-    {
-      action_list_str += "/lifeblood";
-    }
-    else
-    {
-      return;
-    }
-    if ( ! append.empty() )
-    {
-      action_list_str += append;
-    }
+  // Lifeblood
+  if ( profession[ PROF_HERBALISM ] >= 450 )
+  {
+    action_list_str += "/lifeblood";
+  }
+  else
+  {
+    return;
+  }
+  if ( ! append.empty() )
+  {
+    action_list_str += append;
+  }
 }
 
-
-
-// player_t::init_use_racial_actions ==================================================
+// player_t::init_use_racial_actions ========================================
 
 void player_t::init_use_racial_actions( const std::string& append )
 {
-    if ( race == RACE_ORC )
-    {
-      action_list_str += "/blood_fury";
-    }
-    else if ( race == RACE_TROLL )
-    {
-      action_list_str += "/berserking";
-    }
-    else if ( race == RACE_BLOOD_ELF )
-    {
-      action_list_str += "/arcane_torrent";
-    }
-    else
-    {
-      return;
-    }
-    if ( ! append.empty() )
-    {
-      action_list_str += append;
-    }
+  if ( race == RACE_ORC )
+  {
+    action_list_str += "/blood_fury";
+  }
+  else if ( race == RACE_TROLL )
+  {
+    action_list_str += "/berserking";
+  }
+  else if ( race == RACE_BLOOD_ELF )
+  {
+    action_list_str += "/arcane_torrent";
+  }
+  else
+  {
+    return;
+  }
+  if ( ! append.empty() )
+  {
+    action_list_str += append;
+  }
 }
 
-
-// player_t::init_actions ==================================================
+// player_t::init_actions ===================================================
 
 void player_t::init_actions()
 {
-
   if ( ! action_list_str.empty() )
   {
     if ( action_list_default && sim -> debug ) log_t::output( sim, "Player %s using default actions", name() );
@@ -1838,8 +1834,7 @@ void player_t::init_scaling()
       case STAT_DODGE_RATING:   initial_dodge       += v / rating.dodge; break;
       case STAT_PARRY_RATING:   initial_parry       += v / rating.parry; break;
 
-      case STAT_BLOCK_RATING: initial_block       += v / rating.block; break;
-
+      case STAT_BLOCK_RATING:   initial_block       += v / rating.block; break;
 
       case STAT_MAX: break;
 
@@ -2019,12 +2014,16 @@ double player_t::composite_armor() SC_CONST
   return a;
 }
 
+// player_t::composite_armor_multiplier =====================================
+
 double player_t::composite_armor_multiplier() SC_CONST
 {
   double a = armor_multiplier;
 
   return a;
 }
+
+// player_t::composite_spell_resistance =====================================
 
 double player_t::composite_spell_resistance( const school_type school ) SC_CONST
 {
@@ -2441,7 +2440,7 @@ double player_t::composite_movement_speed() SC_CONST
 
   // Druid: Feral Swiftness: 15%/30%
 
-  // Aspect of  the Cheetah/Pack: 30%, with talent Pathfinding +34%/38%
+  // Aspect of the Cheetah/Pack: 30%, with talent Pathfinding +34%/38%
 
   // Shaman Ghost Wolf: 30%, with Glyph 35%
 
@@ -2452,8 +2451,6 @@ double player_t::composite_movement_speed() SC_CONST
   // Mage: Blazing Speed: 5%/10% chance after being hit for 50% for 8 sec
   //       Improved Blink: 35%/70% for 3 sec after blink
   //       Glyph of Invisibility: 40% while invisible
-
-  // Body and Soul: 30%/60%
 
   // Rogue: Spring 70%
 
@@ -2638,7 +2635,7 @@ void player_t::combat_begin()
 {
   if ( sim -> debug ) log_t::output( sim, "Combat begins for player %s", name() );
 
-  if ( ! is_pet() && !is_add() )
+  if ( ! is_pet() && ! is_add() )
   {
     arise();
   }
@@ -2711,8 +2708,6 @@ void player_t::combat_end()
   else if ( is_pet() )
     cast_pet() -> dismiss();
 
-
-
   double iteration_seconds = current_time;
 
   if ( iteration_seconds > 0 )
@@ -2731,7 +2726,7 @@ void player_t::combat_end()
 
 void player_t::reset()
 {
-  if ( sim -> debug ) log_t::output( sim, "Reseting player %s", name() );
+  if ( sim -> debug ) log_t::output( sim, "Resetting player %s", name() );
 
   skill = initial_skill;
 
@@ -2739,6 +2734,7 @@ void player_t::reset()
   gcd_ready = 0;
 
   sleeping = 1;
+  events = 0;
 
   dmg_taken = 0;
 
@@ -2981,6 +2977,9 @@ void player_t::arise()
 
 void player_t::demise()
 {
+  // No point in demising anything if we're not even active
+  if ( sleeping == 1 ) return;
+
   if ( sim -> log )
     log_t::output( sim, "%s demises.", name() );
 
@@ -3068,7 +3067,8 @@ void player_t::clear_debuffs()
   }
 }
 
-// player_t::execute_action =================================================
+// player_t::print_action_map ===============================================
+
 std::string player_t::print_action_map( int iterations, int precision )
 {
   std::map<std::string,int>::const_iterator it = action_map.begin();
@@ -3084,6 +3084,8 @@ std::string player_t::print_action_map( int iterations, int precision )
 
   return ret;
 }
+
+// player_t::execute_action =================================================
 
 action_t* player_t::execute_action()
 {
@@ -3132,72 +3134,70 @@ void player_t::regen( double periodicity )
 {
   int resource_type = primary_resource();
 
+  if ( resource_type == RESOURCE_ENERGY )
+  {
+    double energy_regen = periodicity * energy_regen_per_second();
 
-    if ( resource_type == RESOURCE_ENERGY )
+    resource_gain( RESOURCE_ENERGY, energy_regen, gains.energy_regen );
+  }
+  else if ( resource_type == RESOURCE_FOCUS )
+  {
+    double focus_regen = periodicity * focus_regen_per_second();
+
+    resource_gain( RESOURCE_FOCUS, focus_regen, gains.focus_regen );
+  }
+  else if ( resource_type == RESOURCE_MANA )
+  {
+    if( buffs.innervate -> check() )
     {
-      double energy_regen = periodicity * energy_regen_per_second();
-
-      resource_gain( RESOURCE_ENERGY, energy_regen, gains.energy_regen );
-    }
-    else if ( resource_type == RESOURCE_FOCUS )
-    {
-      double focus_regen = periodicity * focus_regen_per_second();
-
-      resource_gain( RESOURCE_FOCUS, focus_regen, gains.focus_regen );
-    }
-    else if ( resource_type == RESOURCE_MANA )
-    {
-      if( buffs.innervate -> check() )
-      {
-        resource_gain( RESOURCE_MANA, buffs.innervate -> value() * periodicity, gains.innervate );
-      }
-
-      double spirit_regen = periodicity * sqrt( floor( intellect() ) ) * floor( spirit() ) * mana_regen_base;
-
-      if ( mana_regen_while_casting < 1.0 )
-      {
-        spirit_regen *= mana_regen_while_casting;
-      }
-      if( spirit_regen > 0 )
-      {
-        resource_gain( RESOURCE_MANA, spirit_regen, gains.spirit_intellect_regen );
-      }
-
-      double mp5_regen = periodicity * composite_mp5() / 5.0;
-
-      resource_gain( RESOURCE_MANA, mp5_regen, gains.mp5_regen );
-
-      if ( buffs.replenishment -> up() )
-      {
-        double replenishment_regen = periodicity * resource_max[ RESOURCE_MANA ] * 0.0010 / 1.0;
-
-        resource_gain( RESOURCE_MANA, replenishment_regen, gains.replenishment );
-      }
-
-      if ( buffs.essence_of_the_red -> up() )
-      {
-        double essence_regen = periodicity * resource_max[ RESOURCE_MANA ] * 0.05;
-
-        resource_gain( RESOURCE_MANA, essence_regen, gains.essence_of_the_red );
-      }
-
-      double bow = buffs.blessing_of_might_regen -> current_value;
-      double ms  = ( ! is_enemy() && ! is_add() ) ? sim -> auras.mana_spring_totem -> current_value : 0;
-
-      if ( ms > bow )
-      {
-        double mana_spring_regen = periodicity * ms / 5.0;
-
-        resource_gain( RESOURCE_MANA, mana_spring_regen, gains.mana_spring_totem );
-      }
-      else if ( bow > 0 )
-      {
-        double wisdom_regen = periodicity * bow / 5.0;
-
-        resource_gain( RESOURCE_MANA, wisdom_regen, gains.blessing_of_might );
-      }
+      resource_gain( RESOURCE_MANA, buffs.innervate -> value() * periodicity, gains.innervate );
     }
 
+    double spirit_regen = periodicity * sqrt( floor( intellect() ) ) * floor( spirit() ) * mana_regen_base;
+
+    if ( mana_regen_while_casting < 1.0 )
+    {
+      spirit_regen *= mana_regen_while_casting;
+    }
+    if( spirit_regen > 0 )
+    {
+      resource_gain( RESOURCE_MANA, spirit_regen, gains.spirit_intellect_regen );
+    }
+
+    double mp5_regen = periodicity * composite_mp5() / 5.0;
+
+    resource_gain( RESOURCE_MANA, mp5_regen, gains.mp5_regen );
+
+    if ( buffs.replenishment -> up() )
+    {
+      double replenishment_regen = periodicity * resource_max[ RESOURCE_MANA ] * 0.0010 / 1.0;
+
+      resource_gain( RESOURCE_MANA, replenishment_regen, gains.replenishment );
+    }
+
+    if ( buffs.essence_of_the_red -> up() )
+    {
+      double essence_regen = periodicity * resource_max[ RESOURCE_MANA ] * 0.05;
+
+      resource_gain( RESOURCE_MANA, essence_regen, gains.essence_of_the_red );
+    }
+
+    double bow = buffs.blessing_of_might_regen -> current_value;
+    double ms  = ( ! is_enemy() && ! is_add() ) ? sim -> auras.mana_spring_totem -> current_value : 0;
+
+    if ( ms > bow )
+    {
+      double mana_spring_regen = periodicity * ms / 5.0;
+
+      resource_gain( RESOURCE_MANA, mana_spring_regen, gains.mana_spring_totem );
+    }
+    else if ( bow > 0 )
+    {
+      double wisdom_regen = periodicity * bow / 5.0;
+
+      resource_gain( RESOURCE_MANA, wisdom_regen, gains.blessing_of_might );
+    }
+  }
 
   if ( resource_type != RESOURCE_NONE )
   {
@@ -3646,7 +3646,7 @@ double player_t::assess_damage( double            amount,
 
   double actual_amount = resource_loss( RESOURCE_HEALTH, mitigated_amount );
 
-  if ( resource_current[ RESOURCE_HEALTH ] <= 0 && !is_enemy() )
+  if ( resource_current[ RESOURCE_HEALTH ] <= 0 && !is_enemy() && infinite_resource[ RESOURCE_HEALTH ] == 0 )
   {
     if ( !sleeping )
     {
@@ -3671,10 +3671,16 @@ double player_t::target_mitigation( double            amount,
                                     int               result,
                                     action_t*         action )
 {
+  if ( amount == 0 )
+    return 0;
+
   double mitigated_amount = amount;
 
   if ( school == SCHOOL_PHYSICAL )
   {
+    if ( sim -> debug && action && ! action -> target -> is_enemy() && ! action -> target -> is_add() )
+      log_t::output( sim, "Damage to %s before armor mitigation is %f", action -> target -> name(), mitigated_amount );
+
     // Inspiration
     mitigated_amount *= 1.0 - buffs.inspiration -> value() / 100.0;
 
@@ -3689,6 +3695,9 @@ double player_t::target_mitigation( double            amount,
         resist = 0.75;
       mitigated_amount *= 1.0 - resist;
     }
+    
+    if ( sim -> debug && action && ! action -> target -> is_enemy() && ! action -> target -> is_add() )
+      log_t::output( sim, "Damage to %s after armor mitigation is %f", action -> target -> name(), mitigated_amount );
   }
 
   return mitigated_amount;
@@ -4388,6 +4397,21 @@ struct blood_fury_t : public action_t
   }
 };
 
+// Rocket Barrage =====================================================
+
+struct rocket_barrage_t : public spell_t
+{
+  rocket_barrage_t( player_t* p, const std::string& options_str ) :
+    spell_t( "rocket_barrage", 69041, p )
+  {
+    parse_options( NULL, options_str );
+
+    base_spell_power_multiplier  = direct_power_mod;
+    base_attack_power_multiplier = extra_coeff();
+    direct_power_mod             = 1.0;
+  }
+};
+
 // Stoneform ==========================================================
 
 struct stoneform_t : public action_t
@@ -4991,6 +5015,7 @@ action_t* player_t::create_action( const std::string& name,
   if ( name == "lifeblood"        ) return new        lifeblood_t( this, options_str );
   if ( name == "restart_sequence" ) return new restart_sequence_t( this, options_str );
   if ( name == "restore_mana"     ) return new     restore_mana_t( this, options_str );
+  if ( name == "rocket_barrage"   ) return new   rocket_barrage_t( this, options_str );
   if ( name == "sequence"         ) return new         sequence_t( this, options_str );
   if ( name == "snapshot_stats"   ) return new   snapshot_stats_t( this, options_str );
   if ( name == "start_moving"     ) return new     start_moving_t( this, options_str );
@@ -5490,15 +5515,6 @@ action_expr_t* player_t::create_expression( action_t* a,
     };
     return new ptr_expr_t( a );
   }
-  if ( name_str == "big_hitbox" )
-  {
-    struct big_hitbox_expr_t : public action_expr_t
-    {
-      big_hitbox_expr_t( action_t* a ) : action_expr_t( a, "big_hitbox", TOK_NUM ) {}
-      virtual int evaluate() { result_num = ( action -> sim -> target -> big_hitbox  ? 1 : 0 ); return TOK_NUM; }
-    };
-    return new big_hitbox_expr_t( a );
-  }
   std::vector<std::string> splits;
   int num_splits = util_t::string_split( splits, name_str, "." );
   if ( splits[ 0 ] == "pet" )
@@ -5756,8 +5772,6 @@ bool player_t::create_profile( std::string& profile_str, int save_type, bool sav
       profile_str += "talents=" + talents_str + term;
     };
 
-
-
     if ( glyphs_str.size() > 0 )
     {
       profile_str += "glyphs=" + glyphs_str + term;
@@ -5774,7 +5788,10 @@ bool player_t::create_profile( std::string& profile_str, int save_type, bool sav
         if ( a -> signature_str.empty() ) continue;
         profile_str += "actions";
         profile_str += i ? "+=/" : "=";
-        profile_str += a -> signature_str + term;
+        std::string encoded_action = a -> signature_str;
+        if( save_html )
+          report_t::encode_html( encoded_action );
+        profile_str += encoded_action + term;
         i++;
       }
     }
@@ -5868,7 +5885,6 @@ bool player_t::create_profile( std::string& profile_str, int save_type, bool sav
         profile_str += term;
       }
     }
-
   }
 
   return true;
@@ -6063,7 +6079,6 @@ void player_t::create_options()
     // Misc
     { "dtr_proc_chance",                      OPT_FLT,    &( dtr_proc_chance                          ) },
     { "dtr_base_proc_chance",                 OPT_FLT,    &( dtr_base_proc_chance                     ) },
-    { "big_hitbox",                           OPT_BOOL,   &( big_hitbox                               ) },
     { "skip_actions",                         OPT_STRING, &( action_list_skip                         ) },
     { "modify_action",                        OPT_STRING, &( modify_action                            ) },
     { "elixirs",                              OPT_STRING, &( elixirs_str                              ) },

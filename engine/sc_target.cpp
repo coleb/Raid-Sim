@@ -25,13 +25,11 @@ struct enemy_t : public player_t
     *last = this;
     next = 0;
 
-    big_hitbox = sim -> big_hitbox;
-
     create_talents();
     create_glyphs();
     create_options();
-
   }
+
 // target_t::combat_begin ====================================================
 
   virtual void combat_begin()
@@ -83,11 +81,9 @@ struct enemy_add_t : public pet_t
 {
   enemy_add_t( sim_t* s, player_t* o, const std::string& n, pet_type_t pt = PET_ENEMY ) :
     pet_t( s, o, n, pt )
-
   {
     type = ENEMY_ADD;
     create_options();
-    big_hitbox = 0;
   }
 
   virtual void init_actions()
@@ -311,7 +307,6 @@ action_t* enemy_t::create_action( const std::string& name,
   if ( name == "spell_aoe"               ) return new               spell_aoe_t( this, options_str );
   if ( name == "summon_add"              ) return new               summon_add_t( this, options_str );
 
-
   return player_t::create_action( name, options_str );
 }
 
@@ -334,8 +329,8 @@ void enemy_t::init_base()
     case 82: initial_armor = 10338; break;
     case 83: initial_armor = 10643; break;
     case 84: initial_armor = 10880; break; // Need real value
-    case 85: initial_armor = 11161; break; // Need real value
-    case 86: initial_armor = 11441; break; // Need real value
+    case 85: initial_armor = 11092; break;
+    case 86: initial_armor = 11387; break;
     case 87: initial_armor = 11682; break;
     case 88: initial_armor = 11977; break;
     default: if ( level < 80 )
@@ -413,7 +408,6 @@ void enemy_t::create_options()
 {
   option_t target_options[] =
   {
-    { "target_big_hitbox",                OPT_BOOL,   &( big_hitbox                        ) },
     { "target_health",                    OPT_FLT,    &( fixed_health                      ) },
     { "target_initial_health_percentage", OPT_FLT,    &( initial_health_percentage         ) },
     { "target_fixed_health_percentage",   OPT_FLT,    &( fixed_health_percentage           ) },
@@ -425,7 +419,6 @@ void enemy_t::create_options()
 
   player_t::create_options();
 }
-
 
 // enemy_t::create_add ======================================================
 
@@ -504,13 +497,11 @@ void enemy_t::recalculate_health()
   if ( sim -> debug ) log_t::output( sim, "Target %s initial health calculated to be %.0f. Damage was %.0f", name(), initial_health, dmg_taken );
 }
 
-
 // enemy_t::create_expression ================================================
 
 action_expr_t* enemy_t::create_expression( action_t* action,
     const std::string& name_str )
 {
-
   if ( name_str == "adds" )
   {
     struct target_adds_expr_t : public action_expr_t
@@ -525,6 +516,8 @@ action_expr_t* enemy_t::create_expression( action_t* action,
 
   return player_t::create_expression( action, name_str );
 }
+
+// enemy_t::combat_end ======================================================
 
 void enemy_t::combat_end()
 {
@@ -547,8 +540,6 @@ action_t* enemy_add_t::create_action( const std::string& name,
   return pet_t::create_action( name, options_str );
 }
 
-
-
 // ==========================================================================
 // PLAYER_T EXTENSIONS
 // ==========================================================================
@@ -560,7 +551,7 @@ player_t* player_t::create_enemy( sim_t* sim, const std::string& name, race_type
   return new enemy_t( sim, name );
 }
 
-// warrior_init =============================================================
+// player_t::enemy_init =====================================================
 
 void player_t::enemy_init( sim_t* sim )
 {

@@ -30,10 +30,9 @@
 
 void heal_t::_init_heal_t()
 {
-  heal_target.push_back( player );
+  target = player;
+  heal_target.push_back( target );
 
-  target= player;
-  target_str = "";
   total_heal = total_actual = 0;
 
   dot_behavior      = DOT_REFRESH;
@@ -44,10 +43,9 @@ void heal_t::_init_heal_t()
 
   stats -> type = STATS_HEAL;
 
-
   crit_bonus = 1.0;
 
-
+  crit_multiplier = 1.0;
   if ( player -> meta_gem == META_REVITALIZING_SHADOWSPIRIT )
   {
     crit_multiplier *= 1.03;
@@ -183,9 +181,6 @@ void heal_t::execute()
     schedule_travel( heal_target[ i ] );
   }
 
-
-
-
   consume_resource();
 
   update_ready();
@@ -283,7 +278,7 @@ void heal_t::tick()
   stats -> add_tick( time_to_tick );
 }
 
-// heal_t::caclulate_result ==================================================
+// heal_t::calculate_result ==================================================
 
 void heal_t::calculate_result()
 {
@@ -373,7 +368,7 @@ double heal_t::calculate_tick_damage()
   return dmg;
 }
 
-// heal_t::asses_damage ========================================================
+// heal_t::assess_damage ========================================================
 
 void heal_t::assess_damage( player_t* t,
                             double heal_amount,
@@ -440,7 +435,7 @@ player_t* heal_t::find_greatest_difference_player()
   player_t* max_player = player;
   for ( player_t* p = sim -> player_list; p; p = p -> next )
   {
-    // No love for pet's right now
+    // No love for pets right now
     diff = p -> is_pet() ? 0 : p -> resource_max[ RESOURCE_HEALTH ] - p -> resource_current[ RESOURCE_HEALTH];
     if ( diff > max )
     {
@@ -460,7 +455,7 @@ player_t* heal_t::find_lowest_player()
   player_t* max_player = player;
   for ( player_t* p = sim -> player_list; p; p = p -> next )
   {
-    // No love for pet's right now
+    // No love for pets right now
     diff =  p -> is_pet() ? 0 : 1.0 / p -> resource_current[ RESOURCE_HEALTH];
     if ( diff > max )
     {
@@ -505,10 +500,9 @@ void heal_t::refresh_duration()
 
 void absorb_t::_init_absorb_t()
 {
-  heal_target.push_back( player );
-
   target = player;
-  target_str = "";
+  heal_target.push_back( target );
+
   total_heal = total_actual = 0;
   may_trigger_dtr   = false;
 
@@ -587,7 +581,7 @@ void absorb_t::player_buff()
                    player_spell_power, player_attack_power, player_multiplier );
 }
 
-// absorb_t::target_debu ====================================================
+// absorb_t::target_debuff ====================================================
 
 void absorb_t::target_debuff( player_t* t, int dmg_type )
 {
@@ -676,7 +670,7 @@ void absorb_t::travel( player_t* t, int travel_result, double travel_dmg=0 )
   }
 }
 
-// absorb_t::asses_heal ========================================================
+// absorb_t::assess_damage =====================================================
 
 void absorb_t::assess_damage( player_t* t,
                               double    heal_amount,
@@ -703,7 +697,7 @@ void absorb_t::assess_damage( player_t* t,
   stats -> add_result( heal_amount, heal_type, heal_result );
 }
 
-// absorb_t::caclulate_result ==================================================
+// absorb_t::calculate_result ==================================================
 
 void absorb_t::calculate_result()
 {

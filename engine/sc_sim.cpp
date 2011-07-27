@@ -177,7 +177,7 @@ static bool parse_player( sim_t*             sim,
 
     if ( wowhead.empty() )
     {
-      if ( region == "cn" || region == "tw" )
+      if ( region == "cn" )
       {
         sim -> active_player = armory_t::download_player( sim, region, server, player_name, "active" );
       }
@@ -234,7 +234,6 @@ static bool parse_player( sim_t*             sim,
       sim -> errorf( "Invalid source for profile copy - format is copy=target[,source], source defaults to active player." );
       return false;
     }
-
 
     sim -> active_player = player_t::create( sim, util_t::player_type_string( source -> type ), player_name );
     if ( sim -> active_player != 0 ) sim -> active_player -> copy_from ( source );
@@ -312,7 +311,7 @@ static bool parse_armory( sim_t*             sim,
       }
       if ( ! sim -> input_is_utf8 )
         sim -> input_is_utf8 = utf8::is_valid( player_name.begin(), player_name.end() ) && utf8::is_valid( server.begin(), server.end() );
-      if ( region == "cn" || region == "tw" )
+      if ( region == "cn" )
       {
         sim -> active_player = armory_t::download_player( sim, region, server, player_name, description );
       }
@@ -375,7 +374,7 @@ static bool parse_armory( sim_t*             sim,
     int player_type = PLAYER_NONE;
     if ( ! type_str.empty() ) player_type = util_t::parse_player_type( type_str );
 
-    if ( region == "cn" || region == "tw" )
+    if ( region == "cn" )
     {
       return armory_t::download_guild( sim, region, server, guild_name, ranks_list, player_type, max_rank, cache );
     }
@@ -520,6 +519,8 @@ static bool parse_spell_query( sim_t*             sim,
   return sim -> spell_query > 0;
 }
 
+// parse_item_sources =======================================================
+
 static bool parse_item_sources( sim_t*             sim,
                                 const std::string& name,
                                 const std::string& value )
@@ -572,7 +573,7 @@ sim_t::sim_t( sim_t* p, int index ) :
   world_lag( 0.1 ), world_lag_stddev( -1.0 ),
   travel_variance( 0 ), default_skill( 1.0 ), reaction_time( 0.5 ), regen_periodicity( 0.25 ),
   current_time( 0 ), max_time( 450 ), expected_time( 0 ), vary_combat_length( 0.2 ),
-  fixed_time( 0 ),
+  last_event( 0 ), fixed_time( 0 ),
   events_remaining( 0 ), max_events_remaining( 0 ),
   events_processed( 0 ), total_events_processed( 0 ),
   seed( 0 ), id( 0 ), iterations( 1000 ), current_iteration( -1 ), current_slot( -1 ),
@@ -582,7 +583,7 @@ sim_t::sim_t( sim_t* p, int index ) :
   default_region_str( "us" ),
   save_prefix_str( "save_" ), save_suffix_str( "" ),
   input_is_utf8( false ), main_target_str( "" ),
-  big_hitbox( 1 ), dtr_proc_chance( -1.0 ),
+  dtr_proc_chance( -1.0 ),
   target_death_pct( 0 ), target_level( -1 ), target_race( "" ), target_adds( 0 ),
   rng( 0 ), deterministic_rng( 0 ), rng_list( 0 ),
   smooth_rng( 0 ), deterministic_roll( 0 ), average_range( 1 ), average_gauss( 0 ), convergence_scale( 2 ),
@@ -609,12 +610,9 @@ sim_t::sim_t( sim_t* p, int index ) :
   path_str += DIRECTORY_DELIMITER;
   path_str += "profiles_heal";
 
-  // Initialize the default item database source order, leave local item db to last for now
-  // until it has proven to be trustworthy
+  // Initialize the default item database source order
   const char* dbsources[] = { "local", "wowhead", "mmoc", "armory", "ptrhead" };
   item_db_sources = std::vector<std::string>( dbsources, dbsources + sizeof( dbsources ) / sizeof( const char* ) );
-
-
 
   scaling = new scaling_t( this );
   plot    = new    plot_t( this );
@@ -642,8 +640,6 @@ sim_t::sim_t( sim_t* p, int index ) :
 
     seed = parent -> seed;
   }
-
-
 }
 
 // sim_t::~sim_t ============================================================
@@ -726,6 +722,8 @@ void sim_t::add_event( event_t* e,
     assert( 0 );
   }
 
+  if ( e -> time > last_event ) last_event = e -> time;
+
   uint32_t slice = ( uint32_t ) ( e -> time * wheel_granularity ) & wheel_mask;
 
   event_t** prev = &( timing_wheel[ slice ] );
@@ -737,8 +735,13 @@ void sim_t::add_event( event_t* e,
 
   events_remaining++;
   if ( events_remaining > max_events_remaining ) max_events_remaining = events_remaining;
+  if ( e -> player ) e -> player -> events++;
 
-  if ( debug ) log_t::output( this, "Add Event: %s %.2f %d", e -> name, e -> time, e -> id );
+  if ( debug )
+  {
+    log_t::output( this, "Add Event: %s %.2f %d", e -> name, e -> time, e -> id );
+    if ( e -> player ) log_t::output( this, "Actor %s has %d scheduled events", e -> player -> name(), e -> player -> events );
+  }
 }
 
 // sim_t::reschedule_event ====================================================
@@ -788,6 +791,14 @@ void sim_t::flush_events()
   {
     while ( event_t* e = timing_wheel[ i ] )
     {
+      if ( e -> player && ! e -> canceled )
+      {
+        // Make sure we dont recancel events, although it should 
+        // not technically matter
+        e -> canceled = 1;
+        e -> player -> events--;
+        assert( e -> player -> events >= 0 );
+      }
       timing_wheel[ i ] = e -> next;
       delete e;
     }
@@ -803,16 +814,65 @@ void sim_t::flush_events()
 
 void sim_t::cancel_events( player_t* p )
 {
-  for ( int i=0; i < wheel_size; i++ )
+  if ( p -> events <= 0 ) return;
+
+  if ( debug ) log_t::output( this, "Canceling events for player %s, events to cancel %d", p -> name(), p -> events );
+
+  int begin_slice = ( uint32_t ) ( current_time * wheel_granularity ) & wheel_mask,
+        end_slice = ( uint32_t ) ( last_event * wheel_granularity ) & wheel_mask;
+
+  // Loop only partial wheel, [current_time..last_event], as that's the range where there
+  // are events for actors in the sim
+  if ( begin_slice <= end_slice )
   {
-    for ( event_t* e = timing_wheel[ i ]; e; e = e -> next )
+    for ( int i = begin_slice; i <= end_slice && p -> events > 0; i++ )
     {
-      if ( e -> player == p )
+      for ( event_t* e = timing_wheel[ i ]; e && p -> events > 0; e = e -> next )
       {
-        e -> canceled = 1;
+        if ( e -> player == p )
+        {
+          if ( ! e -> canceled )
+            p -> events--;
+
+          e -> canceled = 1;
+        }
       }
     }
   }
+  // Loop only partial wheel in two places, as the wheel has wrapped around, but simulation 
+  // current time is still at the tail-end, [begin_slice..wheel_size[ and [0..last_event]
+  else
+  {
+    for ( int i = begin_slice; i < wheel_size && p -> events > 0; i++ )
+    {
+      for ( event_t* e = timing_wheel[ i ]; e && p -> events > 0; e = e -> next )
+      {
+        if ( e -> player == p )
+        {
+          if ( ! e -> canceled )
+            p -> events--;
+
+          e -> canceled = 1;
+        }
+      }
+    }
+
+    for ( int i = 0; i <= end_slice && p -> events > 0; i++ )
+    {
+      for ( event_t* e = timing_wheel[ i ]; e && p -> events > 0; e = e -> next )
+      {
+        if ( e -> player == p )
+        {
+          if ( ! e -> canceled )
+            p -> events--;
+
+          e -> canceled = 1;
+        }
+      }
+    }
+  }
+  
+  assert( p -> events == 0 );
 }
 
 // sim_t::combat ==============================================================
@@ -829,12 +889,21 @@ void sim_t::combat( int iteration )
   {
     current_time = e -> time;
 
+    // Perform actor event bookkeeping first
+    if ( e -> player && ! e -> canceled )
+    {
+      e -> player -> events--;
+      assert( e -> player -> events >= 0 );
+    }
+    
     if ( fixed_time || ( target -> resource_base[ RESOURCE_HEALTH ] == 0 ) )
     {
       // The first iteration is always time-limited since we do not yet have inferred health
-
       if ( current_time > expected_time * ( 1 - target_death_pct / 100.0 ) )
       {
+        // Set this last event as canceled, so asserts dont fire when odd things happen at the 
+        // tail-end of the simulation iteration
+        e -> canceled = 1;
         delete e;
         break;
       }
@@ -844,6 +913,9 @@ void sim_t::combat( int iteration )
       if ( expected_time > 0 && current_time > ( expected_time * 2.0 ) )
       {
         if ( debug ) log_t::output( this, "Target proving tough to kill, ending simulation" );
+        // Set this last event as canceled, so asserts dont fire when odd things happen at the 
+        // tail-end of the simulation iteration
+        e -> canceled = 1;
         delete e;
         break;
       }
@@ -851,6 +923,9 @@ void sim_t::combat( int iteration )
       if (  target -> resource_current[ RESOURCE_HEALTH ] / target -> resource_max[ RESOURCE_HEALTH ] <= target_death_pct / 100.0 )
       {
         if ( debug ) log_t::output( this, "Target %s has died, ending simulation", target -> name() );
+        // Set this last event as canceled, so asserts dont fire when odd things happen at the 
+        // tail-end of the simulation iteration
+        e -> canceled = 1;
         delete e;
         break;
       }
@@ -881,9 +956,10 @@ void sim_t::combat( int iteration )
 
 void sim_t::reset()
 {
-  if ( debug ) log_t::output( this, "Reseting Simulator" );
+  if ( debug ) log_t::output( this, "Resetting Simulator" );
   expected_time = max_time * ( 1.0 + vary_combat_length * iteration_adjust() );
-  current_time = id = 0;
+  id = 0;
+  current_time = last_event = 0;
   for ( buff_t* b = buff_list; b; b = b -> next )
   {
     b -> reset();
@@ -1045,27 +1121,21 @@ bool sim_t::init()
   {
     target = target_list;
   }
-
   else if ( ! main_target_str.empty() )
   {
     player_t* p = find_player( main_target_str );
     if ( p )
       target = p;
   }
-
   else
     target = player_t::create( this, "enemy", "Fluffy_Pillow" );
 
   // Target overrides
-
   for ( player_t* t = target_list; t; t = t -> next )
   {
     if ( target_level >= 0 )
       t -> level = target_level;
-
-
   }
-
 
   if ( max_player_level < 0 )
   {
@@ -1078,12 +1148,9 @@ bool sim_t::init()
     }
   }
 
-  raid_event_t::init( this );
-
   if ( ! player_t::init( this ) ) return false;
 
   // Target overrides 2
-
   for ( player_t* t = target_list; t; t = t -> next )
   {
     if ( ! target_race.empty() )
@@ -1093,12 +1160,14 @@ bool sim_t::init()
     }
   }
 
+  raid_event_t::init( this );
+
   if ( report_precision < 0 ) report_precision = 3;
 
   return canceled ? false : true;
 }
 
-// sim_t::analyze ============================================================
+// compare_dps ==============================================================
 
 struct compare_dps
 {
@@ -1107,6 +1176,8 @@ struct compare_dps
     return l -> dps > r -> dps;
   }
 };
+
+// compare_name =============================================================
 
 struct compare_name
 {
@@ -1123,6 +1194,8 @@ struct compare_name
     return l -> name_str < r -> name_str;
   }
 };
+
+// sim_t::analyze_player ====================================================
 
 void sim_t::analyze_player( player_t* p )
 {
@@ -1161,7 +1234,6 @@ void sim_t::analyze_player( player_t* p )
     if ( add_stat & ! s -> quiet )
       p -> total_dmg += s -> total_dmg;
   }
-
 
   p -> dps = p -> total_seconds ? p -> total_dmg / p -> total_seconds : 0;
 
@@ -1241,13 +1313,11 @@ void sim_t::analyze_player( player_t* p )
   for ( proc_t* proc = p -> proc_list; proc; proc = proc -> next )
     proc -> analyze( this );
 
-
   p -> timeline_dmg.clear();
   p -> timeline_dps.clear();
 
   p -> timeline_dmg.insert( p -> timeline_dmg.begin(), max_buckets, 0 );
   p -> timeline_dps.insert( p -> timeline_dps.begin(), max_buckets, 0 );
-
 
   for ( int i=0; i < num_stats; i++ )
   {
@@ -1341,7 +1411,6 @@ void sim_t::analyze_player( player_t* p )
       p -> dps_convergence_error[i] /= i;
       p -> dps_convergence_error[i] = sqrt( p -> dps_convergence_error[i] );
       p -> dps_convergence_error[i] = 2.0 * p -> dps_convergence_error[i] / sqrt ( ( float ) i );
-
     }
   }
 
@@ -1397,6 +1466,8 @@ void sim_t::analyze_player( player_t* p )
   p -> death_count_pct /= iterations;
   p -> death_count_pct *= 100.0;
 }
+
+// sim_t::analyze ===========================================================
 
 void sim_t::analyze()
 {
@@ -1488,7 +1559,6 @@ void sim_t::analyze()
     chart_t::timeline_dps_error ( p -> timeline_dps_error_chart,        p );
     chart_t::dps_error          ( p -> dps_error_chart,                 p );
     chart_t::distribution_dps   ( p -> distribution_dps_chart,          p );
-
   }
 }
 
@@ -2118,7 +2188,6 @@ void sim_t::create_options()
     { "debug_exp",                        OPT_INT,    &( debug_exp                                ) },
     { "weapon_speed_scale_factors",       OPT_BOOL,   &( weapon_speed_scale_factors               ) },
     { "main_target",                      OPT_STRING, &( main_target_str                          ) },
-    { "big_hitbox",                       OPT_BOOL,   &( big_hitbox                               ) },
     { "default_dtr_proc_chance",          OPT_FLT,    &( dtr_proc_chance                          ) },
     { "target_death_pct",                 OPT_FLT,    &( target_death_pct                         ) },
     { "target_level",                     OPT_INT,    &( target_level                             ) },
@@ -2375,8 +2444,8 @@ int sim_t::main( int argc, char** argv )
 
     if( execute() )
     {
-      scaling -> analyze();
-      plot    -> analyze();
+      scaling      -> analyze();
+      plot         -> analyze();
       reforge_plot -> analyze();
       util_t::fprintf( stdout, "\nGenerating reports...\n" ); fflush( stdout );
       report_t::print_suite( this );

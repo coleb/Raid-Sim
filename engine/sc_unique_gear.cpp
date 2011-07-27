@@ -930,11 +930,11 @@ static void register_matrix_restabilizer( item_t* item )
       }
       else if ( p -> stats.haste_rating > p -> stats.mastery_rating )
       {
-        max_stat = STAT_HASTE_RATING;        
+        max_stat = STAT_HASTE_RATING;
       }
       else
       {
-        max_stat = STAT_MASTERY_RATING;       
+        max_stat = STAT_MASTERY_RATING;
       }
 
       buff -> stat = max_stat;
@@ -1393,7 +1393,7 @@ static void register_dragonwrath_tarecgosas_rest( item_t* item )
 
       if ( ! a -> may_trigger_dtr ) return;
 
-      if ( a -> tick_dmg > 0 ) 
+      if ( a -> tick_dmg > 0 )
         dmg = a -> tick_dmg;
       else
         dmg = a -> direct_dmg;
@@ -1469,25 +1469,22 @@ static void register_blazing_power( item_t* item )
 
     struct blazing_power_heal_t : public heal_t
     {
-      bool heroic;
-
-      blazing_power_heal_t( player_t* p, bool h ) :
-        heal_t( "blazing_power", p, h ? 97136 : 96966 ), heroic( h )
+      blazing_power_heal_t( player_t* p, bool heroic ) :
+        heal_t( "blaze_of_life", p, heroic ? 97136 : 96966 )
       {
         trigger_gcd = 0;
         background  = true;
         may_miss = false;
         may_crit = true;
         callbacks = false;
-        base_crit = 0.05; // FIXME: needs confirmation
         init();
       }
-      virtual void player_buff() {}
     };
 
     struct blazing_power_callback_t : public action_callback_t
     {
       heal_t* heal;
+      cooldown_t* cd;
       proc_t* proc;
       rng_t* rng;
 
@@ -1496,6 +1493,8 @@ static void register_blazing_power( item_t* item )
       {
         proc = p -> get_proc( "blazing_power" );
         rng  = p -> get_rng ( "blazing_power" );
+        cd = p -> get_cooldown( "blazing_power_callback" );
+        cd -> duration = 45.0;
       }
 
       virtual void trigger( action_t* a, void* call_data )
@@ -1506,10 +1505,14 @@ static void register_blazing_power( item_t* item )
                ! a -> harmful   )
           return;
 
+        if ( cd -> remains() > 0 )
+          return;
+
         if ( rng -> roll( 0.10 ) )
         {
           heal -> execute();
           proc -> occur();
+          cd -> start();
         }
       }
     };
@@ -1771,7 +1774,7 @@ action_callback_t* unique_gear_t::register_discharge_proc( int                ty
                                                            bool               no_debuffs,
                                                            int                rng_type )
 {
-  action_callback_t* cb = new discharge_proc_callback_t( name, player, max_stacks, school, amount, scaling, proc_chance, cooldown, 
+  action_callback_t* cb = new discharge_proc_callback_t( name, player, max_stacks, school, amount, scaling, proc_chance, cooldown,
                                                          no_crits, no_buffs, no_debuffs, rng_type );
 
   if ( type == PROC_DAMAGE )
@@ -1840,7 +1843,7 @@ action_callback_t* unique_gear_t::register_chance_discharge_proc( int           
                                                                   bool               no_debuffs,
                                                                   int                rng_type )
 {
-  action_callback_t* cb = new chance_discharge_proc_callback_t( name, player, max_stacks, school, amount, scaling, proc_chance, cooldown, 
+  action_callback_t* cb = new chance_discharge_proc_callback_t( name, player, max_stacks, school, amount, scaling, proc_chance, cooldown,
                                                                 no_crits, no_buffs, no_debuffs, rng_type );
 
   if ( type == PROC_DAMAGE )
@@ -1912,7 +1915,7 @@ action_callback_t* unique_gear_t::register_stat_discharge_proc( int             
                                                                 bool               no_buffs,
                                                                 bool               no_debuffs )
 {
-  action_callback_t* cb = new stat_discharge_proc_callback_t( name, player, stat, max_stacks, stat_amount, school, min_dmg, max_dmg, proc_chance, 
+  action_callback_t* cb = new stat_discharge_proc_callback_t( name, player, stat, max_stacks, stat_amount, school, min_dmg, max_dmg, proc_chance,
                                                               duration, cooldown, no_crits, no_buffs, no_debuffs );
 
   if ( type == PROC_DAMAGE )
@@ -2090,7 +2093,7 @@ bool unique_gear_t::get_equip_encoding( std::string&       encoding,
   else if ( name == "mithril_stopwatch"                   ) e = "OnSpellCast_2040SP_10%_10Dur_50Cd"; // FIXME: Confirm ICD
   else if ( name == "mjolnir_runestone"                   ) e = "OnAttackHit_665Haste_15%_10Dur_45Cd";
   else if ( name == "muradins_spyglass"                   ) e = ( heroic ? "OnSpellDamage_20SP_10Stack_10Dur" : "OnSpellDamage_18SP_10Stack_10Dur" );
-  else if ( name == "necromantic_focus"                   ) e = ( heroic ? "OnSpellTickDamage_45Mastery_10Stack_10Dur" : "OnSpellTickDamage_39Mastery_10Stack_10Dur" );
+  else if ( name == "necromantic_focus"                   ) e = ( heroic ? "OnSpellTickDamage_44Mastery_10Stack_10Dur" : "OnSpellTickDamage_39Mastery_10Stack_10Dur" );
   else if ( name == "needleencrusted_scorpion"            ) e = "OnAttackCrit_678crit_10%_10Dur_50Cd";
   else if ( name == "pandoras_plea"                       ) e = "OnSpellCast_751SP_10%_10Dur_45Cd";
   else if ( name == "petrified_pickled_egg"               ) e = "OnSpellDamage_2040Haste_10%_10Dur_50Cd"; // FIXME: Confirm ICD
@@ -2111,7 +2114,7 @@ bool unique_gear_t::get_equip_encoding( std::string&       encoding,
   else if ( name == "the_hungerer"                        ) e = ( heroic ? "OnAttackHit_1730Haste_100%_15Dur_60Cd" : "OnAttackHit_1532Haste_100%_15Dur_60Cd" );
   else if ( name == "theralions_mirror"                   ) e = ( heroic ? "OnSpellCast_2178Mastery_10%_20Dur_100Cd" : "OnSpellCast_1926Mastery_10%_20Dur_100Cd" ); // TO-DO: Confirm ICD
   else if ( name == "tias_grace"                          ) e = ( heroic ? "OnAttackHit_34Agi_10Stack_15Dur" : "OnAttackHit_34Agi_10Stack_15Dur" );
-  else if ( name == "vessel_of_acceleration"              ) e = ( heroic ? "OnAttackHit_93Crit_5Stack_20Dur" : "OnAttackHit_82Crit_5Stack_20Dur" );
+  else if ( name == "vessel_of_acceleration"              ) e = ( heroic ? "OnAttackCrit_93Crit_5Stack_20Dur" : "OnAttackCrit_82Crit_5Stack_20Dur" );
   else if ( name == "witching_hourglass"                  ) e = ( heroic ? "OnSpellCast_1710Haste_10%_15Dur_75Cd" : "OnSpellCast_918Haste_10%_15Dur_75Cd" );
   else if ( name == "wrath_of_cenarius"                   ) e = "OnSpellHit_132SP_5%_10Dur";
   else if ( name == "fall_of_mortality"                   ) e = ( heroic ? "OnHealCast_2178Spi_15Dur_75Cd" : "OnHealCast_1926Spi_15Dur_75Cd" );
@@ -2154,6 +2157,7 @@ bool unique_gear_t::get_equip_encoding( std::string&       encoding,
   else if ( name == "darkglow_embroidery"                 ) e = "OnSpellCast_800Mana_30%_15Dur_45Cd";       // TO-DO: Confirm ICD.
   else if ( name == "swordguard_embroidery_old"           ) e = "OnAttackHit_400AP_20%_15Dur_60Cd";
   else if ( name == "swordguard_embroidery"               ) e = "OnAttackHit_1000AP_15%_15Dur_55Cd";
+  else if ( name == "flintlockes_woodchucker"             ) e = "OnAttackHit_1100Physical_300Agi_10%_10Dur_40Cd"; // TO-DO: Confirm ICD.
 
   // DK Runeforges
   else if ( name == "rune_of_cinderglacier"               ) e = "custom";
@@ -2210,7 +2214,7 @@ bool unique_gear_t::get_use_encoding( std::string&       encoding,
   else if ( name == "platinum_disks_of_battle"     ) e = "752AP_20Dur_120Cd";
   else if ( name == "platinum_disks_of_sorcery"    ) e = "440SP_20Dur_120Cd";
   else if ( name == "platinum_disks_of_swiftness"  ) e = "375Haste_20Dur_120Cd";
-  else if ( name == "rickets_mangetic_fireball"    ) e = "1700Crit_20Dur_120Cd"; // FIXME: "Your attacks may occasionally attract small celestial objects."
+  else if ( name == "rickets_magnetic_fireball"    ) e = "1700Crit_20Dur_120Cd"; // FIXME: "Your attacks may occasionally attract small celestial objects."
   else if ( name == "rune_of_zeth"                 ) e = ( heroic ? "1441Int_15Dur_60Cd" : "1277Int_15Dur_60Cd" );
   else if ( name == "scale_of_fates"               ) e = "432Haste_20Dur_120Cd";
   else if ( name == "sea_star"                     ) e = ( heroic ? "1425Sp_20Dur_120Cd" : "765Sp_20Dur_120Cd" );

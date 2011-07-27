@@ -1207,6 +1207,7 @@ void mage_spell_t::consume_resource()
     {
       p -> buffs_clearcasting -> expire();
       p -> gains_clearcasting -> add( amount );
+      p -> gains_clearcasting -> type = RESOURCE_MANA;
     }
   }
 }
@@ -1336,8 +1337,11 @@ struct arcane_blast_t : public mage_spell_t
       return 0;
 
     double c = spell_t::cost();
-    double delta_cost = c;
+    double base_cost = c;
+    double stack_cost = 0;
 
+    // Arcane Power only affects the initial base cost, it doesn't inflate the stack cost too
+    // ( BaseCost * AP ) + ( BaseCost * 1.5 * ABStacks )
     if ( p -> buffs_arcane_power -> check() )
     {
       double m = 1.0 + p -> buffs_arcane_power -> effect2().percent();
@@ -1347,16 +1351,23 @@ struct arcane_blast_t : public mage_spell_t
         m += p -> sets -> set( SET_T12_4PC_CASTER ) -> s_effects[ 0 ] -> percent();
       }
 
-      delta_cost *= m;
-      delta_cost = delta_cost - c;
+      c *= m;
     }
 
     if ( p -> buffs_arcane_blast -> check() )
     {
-      c *= p -> buffs_arcane_blast -> stack() * p -> spells.arcane_blast -> effect2().percent();
+      stack_cost = base_cost * p -> buffs_arcane_blast -> stack() * p -> spells.arcane_blast -> effect2().percent();
+
+      // The T12 4pc causes AP to reduce the base cost of AB in the stack calculation
+      // ( BaseCost * AP ) + ( BaseCost * AP * 1.5 * ABStacks )
+      if ( p -> set_bonus.tier12_4pc_caster() && p -> buffs_arcane_power -> check() )
+      {
+        stack_cost *= 1.0 + p -> buffs_arcane_power -> effect2().percent()
+                          + p -> sets -> set( SET_T12_4PC_CASTER ) -> s_effects[ 0 ] -> percent();
+      }
     }
 
-    c += delta_cost;
+    c += stack_cost;
 
     return c;
   }
@@ -1571,7 +1582,6 @@ struct blink_t : public mage_spell_t
   }
 };
 
-
 // Cold Snap Spell ==========================================================
 
 struct cold_snap_t : public mage_spell_t
@@ -1633,7 +1643,7 @@ struct combustion_t : public mage_spell_t
     ignite_dmg = calculate_dot_dps( p -> dots_ignite         );
     ignite_dmg /= 1.0 + p -> specializations.flashburn * p -> dots_ignite -> action -> snapshot_mastery;
     ignite_dmg *= 1.0 + p -> specializations.flashburn * p -> composite_mastery();
-    
+
     base_td = 0;
     base_td += calculate_dot_dps( p -> dots_frostfire_bolt );
     base_td += ignite_dmg;
@@ -1767,22 +1777,14 @@ struct evocation_t : public mage_spell_t
   {
     parse_options( NULL, options_str );
 
-    base_execute_time = 6.0;
     base_tick_time    = 2.0;
-    num_ticks         = 3;
+    num_ticks         = ( int ) ( duration() / base_tick_time );
+    tick_zero         = true;
     channeled         = true;
     harmful           = false;
     hasted_ticks      = false;
 
     cooldown -> duration += p -> talents.arcane_flows -> effect2().seconds();
-  }
-
-  virtual void execute()
-  {
-    mage_t* p = player -> cast_mage();
-    mage_spell_t::execute();
-    double mana = p -> resource_max[ RESOURCE_MANA ] * effect1().percent();
-    p -> resource_gain( RESOURCE_MANA, mana, p -> gains_evocation );
   }
 
   virtual void tick()
@@ -1797,8 +1799,9 @@ struct evocation_t : public mage_spell_t
     if ( ! mage_spell_t::ready() )
       return false;
 
+    // FIXME: This should likely be removed in favor of expressions
     return ( player -> resource_current[ RESOURCE_MANA ] /
-             player -> resource_max    [ RESOURCE_MANA ] ) < 0.40;
+             player -> resource_max    [ RESOURCE_MANA ] ) < 0.60;
   }
 };
 
@@ -1962,7 +1965,7 @@ struct focus_magic_t : public mage_spell_t
 
     struct focus_magic_feedback_callback_t : public action_callback_t
     {
-      focus_magic_feedback_callback_t( player_t* p ) : action_callback_t( p -> sim, p ) {}
+      focus_magic_feedback_callback_t( player_t* p ) : action_callback_t( p -> sim, p, true ) {}
 
       virtual void trigger( action_t* a, void* call_data )
       {
@@ -2218,12 +2221,12 @@ struct frostfire_orb_tick_t : public mage_spell_t
     direct_tick = true;
     may_chill = ( p -> talents.frostfire_orb -> rank() == 2 );
   }
-  
+
   virtual void travel( player_t* t, int travel_result, double travel_dmg )
   {
     // Ticks don't trigger ignite
     spell_t::travel( t, travel_result, travel_dmg );
-    
+
     mage_t* p = player -> cast_mage();
 
     if( may_chill && result_is_hit( travel_result ) )
@@ -2362,8 +2365,8 @@ struct living_bomb_t : public mage_spell_t
     spell_t::target_debuff( t, dmg_type );
 
     target_multiplier *= 1.0 + ( p -> glyphs.living_bomb -> effect1().percent() +
-				 p -> talents.critical_mass -> effect2().percent() +
-				 p -> specializations.flashburn * p -> composite_mastery() );
+                                 p -> talents.critical_mass -> effect2().percent() +
+                                 p -> specializations.flashburn * p -> composite_mastery() );
   }
 
   virtual void last_tick()
@@ -2568,6 +2571,12 @@ struct presence_of_mind_t : public mage_spell_t
 
   virtual bool ready()
   {
+    mage_t* p = player -> cast_mage();
+
+    // Can't use PoM while AP is up
+    if ( p -> buffs_arcane_power -> check() )
+      return false;
+
     return( mage_spell_t::ready() && fast_action -> ready() );
   }
 };
@@ -3240,6 +3249,7 @@ void mage_t::init_rng()
 
 // mage_t::init_actions =====================================================
 
+
 void mage_t::init_actions()
 {
   if ( action_list_str.empty() )
@@ -3289,10 +3299,8 @@ void mage_t::init_actions()
     action_list_str += "/snapshot_stats";
     // Counterspell
     action_list_str += "/counterspell";
-    //Conjure Mana Gem
-    if ( primary_tree() == TREE_ARCANE ) action_list_str += "/conjure_mana_gem,if=cooldown.evocation.remains<44&target.time_to_die>20&mana_gem_charges=0";
-    action_list_str += "/conjure_mana_gem,invulnerable=1,if=mana_gem_charges<3"; // for HelterSkelter
-
+    // Refresh Gem during invuln phases
+    action_list_str += "/conjure_mana_gem,invulnerable=1,if=mana_gem_charges<3";
     // Usable Items
     int num_items = ( int ) items.size();
     for ( int i=0; i < num_items; i++ )
@@ -3303,16 +3311,7 @@ void mage_t::init_actions()
         action_list_str += items[ i ].name();
         //Special trinket handling for Arcane, previously only used for Shard of Woe but seems to be good for all useable trinkets
         if ( primary_tree() == TREE_ARCANE )
-        {
-          if ( has_shard == true )
-          {
-            action_list_str += ",if=(cooldown.evocation.remains<40&buff.arcane_blast.stack=4)|cooldown.evocation.remains>90|target.time_to_die<40";
-          }
-          else
-          {
-            action_list_str += ",if=(cooldown.evocation.remains<30&buff.arcane_blast.stack=4)|cooldown.evocation.remains>90|target.time_to_die<40";
-          }
-        }
+          action_list_str += ",if=buff.improved_mana_gem.up|cooldown.evocation.remains>90|target.time_to_die<50";
       }
     }
     // Lifeblood
@@ -3331,14 +3330,7 @@ void mage_t::init_actions()
       }
       else if ( primary_tree() == TREE_ARCANE )
       {
-        if ( has_shard == true )
-          {
-            action_list_str += "/volcanic_potion,if=cooldown.evocation.remains<40&buff.arcane_blast.stack=4";
-          }
-          else
-          {
-            action_list_str += "/volcanic_potion,if=cooldown.evocation.remains<30&buff.arcane_blast.stack=4";
-          }
+        action_list_str += "/volcanic_potion,if=buff.improved_mana_gem.up|target.time_to_die<50";
       }
       else
       {
@@ -3368,59 +3360,44 @@ void mage_t::init_actions()
     // Arcane
     if ( primary_tree() == TREE_ARCANE )
     {
+      action_list_str += "/evocation,if=mana_pct<=26&target.time_to_die>=31";
+      if ( level >= 81 ) action_list_str += "/flame_orb,if=target.time_to_die>=10";
       //Special handling for Race Abilities
       if ( race == RACE_ORC )
       {
-        if ( has_shard == true )
-        {
-          action_list_str += "/blood_fury,if=cooldown.evocation.remains<40&buff.arcane_blast.stack=4";
-        }
-        else
-        {
-          action_list_str += "/blood_fury,if=cooldown.evocation.remains<30&buff.arcane_blast.stack=4";
-        }
+        action_list_str += "/blood_fury,if=buff.improved_mana_gem.up|target.time_to_die<50";
       }
       else if ( race == RACE_TROLL )
       {
         action_list_str += "/berserking,if=buff.arcane_power.up|cooldown.arcane_power.remains>20";
       }
-
-      if ( has_shard == true )
+      //Conjure Mana Gem
+      action_list_str += "/conjure_mana_gem,if=cooldown.evocation.remains<20&target.time_to_die>105&mana_gem_charges=0";
+      //Primary Cooldowns
+      action_list_str += "/mana_gem,if=buff.arcane_blast.stack=4";
+      if ( talents.arcane_power -> rank() )
       {
-        if ( talents.arcane_power -> rank() ) action_list_str += "/arcane_power,if=(cooldown.evocation.remains<40&buff.arcane_blast.stack=4)|target.time_to_die<40";
-        action_list_str += "/mana_gem,if=(cooldown.evocation.remains<40&buff.arcane_blast.stack=4)|target.time_to_die<40";
+        action_list_str += "/arcane_power,if=buff.improved_mana_gem.up|target.time_to_die<50";
         action_list_str += "/mirror_image,if=buff.arcane_power.up|(cooldown.arcane_power.remains>20&target.time_to_die>15)";
       }
       else
       {
-        if ( talents.arcane_power -> rank() ) action_list_str += "/arcane_power,if=(cooldown.evocation.remains<30&buff.arcane_blast.stack=4)|target.time_to_die<40";
-        action_list_str += "/mana_gem,if=(cooldown.evocation.remains<30&buff.arcane_blast.stack=4)|target.time_to_die<40";
-        action_list_str += "/mirror_image,if=buff.arcane_power.up|(cooldown.arcane_power.remains>20&target.time_to_die>15)";
+         action_list_str += "/mirror_image";
       }
 
-      if ( level >= 81 ) action_list_str += "/flame_orb,if=target.time_to_die>=10";
       if ( talents.presence_of_mind -> rank() )
       {
         action_list_str += "/presence_of_mind,arcane_blast";
       }
-      action_list_str += "/arcane_blast,if=target.time_to_die<60&mana_pct>4"; // final burn phase
+
       if ( has_shard == true )
       {
-        action_list_str += "/arcane_blast,if=cooldown.evocation.remains<40&mana_pct>26"; // burn phase AB spam
+        action_list_str += "/arcane_blast,if=target.time_to_die<50|cooldown.evocation.remains<=50";
+        action_list_str += "/sequence,name=conserve:arcane_blast:arcane_blast:arcane_blast:arcane_blast:arcane_blast,if=!buff.bloodlust.up";
       }
       else
       {
-        action_list_str += "/arcane_blast,if=cooldown.evocation.remains<30&mana_pct>26"; // burn phase AB spam
-      }
-      action_list_str += "/evocation,invulnerable=1";
-      action_list_str += "/evocation,if=target.time_to_die>=31";
-      if ( has_shard == true ) // AB5 conserve with the Shard
-      {
-        action_list_str += "/sequence,name=conserve:arcane_blast:arcane_blast:arcane_blast:arcane_blast:arcane_blast,if=!buff.bloodlust.up";
-
-      }
-      else // AB4 conserve without Shard
-      {
+        action_list_str += "/arcane_blast,if=target.time_to_die<40|cooldown.evocation.remains<=40";
         action_list_str += "/sequence,name=conserve:arcane_blast:arcane_blast:arcane_blast:arcane_blast,if=!buff.bloodlust.up";
       }
       action_list_str += "/arcane_missiles";
@@ -3823,7 +3800,6 @@ void player_t::mage_init( sim_t* sim )
     p -> debuffs.critical_mass   = new debuff_t( p, 22959, "critical_mass" );
     p -> debuffs.slow            = new debuff_t( p, 31589, "slow" );
   }
-
 }
 
 // player_t::mage_combat_begin ==============================================

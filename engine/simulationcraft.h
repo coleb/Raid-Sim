@@ -76,7 +76,7 @@
 #include "data_definitions.hh"
 
 #define SC_MAJOR_VERSION "420"
-#define SC_MINOR_VERSION "2"
+#define SC_MINOR_VERSION "3"
 #define SC_USE_PTR ( 0 )
 #define SC_BETA ( 0 )
 
@@ -311,13 +311,13 @@ enum action_type { ACTION_USE=0, ACTION_SPELL, ACTION_ATTACK, ACTION_SEQUENCE, A
 enum school_type
 {
   SCHOOL_NONE=0,
-  SCHOOL_ARCANE,      SCHOOL_FIRE,        SCHOOL_FROST,       SCHOOL_HOLY,        SCHOOL_NATURE,      
-  SCHOOL_SHADOW,      SCHOOL_PHYSICAL,    SCHOOL_MAX_PRIMARY, SCHOOL_FROSTFIRE,       
+  SCHOOL_ARCANE,      SCHOOL_FIRE,        SCHOOL_FROST,       SCHOOL_HOLY,        SCHOOL_NATURE,
+  SCHOOL_SHADOW,      SCHOOL_PHYSICAL,    SCHOOL_MAX_PRIMARY, SCHOOL_FROSTFIRE,
   SCHOOL_HOLYSTRIKE,  SCHOOL_FLAMESTRIKE, SCHOOL_HOLYFIRE,    SCHOOL_STORMSTRIKE, SCHOOL_HOLYSTORM,
   SCHOOL_FIRESTORM,   SCHOOL_FROSTSTRIKE, SCHOOL_HOLYFROST,   SCHOOL_FROSTSTORM,  SCHOOL_SHADOWSTRIKE,
   SCHOOL_SHADOWLIGHT, SCHOOL_SHADOWFLAME, SCHOOL_SHADOWSTORM, SCHOOL_SHADOWFROST, SCHOOL_SPELLSTRIKE,
   SCHOOL_DIVINE,      SCHOOL_SPELLFIRE,   SCHOOL_SPELLSTORM,  SCHOOL_SPELLFROST,  SCHOOL_SPELLSHADOW,
-  SCHOOL_ELEMENTAL,   SCHOOL_CHROMATIC,   SCHOOL_MAGIC,       SCHOOL_CHAOS,       SCHOOL_BLEED,       
+  SCHOOL_ELEMENTAL,   SCHOOL_CHROMATIC,   SCHOOL_MAGIC,       SCHOOL_CHAOS,       SCHOOL_BLEED,
   SCHOOL_DRAIN,
   SCHOOL_MAX
 };
@@ -1351,7 +1351,7 @@ struct dbc_t
 
   static const item_data_t* items( bool ptr = false );
   static size_t             n_items( bool ptr = false );
-  
+
   // Index access
   spell_data_t** spell_data_index() SC_CONST;
   unsigned spell_data_index_size() SC_CONST;
@@ -1396,7 +1396,7 @@ struct dbc_t
   const spelleffect_data_t*      effect( unsigned effect_id ) SC_CONST;
   const talent_data_t*           talent( unsigned talent_id ) SC_CONST;
   const item_data_t*             item( unsigned item_id ) SC_CONST;
-  
+
   const random_suffix_data_t&    random_suffix( unsigned suffix_id ) SC_CONST;
   const item_enchantment_data_t& item_enchantment( unsigned enchant_id ) SC_CONST;
   const gem_property_data_t&     gem_property( unsigned gem_id ) SC_CONST;
@@ -1605,7 +1605,7 @@ struct util_t
   static unsigned pet_mask( int type );
   static unsigned pet_id( int type );
   static player_type pet_class_type( int type );
-  
+
   static const char* class_id_string( int type );
   static int translate_class_id( int cid );
   static int translate_class_str( std::string& s );
@@ -2031,7 +2031,7 @@ struct buff_t : public spell_id_t
   static buff_t* find(    sim_t*, const std::string& name );
   static buff_t* find( player_t*, const std::string& name );
 
-  virtual void _init_buff_t();
+  void _init_buff_t();
 
   const spelleffect_data_t& effect1() const { return s_data -> effect1(); }
   const spelleffect_data_t& effect2() const { return s_data -> effect2(); }
@@ -2246,7 +2246,7 @@ struct sim_t
     // Latency
   double      world_lag, world_lag_stddev;
   double      travel_variance, default_skill, reaction_time, regen_periodicity;
-  double      current_time, max_time, expected_time, vary_combat_length;
+  double      current_time, max_time, expected_time, vary_combat_length, last_event;
   int         fixed_time;
   int64_t     events_remaining, max_events_remaining;
   int64_t     events_processed, total_events_processed;
@@ -2259,7 +2259,6 @@ struct sim_t
   bool        input_is_utf8;
   std::vector<player_t*> actor_list;
   std::string main_target_str;
-  int         big_hitbox;
   double      dtr_proc_chance;
 
   // Target options
@@ -2625,8 +2624,8 @@ struct event_t
   virtual void reschedule( double new_time );
   virtual void execute() { util_t::printf( "%s\n", name ? name : "(no name)" ); assert( 0 ); }
   virtual ~event_t() {}
-  static void cancel( event_t*& e ) { if ( e ) { e -> canceled = 1;                 e=0; } }
-  static void  early( event_t*& e ) { if ( e ) { e -> canceled = 1; e -> execute(); e=0; } }
+  static void cancel( event_t*& e );
+  static void  early( event_t*& e );
   // Simple free-list memory manager.
   static void* operator new( size_t, sim_t* );
   static void* operator new( size_t ) throw();  // DO NOT USE!
@@ -2894,7 +2893,6 @@ struct player_t
   bool        vengeance_enabled;
   double      vengeance_damage, vengeance_value, vengeance_max; // a percentage of maximum possible vengeance (i.e. 1.0 means 10% of your health)
   int         active_pets;
-  int         big_hitbox;
   double      dtr_proc_chance;
   double      dtr_base_proc_chance;
   double      reaction_mean,reaction_stddev,reaction_nu;
@@ -2904,6 +2902,8 @@ struct player_t
   double      world_lag, world_lag_stddev;
   double      brain_lag, brain_lag_stddev;
   bool        world_lag_override, world_lag_stddev_override;
+
+  int    events;
 
   // Data access
   dbc_t       dbc;
@@ -3026,8 +3026,8 @@ struct player_t
   event_t*  readying;
   bool      in_combat;
   bool      action_queued;
-  
-  // Delay time used by "cast_delay" expression to determine when an action 
+
+  // Delay time used by "cast_delay" expression to determine when an action
   // can be used at minimum after a spell cast has finished, including GCD
   double    cast_delay_reaction;
   double    cast_delay_occurred;
@@ -3624,6 +3624,7 @@ struct stats_t
   sim_t* sim;
   player_t* player;
   stats_t* next;
+  stats_t* parent;
   school_type school;
   stats_type type;
   std::vector<action_t*> action_list;
@@ -3656,6 +3657,7 @@ struct stats_t
   std::vector<double> timeline_dmg;
   std::vector<double> timeline_dps;
 
+  void add_child( stats_t* child );
   void consume_resource( double r ) { resource_consumed += r; }
   void add_result( double amount, int dmg_type, int result );
   void add_tick   ( double time );
@@ -3765,7 +3767,7 @@ struct action_t : public spell_id_t
   action_t( int type, const char* name, const uint32_t id, player_t* p=0, int t=TREE_NONE, bool special=false );
   virtual ~action_t();
 
-  virtual void _init_action_t();
+  void _init_action_t();
 
   virtual void      parse_data();
   virtual void      parse_effect_data( int spell_id, int effect_nr );
@@ -3845,7 +3847,7 @@ struct action_t : public spell_id_t
 
   virtual double ppm_proc_chance( double PPM ) SC_CONST;
 
-  virtual void add_child( action_t* child ) { stats -> children.push_back( child -> stats ); }
+  void add_child( action_t* child ) { stats -> add_child( child -> stats ); }
 
   // Move to ability_t in future
   const spell_data_t* spell;
@@ -3862,7 +3864,7 @@ struct attack_t : public action_t
   attack_t( const char* n=0, player_t* p=0, int r=RESOURCE_NONE, const school_type s=SCHOOL_PHYSICAL, int t=TREE_NONE, bool special=false );
   attack_t( const char* name, const char* sname, player_t* p, int t = TREE_NONE, bool special=false );
   attack_t( const char* name, const uint32_t id, player_t* p, int t = TREE_NONE, bool special=false );
-  virtual void _init_attack_t();
+  void _init_attack_t();
 
   // Attack Overrides
   virtual double haste() SC_CONST;
@@ -3894,7 +3896,7 @@ struct spell_t : public action_t
   spell_t( const char* n=0, player_t* p=0, int r=RESOURCE_NONE, const school_type s=SCHOOL_PHYSICAL, int t=TREE_NONE );
   spell_t( const char* name, const char* sname, player_t* p, int t = TREE_NONE );
   spell_t( const char* name, const uint32_t id, player_t* p, int t = TREE_NONE );
-  virtual void _init_spell_t();
+  void _init_spell_t();
 
   // Spell Overrides
   virtual double haste() SC_CONST;
@@ -3916,7 +3918,6 @@ struct spell_t : public action_t
 struct heal_t : public spell_t
 {
   std::vector<player_t*> heal_target;
-  std::string target_str;
 
   spell_t* valanyr;
 
@@ -3951,7 +3952,6 @@ struct heal_t : public spell_t
 struct absorb_t : public spell_t
 {
   std::vector<player_t*> heal_target;
-  std::string target_str;
 
   // Reporting
   double total_heal, total_actual;
@@ -4169,7 +4169,7 @@ struct unique_gear_t
 
   static action_callback_t* register_discharge_proc( int type, int64_t mask, const std::string& name, player_t*,
                                                      int max_stacks, const school_type school, double amount, double scaling,
-                                                     double proc_chance, double cooldown, bool no_crits, bool no_buffs, bool no_debuffs, 
+                                                     double proc_chance, double cooldown, bool no_crits, bool no_buffs, bool no_debuffs,
                                                      int rng_type=RNG_DEFAULT );
 
   static action_callback_t* register_chance_discharge_proc( int type, int64_t mask, const std::string& name, player_t*,
@@ -4305,6 +4305,7 @@ struct proc_t
 
 struct report_t
 {
+  static void encode_html( std::string& buffer );
   static void print_spell_query( sim_t* );
   static void print_profiles( sim_t* );
   static void print_text( FILE*, sim_t*, bool detail=true );

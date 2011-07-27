@@ -8,10 +8,28 @@
 // stats_t::stats_t =========================================================
 
 stats_t::stats_t( const std::string& n, player_t* p ) :
-  name_str( n ), sim( p->sim ), player( p ), next( 0 ), school( SCHOOL_NONE ),
-  type( STATS_DMG ), analyzed( false ), initialized( false ),
-  quiet( false ), resource( RESOURCE_NONE ), resource_consumed( 0 ), last_execute( -1 )
+  name_str( n ), sim( p->sim ), player( p ), next( 0 ), parent( 0 ),
+  school( SCHOOL_NONE ), type( STATS_DMG ), analyzed( false ),
+  initialized( false ), quiet( false ), resource( RESOURCE_NONE ),
+  resource_consumed( 0 ), last_execute( -1 )
 {
+}
+
+// stats_t::add_child =======================================================
+
+void stats_t::add_child( stats_t* child )
+{
+  if( child -> parent )
+  {
+    if ( child -> parent != this )
+    {
+      sim -> errorf( "stats_t %s already has parent %s, can't parent to %s", child-> name_str.c_str(), child->parent-> name_str.c_str(), name_str.c_str() );
+      assert( 0 );
+    }
+    return;
+  }
+  child -> parent = this;
+  children.push_back( child );
 }
 
 // stats_t::init ============================================================
