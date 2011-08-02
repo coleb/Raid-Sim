@@ -399,161 +399,15 @@ struct priest_t : public player_t
   virtual double    empowered_shadows_amount() SC_CONST;
   virtual double    shadow_orb_amount() SC_CONST;
 
+  void fixup_atonement_stats( const char* trigger_spell_name, const char* atonement_spell_name );
+  virtual void pre_analyze_hook();
+
   void trigger_cauterizing_flame();
 };
 
 namespace   // ANONYMOUS NAMESPACE ==========================================
 {
 
-// ==========================================================================
-// Priest Spell
-// ==========================================================================
-
-struct priest_spell_t : public spell_t
-{
-  spell_t* atonement;
-  bool can_trigger_atonement;
-
-  void _init_priest_spell_t()
-  {
-    priest_t* p = player -> cast_priest();
-
-    may_crit          = true;
-    tick_may_crit     = true;
-
-    dot_behavior      = DOT_REFRESH;
-    weapon_multiplier = 0.0;
-
-    crit_bonus_multiplier *= 1.0 + p -> constants.shadow_power_crit_value;
-  }
-
-  priest_spell_t( const char* n, player_t* player, const school_type s, int t ) :
-    spell_t( n, player, RESOURCE_MANA, s, t ), atonement( 0 ), can_trigger_atonement( false )
-  {
-    _init_priest_spell_t();
-  }
-
-  priest_spell_t( const active_spell_t& s, int t = TREE_NONE ) :
-    spell_t( s )
-  {
-    _init_priest_spell_t();
-  }
-
-  priest_spell_t( const char* n, player_t* player, const char* sname, int t = TREE_NONE ) :
-    spell_t( n, sname, player, t )
-  {
-    _init_priest_spell_t();
-  }
-
-  priest_spell_t( const char* n, player_t* player, const uint32_t id, int t = TREE_NONE ) :
-    spell_t( n, id, player, t )
-  {
-    _init_priest_spell_t();
-  }
-
-  virtual void init();
-
-  virtual void player_buff()
-  {
-    spell_t::player_buff();
-
-    priest_t* p = player -> cast_priest();
-
-    for ( int i=0; i < 6; i++ )
-    {
-      p -> uptimes_dark_evangelism[ i ] -> update( i == p -> buffs_dark_evangelism -> stack() );
-      p -> uptimes_holy_evangelism[ i ] -> update( i == p -> buffs_holy_evangelism -> stack() );
-    }
-  }
-
-  virtual void execute()
-  {
-    spell_t::execute();
-
-    priest_t* p = player -> cast_priest();
-
-    if ( execute_time() > 0 )
-      p -> buffs_borrowed_time -> expire();
-  }
-
-  virtual void assess_damage( player_t* t,
-                              double amount,
-                              int    dmg_type,
-                              int travel_result )
-  {
-    priest_t* p = player -> cast_priest();
-
-    spell_t::assess_damage( t, amount, dmg_type, travel_result );
-
-    if ( p -> buffs_vampiric_embrace -> up() && result_is_hit( travel_result ) )
-    {
-      double a = amount * ( 1.0 + p -> constants.twin_disciplines_value );
-      p -> resource_gain( RESOURCE_HEALTH, a * 0.06, p -> gains.vampiric_embrace );
-
-      pet_t* r = p -> pet_list;
-
-      while ( r )
-      {
-        r -> resource_gain( RESOURCE_HEALTH, a * 0.03, r -> gains.vampiric_embrace );
-        r = r -> next_pet;
-      }
-
-      int num_players = ( int ) p -> party_list.size();
-
-      for ( int i=0; i < num_players; i++ )
-      {
-        player_t* q = p -> party_list[ i ];
-
-        q -> resource_gain( RESOURCE_HEALTH, a * 0.03, q -> gains.vampiric_embrace );
-
-        r = q -> pet_list;
-
-        while ( r )
-        {
-          r -> resource_gain( RESOURCE_HEALTH, a * 0.03, r -> gains.vampiric_embrace );
-          r = r -> next_pet;
-        }
-      }
-    }
-  }
-
-  void trigger_atonement( double damage, int dmg_type, int result )
-  {
-    if ( !atonement ) return;
-
-    priest_t* p = player -> cast_priest();
-
-    double atonement_dmg = damage * p -> talents.atonement -> effect1().percent();
-    double cap = p -> resource_max[ RESOURCE_HEALTH ] * 0.3;
-
-    if ( result == RESULT_CRIT )
-    {
-      // FIXME: Crits in 4.1 capped at 150% of the non-crit cap. This may
-      //        be changed to 200% in 4.2 along with the general heal
-      //        crit multiplier change.
-      cap *= 1.5;
-    }
-
-    if ( atonement_dmg > cap )
-      atonement_dmg = cap;
-
-    if ( dmg_type == HEAL_DIRECT )
-    {
-      atonement -> may_crit = result == RESULT_CRIT;
-      atonement -> num_ticks = 0;
-      atonement -> base_dd_min = atonement -> base_dd_max = atonement_dmg;
-      atonement -> execute();
-    } else {
-      atonement -> tick_may_crit = result == RESULT_CRIT;
-      atonement -> num_ticks = 1;
-      atonement -> base_td = atonement_dmg;
-      atonement -> tick();
-    }
-  }
-
-  static void trigger_shadowy_apparition( player_t* player );
-  static void add_more_shadowy_apparitions( player_t* player );
-};
 
 // ==========================================================================
 // Priest Absorb
@@ -561,26 +415,26 @@ struct priest_spell_t : public spell_t
 
 struct priest_absorb_t : public absorb_t
 {
-  priest_absorb_t( const char* n, player_t* player, const char* sname, int t = TREE_NONE ) :
-    absorb_t( n, player, sname, t )
+private:
+  void _init_priest_absorb_t()
   {
     may_crit          = false;
     tick_may_crit     = false;
-    dot_behavior      = DOT_REFRESH;
-    weapon_multiplier = 0.0;
+    may_miss          = false;
+    may_resist        = false;
+  }
 
-    may_miss=may_resist=false;
+public:
+  priest_absorb_t( const char* n, player_t* player, const char* sname, int t = TREE_NONE ) :
+    absorb_t( n, player, sname, t )
+  {
+    _init_priest_absorb_t();
   }
 
   priest_absorb_t( const char* n, player_t* player, const uint32_t id, int t = TREE_NONE ) :
     absorb_t( n, player, id, t )
   {
-    may_crit          = false;
-    tick_may_crit     = false;
-    may_miss=may_resist=false;
-
-    dot_behavior      = DOT_REFRESH;
-    weapon_multiplier = 0.0;
+    _init_priest_absorb_t();
   }
 
   virtual void player_buff()
@@ -769,17 +623,17 @@ struct priest_heal_t : public heal_t
     heal_t::travel( t, travel_result, travel_dmg );
     priest_t* p = player -> cast_priest();
 
-    // Divine Aegis
-    if ( da && travel_result == RESULT_CRIT )
-    {
-      da -> base_dd_min = da -> base_dd_max = travel_dmg * da -> shield_multiple;
-      da -> heal_target.clear();
-      da -> heal_target.push_back( t );
-      da -> execute();
-    }
-
     if ( travel_dmg > 0 )
     {
+      // Divine Aegis
+      if ( da && travel_result == RESULT_CRIT )
+      {
+        da -> base_dd_min = da -> base_dd_max = travel_dmg * da -> shield_multiple;
+        da -> heal_target.clear();
+        da -> heal_target.push_back( t );
+        da -> execute();
+      }
+
       trigger_echo_of_light( this, t );
       if ( p -> buffs_chakra_serenity -> up() && p -> dots_renew -> ticking )
         p -> dots_renew -> action -> refresh_duration();
@@ -823,6 +677,228 @@ struct priest_heal_t : public heal_t
     if ( p -> talents.strength_of_soul -> rank() && t -> buffs.weakened_soul -> up() )
       t -> buffs.weakened_soul -> extend_duration( p, -1 * p -> talents.strength_of_soul -> effect1().base_value() );
   }
+};
+
+// Atonement heal
+
+struct atonement_heal_t : public priest_heal_t
+{
+  atonement_heal_t( const char* n, player_t* player ) :
+      priest_heal_t( n, player, 81751 )
+  {
+    proc       = true;
+    background = true;
+    round_base_dmg = false;
+
+    time_to_tick = 0;
+
+    // HACK: Setting may_crit = true will force crits.
+    may_crit = false;
+    base_crit = 1.0;
+
+    priest_t* p = player -> cast_priest();
+    if( !p -> atonement_target_str.empty() )
+      target = sim -> find_player( p -> atonement_target_str.c_str() );
+  }
+
+  void trigger( double atonement_dmg, int dmg_type, int result )
+  {
+    priest_t* p = player -> cast_priest();
+
+    atonement_dmg *= p -> talents.atonement -> effect1().percent();
+    double cap = p -> resource_max[ RESOURCE_HEALTH ] * 0.3;
+
+    if ( result == RESULT_CRIT )
+    {
+      // FIXME: Crits in 4.1 capped at 150% of the non-crit cap. This may
+      //        be changed to 200% in 4.2 along with the general heal
+      //        crit multiplier change.
+      cap *= 1.5;
+    }
+
+    if ( atonement_dmg > cap )
+      atonement_dmg = cap;
+
+    if ( dmg_type == DMG_OVER_TIME )
+    {
+      // num_ticks = 1;
+      base_td = atonement_dmg;
+      tick_may_crit = (result == RESULT_CRIT);
+      tick();
+    }
+    else
+    {
+      assert( dmg_type == DMG_DIRECT );
+      // num_ticks = 0;
+      base_dd_min = base_dd_max = atonement_dmg;
+      may_crit = (result == RESULT_CRIT);
+      execute();
+    }
+  }
+
+  virtual double total_crit_bonus() SC_CONST
+  {
+    return 0;
+  }
+
+  virtual void player_buff()
+  {
+    priest_heal_t::player_buff();
+    priest_t* p = player -> cast_priest();
+
+    // Atonement does not scale with Twin Disciplines as of WoW 4.2
+    player_multiplier /= 1.0 + p -> constants.twin_disciplines_value;
+  }
+
+  virtual void execute()
+  {
+    heal_target.clear();
+    heal_target.push_back( target ? target : find_lowest_player() );
+
+    priest_heal_t::execute();
+  }
+
+  virtual void tick()
+  {
+    heal_target.clear();
+    heal_target.push_back( target ? target : find_lowest_player() );
+
+    priest_heal_t::tick();
+  }
+};
+
+// ==========================================================================
+// Priest Spell
+// ==========================================================================
+
+struct priest_spell_t : public spell_t
+{
+  atonement_heal_t* atonement;
+  bool can_trigger_atonement;
+
+private:
+  void _init_priest_spell_t()
+  {
+    priest_t* p = player -> cast_priest();
+
+    may_crit          = true;
+    tick_may_crit     = true;
+
+    dot_behavior      = DOT_REFRESH;
+    weapon_multiplier = 0.0;
+
+    crit_bonus_multiplier *= 1.0 + p -> constants.shadow_power_crit_value;
+
+    atonement         = 0;
+    can_trigger_atonement = false;
+  }
+
+public:
+  priest_spell_t( const char* n, player_t* player, const school_type s, int t ) :
+    spell_t( n, player, RESOURCE_MANA, s, t )
+  {
+    _init_priest_spell_t();
+  }
+
+  priest_spell_t( const active_spell_t& s, int t = TREE_NONE ) :
+    spell_t( s )
+  {
+    _init_priest_spell_t();
+  }
+
+  priest_spell_t( const char* n, player_t* player, const char* sname, int t = TREE_NONE ) :
+    spell_t( n, sname, player, t )
+  {
+    _init_priest_spell_t();
+  }
+
+  priest_spell_t( const char* n, player_t* player, const uint32_t id, int t = TREE_NONE ) :
+    spell_t( n, id, player, t )
+  {
+    _init_priest_spell_t();
+  }
+
+  virtual void init()
+  {
+    spell_t::init();
+
+    priest_t* p = player -> cast_priest();
+    if( can_trigger_atonement && p -> talents.atonement -> rank() )
+    {
+      std::string n = "atonement_" + name_str;
+      atonement = new atonement_heal_t( n.c_str(), p );
+    }
+  }
+
+  virtual void player_buff()
+  {
+    spell_t::player_buff();
+
+    priest_t* p = player -> cast_priest();
+
+    for ( int i=0; i < 6; i++ )
+    {
+      p -> uptimes_dark_evangelism[ i ] -> update( i == p -> buffs_dark_evangelism -> stack() );
+      p -> uptimes_holy_evangelism[ i ] -> update( i == p -> buffs_holy_evangelism -> stack() );
+    }
+  }
+
+  virtual void execute()
+  {
+    spell_t::execute();
+
+    priest_t* p = player -> cast_priest();
+
+    if ( execute_time() > 0 )
+      p -> buffs_borrowed_time -> expire();
+  }
+
+  virtual void assess_damage( player_t* t,
+                              double amount,
+                              int    dmg_type,
+                              int    travel_result )
+  {
+    priest_t* p = player -> cast_priest();
+
+    spell_t::assess_damage( t, amount, dmg_type, travel_result );
+
+    if ( p -> buffs_vampiric_embrace -> up() && result_is_hit( travel_result ) )
+    {
+      double a = amount * ( 1.0 + p -> constants.twin_disciplines_value );
+      p -> resource_gain( RESOURCE_HEALTH, a * 0.06, p -> gains.vampiric_embrace );
+
+      pet_t* r = p -> pet_list;
+
+      while ( r )
+      {
+        r -> resource_gain( RESOURCE_HEALTH, a * 0.03, r -> gains.vampiric_embrace );
+        r = r -> next_pet;
+      }
+
+      int num_players = ( int ) p -> party_list.size();
+
+      for ( int i=0; i < num_players; i++ )
+      {
+        player_t* q = p -> party_list[ i ];
+
+        q -> resource_gain( RESOURCE_HEALTH, a * 0.03, q -> gains.vampiric_embrace );
+
+        r = q -> pet_list;
+
+        while ( r )
+        {
+          r -> resource_gain( RESOURCE_HEALTH, a * 0.03, r -> gains.vampiric_embrace );
+          r = r -> next_pet;
+        }
+      }
+    }
+
+    if ( atonement )
+      atonement -> trigger( amount, dmg_type, travel_result );
+  }
+
+  static void trigger_shadowy_apparition( player_t* player );
+  static void add_more_shadowy_apparitions( player_t* player );
 };
 
 // ==========================================================================
@@ -1359,11 +1435,17 @@ struct devouring_plague_t : public priest_spell_t
 struct dispersion_t : public priest_spell_t
 {
   pet_t* shadow_fiend;
+  int low_mana;
 
   dispersion_t( player_t* player, const std::string& options_str ) :
-    priest_spell_t( "dispersion", player, "Dispersion" )
+    priest_spell_t( "dispersion", player, "Dispersion" ), low_mana( 0 )
   {
-    parse_options( NULL, options_str );
+    option_t options[] =
+    {
+      { "low_mana",         OPT_BOOL,    &low_mana   },
+      { NULL,               OPT_UNKNOWN, NULL        }
+    };
+    parse_options( options, options_str );
 
     priest_t* p = player -> cast_priest();
 
@@ -1395,6 +1477,9 @@ struct dispersion_t : public priest_spell_t
   {
     if ( ! priest_spell_t::ready() )
       return false;
+
+    if ( ! low_mana )
+      return true;
 
     priest_t* p = player -> cast_priest();
 
@@ -1502,15 +1587,11 @@ struct holy_fire_t : public priest_spell_t
     priest_t* p = player -> cast_priest();
 
     p -> buffs_holy_evangelism  -> trigger();
-
-    trigger_atonement( direct_dmg, HEAL_DIRECT, result );
   }
 
   virtual void tick()
   {
     priest_spell_t::tick();
-
-    trigger_atonement( tick_dmg, HEAL_OVER_TIME, result );
   }
 
   virtual void player_buff()
@@ -2300,7 +2381,7 @@ struct shadow_word_death_t : public priest_spell_t
     if ( p -> talents.mind_melt -> rank() && ( target -> health_percentage() <= 25 ) )
       player_multiplier *= 1.0 + p -> talents.mind_melt -> rank() * 0.15;
 
-    if ( p -> glyphs.shadow_word_death -> ok() && ( target -> health_percentage() <= 25 ) )
+    if ( target -> health_percentage() <= 25 )
       player_multiplier *= 3.0;
 
     player_multiplier *= 1.0 + p -> buffs_dark_archangel -> value() * p -> constants.dark_archangel_damage_value;
@@ -2716,90 +2797,26 @@ struct chakra_t : public priest_spell_t
 
   virtual void execute()
   {
+    // FIXME: Doesn't the cooldown work like Inner Focus?
     cooldown -> duration = sim -> wheel_seconds;
 
     priest_spell_t::execute();
 
     priest_t* p = player -> cast_priest();
 
-    p -> buffs_chakra_pre -> trigger();
+    p -> buffs_chakra_pre -> start();
   }
 
   virtual bool ready()
   {
     priest_t* p = player -> cast_priest();
 
-    if ( p -> buffs_chakra_pre -> up() )
+    if ( p -> buffs_chakra_pre -> check() )
       return false;
 
     return priest_spell_t::ready();
   }
 };
-
-// Atonement heal
-
-struct atonement_heal_t : public priest_heal_t
-{
-  atonement_heal_t( const char* n, player_t* player ) :
-      priest_heal_t( n, player, 81751 )
-  {
-    proc       = true;
-    background = true;
-    round_base_dmg = false;
-
-    time_to_tick = 0;
-
-    // HACK: Setting may_crit = true will force crits.
-    may_crit = false;
-    base_crit = 1.0;
-
-    priest_t* p = player -> cast_priest();
-    if( !p -> atonement_target_str.empty() )
-      target = sim -> find_player( p -> atonement_target_str.c_str() );
-  }
-
-  virtual double total_crit_bonus() SC_CONST
-  {
-    return 0;
-  }
-
-  virtual void player_buff()
-  {
-    priest_heal_t::player_buff();
-    priest_t* p = player -> cast_priest();
-
-    // Atonement does not scale with Twin Disciplines as of WoW 4.2
-    player_multiplier /= 1.0 + p -> constants.twin_disciplines_value;
-  }
-
-  virtual void execute()
-  {
-    heal_target.clear();
-    heal_target.push_back( target ? target : find_lowest_player() );
-
-    priest_heal_t::execute();
-  }
-
-  virtual void tick()
-  {
-    heal_target.clear();
-    heal_target.push_back( target ? target : find_lowest_player() );
-
-    priest_heal_t::tick();
-  }
-};
-
-void priest_spell_t::init()
-{
-  spell_t::init();
-
-  priest_t* p = player -> cast_priest();
-  if( can_trigger_atonement && p -> talents.atonement -> rank() )
-  {
-    std::string n = "atonement_" + name_str;
-    atonement = new atonement_heal_t( n.c_str(), p );
-  }
-}
 
 // Smite Spell ==============================================================
 
@@ -2842,8 +2859,6 @@ struct smite_t : public priest_spell_t
       p -> cooldowns_chakra -> duration -= p -> talents.state_of_mind -> effect1().seconds();
       p -> cooldowns_chakra -> start();
     }
-
-    trigger_atonement( direct_dmg, HEAL_DIRECT, result );
 
     // Train of Thought
     if ( p -> talents.train_of_thought -> rank() )
@@ -3383,6 +3398,11 @@ struct prayer_of_healing_t : public priest_heal_t
       glyph = new glyph_prayer_of_healing_t( p );
       add_child( glyph );
     }
+  }
+
+  virtual void init()
+  {
+    priest_heal_t::init();
 
     // PoH crits double the DA percentage.
     if ( da ) da -> shield_multiple *= 2;
@@ -3545,7 +3565,7 @@ struct circle_of_healing_t : public priest_heal_t
       if ( !q -> is_pet() && q != heal_target[0] && q -> get_player_distance( target ) < ( range * range ) )
       {
         heal_target.push_back( q );
-        if( heal_target.size() >= ( p -> glyphs.circle_of_healing -> ok() ? 6 : 5 ) ) break;
+        if( heal_target.size() >= (unsigned) ( p -> glyphs.circle_of_healing -> ok() ? 6 : 5 ) ) break;
       }
     }
 
@@ -3874,51 +3894,53 @@ struct penance_heal_t : public priest_heal_t
 
 // Holy Word Spell ==========================================================
 
-struct holy_word_sanctuary_tick_t : public priest_heal_t
-{
-  holy_word_sanctuary_tick_t( player_t* player ) :
-    priest_heal_t( "holy_word_sanctuary_tick", player, 88686 )
-  {
-    dual        = true;
-    background  = true;
-    direct_tick = true;
-
-    stats = player -> get_stats( "holy_word_sanctuary", this );
-  }
-  virtual void execute()
-  {
-    // Choose Heal Targets
-    heal_target.clear();
-    for ( player_t* q = sim -> player_list; q; q = q -> next )
-    {
-      if ( !q -> is_pet() && q -> get_player_distance( target ) < ( range * range ) )
-      {
-        heal_target.push_back( q );
-      }
-    }
-
-    priest_heal_t::execute();
-  }
-
-  virtual void player_buff()
-  {
-    priest_heal_t::player_buff();
-
-    priest_t* p = player -> cast_priest();
-
-    if ( p -> buffs_chakra_sanctuary -> up() )
-      player_multiplier *= 1.0 + p -> buffs_chakra_sanctuary -> effect1().percent();
-  }
-};
-
 struct holy_word_sanctuary_t : public priest_heal_t
 {
-  spell_t* tick_spell;
+  struct holy_word_sanctuary_tick_t : public priest_heal_t
+  {
+    holy_word_sanctuary_tick_t( player_t* player ) :
+      priest_heal_t( "holy_word_sanctuary_tick", player, 88686 )
+    {
+      dual        = true;
+      background  = true;
+      direct_tick = true;
 
-  holy_word_sanctuary_t( player_t* player ) :
+      stats = player -> get_stats( "holy_word_sanctuary", this );
+    }
+    virtual void execute()
+    {
+      // Choose Heal Targets
+      heal_target.clear();
+      for ( player_t* q = sim -> player_list; q; q = q -> next )
+      {
+        if ( !q -> is_pet() && q -> get_player_distance( target ) < ( range * range ) )
+        {
+          heal_target.push_back( q );
+        }
+      }
+
+      priest_heal_t::execute();
+    }
+
+    virtual void player_buff()
+    {
+      priest_heal_t::player_buff();
+
+      priest_t* p = player -> cast_priest();
+
+      if ( p -> buffs_chakra_sanctuary -> up() )
+        player_multiplier *= 1.0 + p -> buffs_chakra_sanctuary -> effect1().percent();
+    }
+  };
+
+  holy_word_sanctuary_tick_t* tick_spell;
+
+  holy_word_sanctuary_t( player_t* player, const std::string& options_str ) :
     priest_heal_t( "holy_word_sanctuary", player, 88685 ),
     tick_spell( 0 )
   {
+    parse_options( NULL, options_str );
+
     hasted_ticks = false;
     may_crit     = false;
 
@@ -3953,9 +3975,11 @@ struct holy_word_sanctuary_t : public priest_heal_t
 
 struct holy_word_chastise_t : public priest_spell_t
 {
-  holy_word_chastise_t( player_t* player ) :
+  holy_word_chastise_t( player_t* player, const std::string& options_str ) :
     priest_spell_t( "holy_word_chastise", player, 88625 )
   {
+    parse_options( NULL, options_str );
+
     priest_t* p = player -> cast_priest();
 
     base_cost *= 1.0 + p -> talents.mental_agility -> mod_additive( P_RESOURCE_COST );
@@ -3983,9 +4007,11 @@ struct holy_word_chastise_t : public priest_spell_t
 
 struct holy_word_serenity_t : public priest_heal_t
 {
-  holy_word_serenity_t( player_t* player ) :
+  holy_word_serenity_t( player_t* player, const std::string& options_str ) :
     priest_heal_t( "holy_word_serenity", player, 88684 )
   {
+    parse_options( NULL, options_str );
+
     priest_t* p = player -> cast_priest();
 
     base_cost *= 1.0 + p -> talents.mental_agility -> mod_additive( P_RESOURCE_COST );
@@ -4027,13 +4053,11 @@ struct holy_word_t : public priest_spell_t
     priest_spell_t( "holy_word", player, SCHOOL_HOLY, TREE_HOLY ),
     hw_sanctuary( 0 ), hw_chastise( 0 ), hw_serenity( 0 )
   {
-    parse_options( NULL, options_str );
-
     priest_t* p = player -> cast_priest();
 
-    hw_sanctuary = new holy_word_sanctuary_t( p );
-    hw_chastise  = new holy_word_chastise_t ( p );
-    hw_serenity  = new holy_word_serenity_t ( p );
+    hw_sanctuary = new holy_word_sanctuary_t( p, options_str );
+    hw_chastise  = new holy_word_chastise_t ( p, options_str );
+    hw_serenity  = new holy_word_serenity_t ( p, options_str );
   }
 
   virtual void schedule_execute()
@@ -4081,40 +4105,41 @@ struct holy_word_t : public priest_spell_t
 
 // Lightwell Spell ==========================================================
 
-struct lightwell_hot_t : public priest_heal_t
-{
-  int charges;
-  double consume_interval;
-
-  lightwell_hot_t( player_t* player ) :
-    priest_heal_t( "lightwell_hot", player, 7001 ),
-    charges( 0 ), consume_interval( 0.0 )
-  {
-    // Hardcoded in the tooltip
-    tick_power_mod = 0.308;
-    base_multiplier *= 3 * 1.25;
-
-    proc          = true;
-    background    = true;
-    hasted_ticks  = false;
-    may_crit      = false;
-  }
-
-  virtual void execute()
-  {
-    priest_heal_t::execute();
-
-    if ( charges >= 0 )
-    {
-      // Assuming a Lightwell Charge is used every 10 seconds
-      execute_event = new ( sim ) action_execute_event_t( sim, this, consume_interval );
-      charges -= 1;
-    }
-  }
-};
-
 struct lightwell_t : public priest_heal_t
 {
+  struct lightwell_hot_t : public priest_heal_t
+  {
+    int charges;
+    double consume_interval;
+
+    lightwell_hot_t( player_t* player ) :
+      priest_heal_t( "lightwell_hot", player, 7001 ),
+      charges( 0 ), consume_interval( 0.0 )
+    {
+      // Hardcoded in the tooltip
+      tick_power_mod = 0.308;
+      base_multiplier *= 3 * 1.25;
+
+      proc          = true;
+      background    = true;
+      hasted_ticks  = false; // FIXME: Lightwell ticks _are_ hasted, but it doesn't benefit from,
+                             //        buffs, only bare haste rating.
+      may_crit      = false;
+    }
+
+    virtual void execute()
+    {
+      priest_heal_t::execute();
+
+      if ( charges >= 0 )
+      {
+        // Assuming a Lightwell Charge is used every 10 seconds
+        execute_event = new ( sim ) action_execute_event_t( sim, this, consume_interval );
+        charges -= 1;
+      }
+    }
+  };
+
   lightwell_hot_t* lw_hot;
   double consume_interval;
 
@@ -4134,20 +4159,17 @@ struct lightwell_t : public priest_heal_t
     check_talent( p -> talents.lightwell -> rank() );
 
     lw_hot = new lightwell_hot_t( p );
-
     add_child( lw_hot );
   }
 
   virtual void execute()
   {
     priest_heal_t::execute();
+
     priest_t* p = player -> cast_priest();
 
-    lw_hot -> charges = 10;
+    lw_hot -> charges = 10 + p -> glyphs.lightwell -> effect1().base_value();
     lw_hot -> consume_interval = consume_interval;
-
-    lw_hot -> charges += p -> glyphs.lightwell -> effect1().base_value();
-
     lw_hot -> execute();
   }
 };
@@ -4718,7 +4740,7 @@ void priest_t::init_spells()
   passive_spells.meditation_disc        = new passive_spell_t( this, "meditation_disc", "Meditation" );
 
   // Holy
-  passive_spells.spiritual_healing      = new passive_spell_t( this, "spiritual_healing", "Enlightenment" );
+  passive_spells.spiritual_healing      = new passive_spell_t( this, "spiritual_healing", "Spiritual Healing" );
   passive_spells.meditation_holy        = new passive_spell_t( this, "meditation_holy", 95861 );
 
   // Shadow
@@ -4802,6 +4824,7 @@ void priest_t::init_buffs()
   buffs_chakra_serenity            = new buff_t( this, 81208, "chakra_serenity" );
   buffs_serendipity                = new buff_t( this, talents.serendipity -> effect_trigger_spell( 1 ), "serendipity", talents.serendipity -> rank() );
   buffs_serenity                   = new buff_t( this, 88684, "chakra_serenity_crit" );
+  buffs_serenity -> cooldown -> duration = 0;
   buffs_surge_of_light             = new buff_t( this, talents.surge_of_light, NULL );
 
 
@@ -5111,6 +5134,35 @@ void priest_t::reset()
   init_party();
 }
 
+// priest_t::fixup_atonement_stats  ==========================================
+
+void priest_t::fixup_atonement_stats( const char* trigger_spell_name,
+                                    const char* atonement_spell_name )
+{
+  if ( stats_t* trigger = get_stats( trigger_spell_name ) )
+  {
+    if ( stats_t* atonement = get_stats( atonement_spell_name ) )
+    {
+      // Copy stats from the trigger spell to the atonement spell
+      // to get proper HPR and HPET reports.
+      atonement -> resource_consumed = trigger -> resource_consumed;
+      atonement -> total_execute_time = trigger -> total_execute_time;
+      atonement -> total_tick_time = trigger -> total_tick_time;
+    }
+  }
+}
+
+// priest_t::pre_analyze_hook  ===============================================
+
+void priest_t::pre_analyze_hook()
+{
+  if ( talents.atonement -> rank() )
+  {
+    fixup_atonement_stats( "smite", "atonement_smite" );
+    fixup_atonement_stats( "holy_fire", "atonement_holy_fire" );
+  }
+}
+
 // priest_t::regen  ==========================================================
 
 void priest_t::regen( double periodicity )
@@ -5252,7 +5304,6 @@ bool priest_t::create_profile( std::string& profile_str, int save_type, bool sav
 
   if ( save_type == SAVE_ALL )
   {
-    std::string temp_str;
     if ( ! power_infusion_target_str.empty() ) profile_str += "power_infusion_target=" + power_infusion_target_str + "\n";
     if ( ! atonement_target_str.empty() ) profile_str += "atonement_target=" + atonement_target_str + "\n";
     if ( ( use_shadow_word_death ) || ( use_mind_blast != 1 ) || ( double_dot ) )
@@ -5265,8 +5316,7 @@ bool priest_t::create_profile( std::string& profile_str, int save_type, bool sav
     }
     if ( use_mind_blast != 1 )
     {
-      temp_str = util_t::to_string( use_mind_blast );
-      profile_str += "use_mind_blast=" + temp_str + "\n";
+      profile_str += "use_mind_blast=" + util_t::to_string( use_mind_blast ) + "\n";
     }
     if ( double_dot )
     {

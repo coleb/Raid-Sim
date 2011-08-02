@@ -404,6 +404,8 @@ struct hunter_pet_t : public pet_t
     base_focus_regen_per_second *= 1.0 + o -> talents.bestial_discipline -> effect1().percent();
 
     base_gcd = 1.20;
+
+    infinite_resource[ RESOURCE_FOCUS ] = o -> infinite_resource[ RESOURCE_FOCUS ];
   }
 
   virtual void init_talents()
@@ -666,21 +668,21 @@ struct hunter_attack_t : public attack_t
     tick_may_crit          = true;
     normalize_weapon_speed = true;
     consumes_tier12_4pc    = false;
-    dot_behavior      = DOT_REFRESH;
+    dot_behavior           = DOT_REFRESH;
   }
   hunter_attack_t( const char* n, player_t* player, const school_type s=SCHOOL_PHYSICAL, int t=TREE_NONE, bool special=true ) :
-      attack_t( n, player, RESOURCE_FOCUS, s, t, special )
+    attack_t( n, player, RESOURCE_FOCUS, s, t, special )
   {
     _init_hunter_attack_t();
   }
   hunter_attack_t( const char* n, player_t* player, const char* sname, int t=TREE_NONE, bool special=true ) :
-      attack_t( n, sname, player, t, special )
+    attack_t( n, sname, player, t, special )
   {
     _init_hunter_attack_t();
   }
 
   hunter_attack_t( const char* n, player_t* player, const uint32_t id, int t=TREE_NONE, bool special=true ) :
-      attack_t( n, id, player, t, special )
+    attack_t( n, id, player, t, special )
   {
     _init_hunter_attack_t();
   }
@@ -1120,6 +1122,7 @@ struct claw_t : public hunter_pet_attack_t
     {
       c -= basec * o -> talents.sic_em -> effect1().percent();
     }
+    if ( c < 0 ) c = 0;
 
     return c;
   }
@@ -3779,11 +3782,11 @@ void hunter_t::init_actions()
       action_list_str += "/aimed_shot,if=buff.master_marksman_fire.react";
       if ( ! glyphs.arcane_shot -> ok() )
       {
-        action_list_str += "/aimed_shot,if=cooldown.chimera_shot.remains>5|focus>=80|buff.rapid_fire.up|buff.bloodlust.up|target.health_pct>80";
+        action_list_str += "/aimed_shot,if=cooldown.chimera_shot.remains>5|focus>=80|buff.rapid_fire.up|buff.bloodlust.up|target.health_pct>90";
       }
       else
       {
-        action_list_str += "/aimed_shot,if=target.health_pct>80|buff.rapid_fire.up|buff.bloodlust.up";
+        action_list_str += "/aimed_shot,if=target.health_pct>90|buff.rapid_fire.up|buff.bloodlust.up";
         if ( race == RACE_TROLL )
           action_list_str += "|buff.berserking.up";
         action_list_str += "/arcane_shot,if=(focus>=66|cooldown.chimera_shot.remains>=5)&(target.health_pct<90&!buff.rapid_fire.up&!buff.bloodlust.up";

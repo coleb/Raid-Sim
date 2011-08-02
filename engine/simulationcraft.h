@@ -76,7 +76,7 @@
 #include "data_definitions.hh"
 
 #define SC_MAJOR_VERSION "420"
-#define SC_MINOR_VERSION "3"
+#define SC_MINOR_VERSION "4"
 #define SC_USE_PTR ( 0 )
 #define SC_BETA ( 0 )
 
@@ -303,6 +303,7 @@ enum proc_type
   PROC_SPELL_AND_TICK,
   PROC_HEAL_SPELL,
   PROC_HARMFUL_SPELL,
+  PROC_DAMAGE_HEAL,
   PROC_MAX
 };
 
@@ -1619,8 +1620,8 @@ struct util_t
   static int string_split( const std::string& str, const char* delim, const char* format, ... );
   static int string_strip_quotes( std::string& str );
 
-  static std::string& to_string( int i );
-  static std::string& to_string( double f, int precision );
+  static std::string to_string( int i );
+  static std::string to_string( double f, int precision );
 
   static int64_t milliseconds();
   static int64_t parse_date( const std::string& month_day_year );
@@ -1952,6 +1953,7 @@ struct buff_t : public spell_id_t
   std::vector<std::string> aura_str;
   std::vector<double> stack_occurrence,stack_react_time;
   int current_stack, max_stack;
+  bool activated;
   double current_value, react, buff_duration, buff_cooldown, default_chance;
   double last_start, last_trigger, start_intervals_sum, trigger_intervals_sum, uptime_sum;
   int64_t up_count, down_count, start_intervals, trigger_intervals, start_count, refresh_count;
@@ -1960,13 +1962,14 @@ struct buff_t : public spell_id_t
   bool reverse, constant, quiet, overridden;
   int aura_id;
   event_t* expiration;
+  event_t* delay;
   int rng_type;
   rng_t* rng;
   cooldown_t* cooldown;
   buff_t* next;
 
   buff_t() : sim( 0 ) {}
-  virtual ~buff_t() { };
+  virtual ~buff_t() {}
 
   // Raid Aura
   buff_t( sim_t*, const std::string& name,
@@ -1976,7 +1979,7 @@ struct buff_t : public spell_id_t
   // Player Buff
   buff_t( player_t*, const std::string& name,
           int max_stack=1, double buff_duration=0, double buff_cooldown=0,
-          double chance=1.0, bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC, int aura_id=0 );
+          double chance=1.0, bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC, int aura_id=0, bool activated=true );
 
   // Player Buff with extracted data
   buff_t( player_t*, talent_t*, ... );
@@ -1985,12 +1988,12 @@ struct buff_t : public spell_id_t
   // Player Buff as spell_id_t by name
   buff_t( player_t*, const std::string& name, const char* sname,
           double chance=-1, double duration=-1.0,
-          bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC );
+          bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC, bool activated=true );
 
   // Player Buff as spell_id_t by id
   buff_t( player_t*, const uint32_t id, const std::string& name,
           double chance=-1, double duration=-1.0,
-          bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC );
+          bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC, bool activated=true );
 
   // Use check() inside of ready() methods to prevent skewing of "benefit" calculations.
   // Use up() where the presence of the buff affects the action mechanics.
@@ -2004,6 +2007,7 @@ struct buff_t : public spell_id_t
   bool   remains_lt( double time );
   bool   trigger  ( action_t*, int stacks=1, double value=-1.0 );
   virtual bool   trigger  ( int stacks=1, double value=-1.0, double chance=-1.0 );
+  virtual void   execute ( int stacks=1, double value=-1.0 );
   virtual void   increment( int stacks=1, double value=-1.0 );
   void   decrement( int stacks=1, double value=-1.0 );
   void   extend_duration( player_t* p, double seconds );
@@ -2045,10 +2049,10 @@ struct stat_buff_t : public buff_t
   stat_buff_t( player_t*, const std::string& name,
                int stat, double amount,
                int max_stack=1, double buff_duration=0, double buff_cooldown=0,
-               double chance=1.0, bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC, int aura_id=0 );
+               double chance=1.0, bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC, int aura_id=0, bool activated=true );
   stat_buff_t( player_t*, const uint32_t id, const std::string& name,
                  int stat, double amount,
-                 double chance=1.0, double buff_cooldown=-1.0, bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC );
+                 double chance=1.0, double buff_cooldown=-1.0, bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC, bool activated=true );
   virtual ~stat_buff_t() { };
   virtual void bump     ( int stacks=1, double value=-1.0 );
   virtual void decrement( int stacks=1, double value=-1.0 );
@@ -2064,10 +2068,10 @@ struct cost_reduction_buff_t : public buff_t
   cost_reduction_buff_t( player_t*, const std::string& name,
                          int school, double amount,
                          int max_stack=1, double buff_duration=0, double buff_cooldown=0,
-                         double chance=1.0, bool refreshes=false, bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC, int aura_id=0 );
+                         double chance=1.0, bool refreshes=false, bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC, int aura_id=0, bool activated=true );
   cost_reduction_buff_t( player_t*, const uint32_t id, const std::string& name,
                          int school, double amount,
-                         double chance=1.0, double buff_cooldown=-1.0, bool refreshes=false, bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC );
+                         double chance=1.0, double buff_cooldown=-1.0, bool refreshes=false, bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC, bool activated=true );
   virtual ~cost_reduction_buff_t() { };
   virtual void bump     ( int stacks=1, double value=-1.0 );
   virtual void decrement( int stacks=1, double value=-1.0 );
@@ -2412,6 +2416,10 @@ struct sim_t
   buff_t* buff_list;
   double aura_delay;
 
+  // Global aura related delay
+  double default_aura_delay;
+  double default_aura_delay_stddev;
+
   cooldown_t* cooldown_list;
 
   // Replenishment
@@ -2614,7 +2622,7 @@ struct event_t
   double    reschedule_time;
   int       canceled;
   const char* name;
-  event_t( sim_t* s, player_t* p=0, const char* n=0 ) :
+  event_t( sim_t* s, player_t* p=0, const char* n="" ) :
       next( 0 ), sim( s ), player( p ), reschedule_time( 0 ), canceled( 0 ), name( n )
   {
     if ( ! name ) name = "unknown";
@@ -3571,6 +3579,9 @@ struct player_t
   rng_t*      get_rng     ( const std::string& name, int type=RNG_DEFAULT );
   double      get_player_distance( player_t* p );
   double      get_position_distance( double m=0, double v=0 );
+
+  // Opportunity to perform any stat fixups before analysis
+  virtual void pre_analyze_hook() {}
 };
 
 // Pet =======================================================================
@@ -3979,13 +3990,14 @@ struct sequence_t : public action_t
 {
   std::vector<action_t*> sub_actions;
   int current_action;
+  bool restarted;
 
   sequence_t( player_t*, const std::string& sub_action_str );
   virtual ~sequence_t();
   virtual void schedule_execute();
   virtual void reset();
   virtual bool ready();
-  virtual void restart() { current_action=0; }
+  virtual void restart() { current_action=0; restarted=true;}
 };
 
 // Cooldown ==================================================================

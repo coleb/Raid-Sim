@@ -588,7 +588,8 @@ sim_t::sim_t( sim_t* p, int index ) :
   rng( 0 ), deterministic_rng( 0 ), rng_list( 0 ),
   smooth_rng( 0 ), deterministic_roll( 0 ), average_range( 1 ), average_gauss( 0 ), convergence_scale( 2 ),
   timing_wheel( 0 ), wheel_seconds( 0 ), wheel_size( 0 ), wheel_mask( 0 ), timing_slice( 0 ), wheel_granularity( 0.0 ),
-  fight_style( "Patchwerk" ), buff_list( 0 ), aura_delay( 0.15 ),cooldown_list( 0 ), replenishment_targets( 0 ),
+  fight_style( "Patchwerk" ), buff_list( 0 ), aura_delay( 0.15 ), default_aura_delay( 0.3 ), default_aura_delay_stddev( 0.05 ),
+  cooldown_list( 0 ), replenishment_targets( 0 ),
   raid_dps( 0 ), total_dmg( 0 ), raid_hps( 0 ), total_heal( 0 ),
   total_seconds( 0 ), elapsed_cpu_seconds( 0 ),
   report_progress( 1 ),
@@ -793,7 +794,7 @@ void sim_t::flush_events()
     {
       if ( e -> player && ! e -> canceled )
       {
-        // Make sure we dont recancel events, although it should 
+        // Make sure we dont recancel events, although it should
         // not technically matter
         e -> canceled = 1;
         e -> player -> events--;
@@ -839,7 +840,7 @@ void sim_t::cancel_events( player_t* p )
       }
     }
   }
-  // Loop only partial wheel in two places, as the wheel has wrapped around, but simulation 
+  // Loop only partial wheel in two places, as the wheel has wrapped around, but simulation
   // current time is still at the tail-end, [begin_slice..wheel_size[ and [0..last_event]
   else
   {
@@ -871,7 +872,7 @@ void sim_t::cancel_events( player_t* p )
       }
     }
   }
-  
+
   assert( p -> events == 0 );
 }
 
@@ -895,13 +896,13 @@ void sim_t::combat( int iteration )
       e -> player -> events--;
       assert( e -> player -> events >= 0 );
     }
-    
+
     if ( fixed_time || ( target -> resource_base[ RESOURCE_HEALTH ] == 0 ) )
     {
       // The first iteration is always time-limited since we do not yet have inferred health
       if ( current_time > expected_time * ( 1 - target_death_pct / 100.0 ) )
       {
-        // Set this last event as canceled, so asserts dont fire when odd things happen at the 
+        // Set this last event as canceled, so asserts dont fire when odd things happen at the
         // tail-end of the simulation iteration
         e -> canceled = 1;
         delete e;
@@ -913,7 +914,7 @@ void sim_t::combat( int iteration )
       if ( expected_time > 0 && current_time > ( expected_time * 2.0 ) )
       {
         if ( debug ) log_t::output( this, "Target proving tough to kill, ending simulation" );
-        // Set this last event as canceled, so asserts dont fire when odd things happen at the 
+        // Set this last event as canceled, so asserts dont fire when odd things happen at the
         // tail-end of the simulation iteration
         e -> canceled = 1;
         delete e;
@@ -923,7 +924,7 @@ void sim_t::combat( int iteration )
       if (  target -> resource_current[ RESOURCE_HEALTH ] / target -> resource_max[ RESOURCE_HEALTH ] <= target_death_pct / 100.0 )
       {
         if ( debug ) log_t::output( this, "Target %s has died, ending simulation", target -> name() );
-        // Set this last event as canceled, so asserts dont fire when odd things happen at the 
+        // Set this last event as canceled, so asserts dont fire when odd things happen at the
         // tail-end of the simulation iteration
         e -> canceled = 1;
         delete e;
@@ -1199,6 +1200,8 @@ struct compare_name
 
 void sim_t::analyze_player( player_t* p )
 {
+  p -> pre_analyze_hook();
+
   for ( buff_t* b = p -> buff_list; b; b = b -> next )
     b -> analyze();
 
@@ -2077,6 +2080,8 @@ void sim_t::create_options()
     { "strict_gcd_queue",                 OPT_BOOL,   &( strict_gcd_queue                         ) },
     { "default_world_lag",                OPT_FLT,    &( world_lag                                ) },
     { "default_world_lag_stddev",         OPT_FLT,    &( world_lag_stddev                         ) },
+    { "default_aura_delay",               OPT_FLT,    &( default_aura_delay                       ) },
+    { "default_aura_delay_stddev",        OPT_FLT,    &( default_aura_delay_stddev                ) },
     { "default_skill",                    OPT_FLT,    &( default_skill                            ) },
     { "reaction_time",                    OPT_FLT,    &( reaction_time                            ) },
     { "travel_variance",                  OPT_FLT,    &( travel_variance                          ) },
@@ -2468,28 +2473,27 @@ int sim_t::main( int argc, char** argv )
 
 int sim_t::errorf( const char* format, ... )
 {
-  va_list fmtargs;
-  int retcode = 0;
-  char *p_locale = NULL;
-  char buffer_locale[ 1024 ];
   char buffer_printf[ 1024 ];
 
-  p_locale = setlocale( LC_CTYPE, NULL );
+  va_list fmtargs;
+  va_start( fmtargs, format );
+  int retcode = vsnprintf( buffer_printf, sizeof( buffer_printf ), format, fmtargs );
+  va_end( fmtargs );
+  assert( retcode >= 0 );
+
+  char buffer_locale[ 1024 ];
+  char *p_locale = setlocale( LC_CTYPE, NULL );
   if ( p_locale != NULL )
   {
-    strncpy( buffer_locale, p_locale, 1023 );
-    buffer_locale[1023] = '\0';
+    strncpy( buffer_locale, p_locale, sizeof( buffer_locale ) - 1 );
+    buffer_locale[ sizeof( buffer_locale ) - 1 ] = '\0';
   }
   else
   {
-    buffer_locale[0] = '\0';
+    buffer_locale[ 0 ] = '\0';
   }
 
   setlocale( LC_CTYPE, "" );
-
-  va_start( fmtargs, format );
-  retcode = vsnprintf( buffer_printf, 1023, format, fmtargs );
-  va_end( fmtargs );
 
   fprintf( output_file, "%s", buffer_printf );
   fprintf( output_file, "\n" );

@@ -1883,6 +1883,13 @@ struct flame_orb_tick_t : public mage_spell_t
   {
     // Ticks don't trigger ignite
     spell_t::travel( t, travel_result, travel_dmg );
+    // Trigger Missiles here because the background action wouldn't trigger them otherwise
+    mage_t* p = player -> cast_mage();
+    if ( ! p -> talents.hot_streak   -> ok() &&
+         ! p -> talents.brain_freeze -> ok() )
+    {
+      p -> buffs_arcane_missiles -> trigger();
+    }
   }
 };
 
@@ -3286,10 +3293,14 @@ void mage_t::init_actions()
     {
       action_list_str += "/mage_armor";
     }
-    else
+    else if ( primary_tree() == TREE_FIRE )
     {
       action_list_str += "/molten_armor,if=buff.mage_armor.down&buff.molten_armor.down";
       action_list_str += "/molten_armor,if=mana_pct>45&buff.mage_armor.up";
+    }
+    else
+    {
+      action_list_str += "/molten_armor";
     }
 
     // Water Elemental
@@ -3311,7 +3322,7 @@ void mage_t::init_actions()
         action_list_str += items[ i ].name();
         //Special trinket handling for Arcane, previously only used for Shard of Woe but seems to be good for all useable trinkets
         if ( primary_tree() == TREE_ARCANE )
-          action_list_str += ",if=buff.improved_mana_gem.up|cooldown.evocation.remains>90|target.time_to_die<50";
+          action_list_str += ",if=buff.improved_mana_gem.up|cooldown.evocation.remains>90|target.time_to_die<=50";
       }
     }
     // Lifeblood
@@ -3330,7 +3341,7 @@ void mage_t::init_actions()
       }
       else if ( primary_tree() == TREE_ARCANE )
       {
-        action_list_str += "/volcanic_potion,if=buff.improved_mana_gem.up|target.time_to_die<50";
+        action_list_str += "/volcanic_potion,if=buff.improved_mana_gem.up|target.time_to_die<=50";
       }
       else
       {
@@ -3365,7 +3376,7 @@ void mage_t::init_actions()
       //Special handling for Race Abilities
       if ( race == RACE_ORC )
       {
-        action_list_str += "/blood_fury,if=buff.improved_mana_gem.up|target.time_to_die<50";
+        action_list_str += "/blood_fury,if=buff.improved_mana_gem.up|target.time_to_die<=50";
       }
       else if ( race == RACE_TROLL )
       {
@@ -3374,10 +3385,10 @@ void mage_t::init_actions()
       //Conjure Mana Gem
       action_list_str += "/conjure_mana_gem,if=cooldown.evocation.remains<20&target.time_to_die>105&mana_gem_charges=0";
       //Primary Cooldowns
-      action_list_str += "/mana_gem,if=buff.arcane_blast.stack=4";
+      action_list_str += "/mana_gem,if=buff.arcane_blast.stack=4&(target.time_to_die<=50|cooldown.evocation.remains<=50)";
       if ( talents.arcane_power -> rank() )
       {
-        action_list_str += "/arcane_power,if=buff.improved_mana_gem.up|target.time_to_die<50";
+        action_list_str += "/arcane_power,if=buff.improved_mana_gem.up|target.time_to_die<=50";
         action_list_str += "/mirror_image,if=buff.arcane_power.up|(cooldown.arcane_power.remains>20&target.time_to_die>15)";
       }
       else
@@ -3392,7 +3403,7 @@ void mage_t::init_actions()
 
       if ( has_shard == true )
       {
-        action_list_str += "/arcane_blast,if=target.time_to_die<50|cooldown.evocation.remains<=50";
+        action_list_str += "/arcane_blast,if=target.time_to_die<=50|cooldown.evocation.remains<=50";
         action_list_str += "/sequence,name=conserve:arcane_blast:arcane_blast:arcane_blast:arcane_blast:arcane_blast,if=!buff.bloodlust.up";
       }
       else
@@ -3434,6 +3445,7 @@ void mage_t::init_actions()
     // Frost
     else if ( primary_tree() == TREE_FROST )
     {
+      action_list_str += "/evocation,if=mana_pct<40&(buff.icy_veins.react|buff.bloodlust.react)";
       action_list_str += "/mana_gem,if=mana_deficit>12500";
       if ( talents.cold_snap -> rank() ) action_list_str += "/cold_snap,if=cooldown.deep_freeze.remains>15&cooldown.frostfire_orb.remains>30&cooldown.icy_veins.remains>30";
       if ( talents.frostfire_orb -> rank() && level >= 81 )
@@ -3453,6 +3465,7 @@ void mage_t::init_actions()
       }
       action_list_str += "/ice_lance,if=buff.fingers_of_frost.stack>1";
       action_list_str += "/ice_lance,if=buff.fingers_of_frost.react&pet.water_elemental.cooldown.freeze.remains<gcd";
+/*
       if ( glyphs.frostbolt -> ok() )
       {
         if ( level >= 68 ) action_list_str += "/mage_armor,if=(mana_pct*12)<target.time_to_die";
@@ -3461,6 +3474,7 @@ void mage_t::init_actions()
       {
         if ( level >= 68 ) action_list_str += "/mage_armor,if=(mana_pct*15)<target.time_to_die";
       }
+*/
       if ( glyphs.frostbolt -> ok() )
       {
         action_list_str += "/frostbolt";

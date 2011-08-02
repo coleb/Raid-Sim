@@ -488,8 +488,8 @@ struct army_ghoul_pet_t : public pet_t
     snapshot_crit( 0 ), snapshot_haste( 0 ), snapshot_speed( 0 ), snapshot_hit( 0 ), snapshot_strength( 0 )
   {
     main_hand_weapon.type       = WEAPON_BEAST;
-    main_hand_weapon.min_dmg    = 156; // FIXME: Needs further testing
-    main_hand_weapon.max_dmg    = 220; // FIXME: Needs further testing
+    main_hand_weapon.min_dmg    = 228; // FIXME: Needs further testing
+    main_hand_weapon.max_dmg    = 323; // FIXME: Needs further testing
     main_hand_weapon.damage     = ( main_hand_weapon.min_dmg + main_hand_weapon.max_dmg ) / 2;
     main_hand_weapon.swing_time = 2.0;
 
@@ -516,7 +516,7 @@ struct army_ghoul_pet_t : public pet_t
       base_execute_time = weapon -> swing_time;
       background        = true;
       repeating         = true;
-      weapon_power_mod  = 0.0051 / weapon -> swing_time; // FIXME: Needs further testing
+      weapon_power_mod  = 0.0055 / weapon -> swing_time; // FIXME: Needs further testing
     }
   };
 
@@ -552,18 +552,18 @@ struct army_ghoul_pet_t : public pet_t
     {
       id = 91776;
       parse_data();
-      weapon_power_mod  = 0.0061 / weapon -> swing_time; // FIXME: Needs further testing
+      weapon_power_mod  = 0.0055 / weapon -> swing_time; // FIXME: Needs further testing
     }
   };
 
   virtual void init_base()
   {
-    // FIXME: Level 80/85 values did they change?
-    attribute_base[ ATTR_STRENGTH  ] = 331;
-    attribute_base[ ATTR_AGILITY   ] = 856;
-    attribute_base[ ATTR_STAMINA   ] = 361;
-    attribute_base[ ATTR_INTELLECT ] = 65;
-    attribute_base[ ATTR_SPIRIT    ] = 109;
+    // FIXME: Copied from the pet ghoul 
+    attribute_base[ ATTR_STRENGTH  ] = 476;
+    attribute_base[ ATTR_AGILITY   ] = 3343;
+    attribute_base[ ATTR_STAMINA   ] = 546;
+    attribute_base[ ATTR_INTELLECT ] = 69;
+    attribute_base[ ATTR_SPIRIT    ] = 116;
 
     base_attack_power = -20;
     initial_attack_power_per_strength = 2.0;
@@ -578,7 +578,11 @@ struct army_ghoul_pet_t : public pet_t
 
   virtual double strength() SC_CONST
   {
+    death_knight_t* o = owner -> cast_death_knight();
     double a = attribute[ ATTR_STRENGTH ];
+    // copied from the pet ghoul, tested in unholy and frost.
+    double strength_scaling = 1.01 + o -> glyphs.raise_dead * 0.4254;
+    a += snapshot_strength * strength_scaling;
     a *= composite_attribute_multiplier( ATTR_STRENGTH );
     return a;
   }
@@ -1179,8 +1183,8 @@ struct ghoul_pet_t : public pet_t
     snapshot_crit( 0 ), snapshot_haste( 0 ), snapshot_speed( 0 ), snapshot_hit( 0 ), snapshot_strength( 0 )
   {
     main_hand_weapon.type       = WEAPON_BEAST;
-    main_hand_weapon.min_dmg    = 506; // FIXME: Needs further testing
-    main_hand_weapon.max_dmg    = 720; // FIXME: Needs further testing
+    main_hand_weapon.min_dmg    = 622.43; // should be exact as of 4.2
+    main_hand_weapon.max_dmg    = 933.64; // should be exact as of 4.2
     main_hand_weapon.damage     = ( main_hand_weapon.min_dmg + main_hand_weapon.max_dmg ) / 2;
     main_hand_weapon.swing_time = 2.0;
 
@@ -1204,15 +1208,11 @@ struct ghoul_pet_t : public pet_t
       death_knight_t* o = p -> owner -> cast_death_knight();
       if ( o -> buffs_shadow_infusion -> check() )
       {
-        player_multiplier *= 1.0 + o -> buffs_shadow_infusion -> stack() * ( 0.06 );
+        player_multiplier *= 1.0 + o -> buffs_shadow_infusion -> stack() * 0.06;
       }
       if ( o -> buffs_dark_transformation -> check() )
       {
         player_multiplier *= 1.6;
-      }
-      if ( o -> buffs_frost_presence -> check() )
-      {
-        player_multiplier *= 1.0 + o -> buffs_frost_presence -> value();
       }
     }
   };
@@ -1225,7 +1225,7 @@ struct ghoul_pet_t : public pet_t
       base_execute_time = weapon -> swing_time;
       background        = true;
       repeating         = true;
-      weapon_power_mod  = 0.0845 / weapon -> swing_time; // FIXME: Needs further testing
+      weapon_power_mod  = 0.120 / weapon -> swing_time; // should be exact as of 4.2
     }
   };
 
@@ -1261,7 +1261,7 @@ struct ghoul_pet_t : public pet_t
     {
       id = 91776;
       parse_data();
-      weapon_power_mod = 0.105 / weapon -> swing_time; // FIXME: Needs further testing
+      weapon_power_mod = 0.120 / weapon -> swing_time; // should be exact as of 4.2
     }
   };
 
@@ -1273,7 +1273,7 @@ struct ghoul_pet_t : public pet_t
       id = 91778;
       aoe = 2;
       parse_data();
-      weapon_power_mod = 0.105 / weapon -> swing_time; // FIXME: Copied from claw, but most likely scales better
+      weapon_power_mod = 0.120 / weapon -> swing_time; // Copied from claw, but seems Ok
     }
 
     virtual bool ready()
@@ -1290,16 +1290,16 @@ struct ghoul_pet_t : public pet_t
 
   virtual void init_base()
   {
-    // FIXME: Level 80/85 values did they change?
-    attribute_base[ ATTR_STRENGTH  ] = 331;
-    attribute_base[ ATTR_AGILITY   ] = 856;
-    attribute_base[ ATTR_STAMINA   ] = 361;
-    attribute_base[ ATTR_INTELLECT ] = 65;
-    attribute_base[ ATTR_SPIRIT    ] = 109;
+    // Value for the ghoul of a naked worgen as of 4.2
+    attribute_base[ ATTR_STRENGTH  ] = 476;
+    attribute_base[ ATTR_AGILITY   ] = 3343;
+    attribute_base[ ATTR_STAMINA   ] = 546;
+    attribute_base[ ATTR_INTELLECT ] = 69;
+    attribute_base[ ATTR_SPIRIT    ] = 116;
 
     base_attack_power = -20;
     initial_attack_power_per_strength = 2.0;
-    initial_attack_power_per_agility  = 1.0;
+    initial_attack_power_per_agility  = 0.0;//no AP per agi.
 
     initial_attack_crit_per_agility = rating_t::interpolate( level, 0.01/25.0, 0.01/40.0, 0.01/83.3 );
 
@@ -1311,7 +1311,7 @@ struct ghoul_pet_t : public pet_t
   {
     death_knight_t* o = owner -> cast_death_knight();
     double a = attribute[ ATTR_STRENGTH ];
-    double strength_scaling = 1.0 + o -> glyphs.raise_dead * 0.4;
+    double strength_scaling = 1.01 + o -> glyphs.raise_dead * 0.4254; //weird, but accurate
 
     // Perma Ghouls are updated constantly
     if ( o -> primary_tree() == TREE_UNHOLY )
@@ -1425,16 +1425,10 @@ struct ghoul_pet_t : public pet_t
     }
   }
 
+  //Ghoul regen doesn't benefit from haste (even bloodlust/heroism) 
   virtual int primary_resource() SC_CONST
   {
     return RESOURCE_ENERGY;
-  }
-
-  virtual void regen( double periodicity )
-  {
-    periodicity *= 1.0 + composite_attack_haste();
-
-    player_t::regen( periodicity );
   }
 
   virtual action_t* create_action( const std::string& name, const std::string& options_str )
@@ -4796,7 +4790,6 @@ void death_knight_t::init_procs()
   proc_fs_killing_machine       = get_proc( "frost_strike_killing_machine" );
 }
 
-
 // death_knight_t::init_resources ===========================================
 
 void death_knight_t::init_resources( bool force )
@@ -4835,7 +4828,7 @@ void death_knight_t::combat_begin()
     sim -> auras.abominations_might -> trigger( 1, am_value );
 }
 
-// death_knight_t::asses_damage =============================================
+// death_knight_t::assess_damage ============================================
 
 double death_knight_t::assess_damage( double            amount,
                                       const school_type school,
@@ -4856,17 +4849,12 @@ double death_knight_t::assess_damage( double            amount,
   return player_t::assess_damage( amount, school, dmg_type, result, action );
 }
 
-
 // death_knight_t::composite_pet_attack_crit ===============================
 
 double death_knight_t::composite_pet_attack_crit()
 {
-  // XXX: this is what I observe.  My ghoul absolutely doesn't get my
-  // crit rating.  He crits on average ~10% of the time across
-  // multiple nights of raiding and thousands of hits.  I would expect
-  // 35-40% but get solidly 9-10% after lvl 83 crit suppression.
-  // Needs more testing to confirm.
-  return 0.14;
+  // Latest value as of 4.2
+  return 0.07;
 }
 
 // death_knight_t::composite_armor_multiplier ===============================

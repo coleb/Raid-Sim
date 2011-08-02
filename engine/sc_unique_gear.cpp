@@ -17,7 +17,7 @@ struct stat_proc_callback_t : public action_callback_t
 
   stat_proc_callback_t( const std::string& n, player_t* p, int s, int max_stacks, double a,
                         double proc_chance, double duration, double cooldown,
-                        double t=0, bool reverse=false, int rng_type=RNG_DEFAULT ) :
+                        double t=0, bool reverse=false, int rng_type=RNG_DEFAULT, bool activated=true ) :
     action_callback_t( p -> sim, p ),
     name_str( n ), stat( s ), amount( a ), tick( t )
   {
@@ -26,12 +26,13 @@ struct stat_proc_callback_t : public action_callback_t
     if ( rng_type == RNG_DEFAULT ) rng_type = RNG_DISTRIBUTED;
 
     buff = new stat_buff_t( p, n, stat, amount, max_stacks, duration, cooldown, proc_chance, false, reverse, rng_type );
+    buff -> activated = activated;
   }
 
   virtual void activate()
   {
     action_callback_t::activate();
-    if ( buff -> reverse ) buff -> start( buff -> max_stack );
+    if ( buff -> reverse ) buff -> trigger( buff -> max_stack );
   }
 
   virtual void deactivate()
@@ -83,7 +84,7 @@ struct cost_reduction_proc_callback_t : public action_callback_t
 
   cost_reduction_proc_callback_t( const std::string& n, player_t* p, int s, int max_stacks, double a,
                                 double proc_chance, double duration, double cooldown,
-                                bool refreshes=false, bool reverse=false, int rng_type=RNG_DEFAULT ) :
+                                bool refreshes=false, bool reverse=false, int rng_type=RNG_DEFAULT, bool activated=true ) :
     action_callback_t( p -> sim, p ),
     name_str( n ), school( s ), amount( a )
   {
@@ -92,12 +93,13 @@ struct cost_reduction_proc_callback_t : public action_callback_t
     if ( rng_type == RNG_DEFAULT ) rng_type = RNG_DISTRIBUTED;
 
     buff = new cost_reduction_buff_t( p, n, school, amount, max_stacks, duration, cooldown, proc_chance, refreshes, false, reverse, rng_type );
+    buff -> activated = activated;
   }
 
   virtual void activate()
   {
     action_callback_t::activate();
-    if ( buff -> reverse ) buff -> start( buff -> max_stack );
+    if ( buff -> reverse ) buff -> trigger( buff -> max_stack );
   }
 
   virtual void deactivate()
@@ -368,13 +370,14 @@ struct stat_discharge_proc_callback_t : public action_callback_t
   stat_discharge_proc_callback_t( const std::string& n, player_t* p,
                                   int stat, int max_stacks, double stat_amount,
                                   const school_type school, double discharge_amount, double discharge_scaling,
-                                  double proc_chance, double duration, double cooldown, bool no_crits, bool no_buffs, bool no_debuffs ) :
+                                  double proc_chance, double duration, double cooldown, bool no_crits, bool no_buffs, bool no_debuffs, bool activated=true ) :
     action_callback_t( p -> sim, p ), name_str( n )
   {
     if ( max_stacks == 0 ) max_stacks = 1;
     if ( proc_chance == 0 ) proc_chance = 1;
 
     buff = new stat_buff_t( p, n, stat, stat_amount, max_stacks, duration, cooldown, proc_chance );
+    buff -> activated = activated;
 
     struct discharge_spell_t : public spell_t
     {
@@ -472,6 +475,7 @@ static void register_apparatus_of_khazgoroth( item_t* item )
       amount = heroic ? 2865 : 2540;
 
       apparatus_of_khazgoroth = new buff_t( p, "apparatus_of_khazgoroth", 5, 30.0, 0.0, 1, true ); // TODO: Duration, cd, etc.?
+      apparatus_of_khazgoroth -> activated = false;
       blessing_of_khazgoroth  = new stat_buff_t( p, "blessing_of_khazgoroth", STAT_CRIT_RATING, amount, 1, 15.0, 120.0 );
       proc_apparatus_of_khazgoroth_haste   = p -> get_proc( "apparatus_of_khazgoroth_haste"   );
       proc_apparatus_of_khazgoroth_crit    = p -> get_proc( "apparatus_of_khazgoroth_crit"    );
@@ -613,7 +617,7 @@ static void register_darkmoon_card_greatness( item_t* item )
       max_stat = stat[ i ];
     }
   }
-  action_callback_t* cb = new stat_proc_callback_t( "darkmoon_card_greatness", p, max_stat, 1, 300, 0.35, 15.0, 45.0 );
+  action_callback_t* cb = new stat_proc_callback_t( "darkmoon_card_greatness", p, max_stat, 1, 300, 0.35, 15.0, 45.0, 0, false, RNG_DEFAULT, false );
 
   p -> register_tick_damage_callback( SCHOOL_ALL_MASK, cb );
   p -> register_direct_damage_callback( SCHOOL_ALL_MASK, cb );
@@ -631,7 +635,7 @@ static void register_deaths_choice( item_t* item )
 
   int stat = ( p -> attribute[ ATTR_STRENGTH ] > p -> attribute[ ATTR_AGILITY ] ) ? STAT_STRENGTH : STAT_AGILITY;
 
-  action_callback_t* cb = new stat_proc_callback_t( item -> name(), p, stat, 1, value, 0.35, 15.0, 45.0 );
+  action_callback_t* cb = new stat_proc_callback_t( item -> name(), p, stat, 1, value, 0.35, 15.0, 45.0, 0, false, RNG_DEFAULT, false );
 
   p -> register_tick_damage_callback( SCHOOL_ALL_MASK, cb );
   p -> register_direct_damage_callback( SCHOOL_ALL_MASK, cb );
@@ -651,7 +655,7 @@ static void register_deathbringers_will( item_t* item )
     rng_t* rng;
 
     deathbringers_will_callback_t( player_t* p, bool h ) :
-      stat_proc_callback_t( "deathbringers_will", p, STAT_STRENGTH, 1, 600, 0.35, 30.0, 105.0 ), heroic( h )
+      stat_proc_callback_t( "deathbringers_will", p, STAT_STRENGTH, 1, 600, 0.35, 30.0, 105.0, 0, false, RNG_DEFAULT, false ), heroic( h )
     {
       rng = p -> get_rng( "deathbringers_will_stat" );
     }
@@ -825,6 +829,7 @@ static void register_fury_of_angerforge( item_t* item )
       action_callback_t( p -> sim, p )
     {
       raw_fury = new buff_t( p, "raw_fury", 5, 15.0, 5.0, 0.5, true );
+      raw_fury -> activated = false;
       blackwing_dragonkin = new stat_buff_t( p, "blackwing_dragonkin", STAT_STRENGTH, 1926, 1, 20.0, 120.0 );
     }
 
@@ -864,7 +869,7 @@ static void register_heart_of_ignacious( item_t* item )
     bool heroic;
 
     heart_of_ignacious_callback_t( player_t* p, bool h ) :
-      stat_proc_callback_t( "heart_of_ignacious", p, STAT_SPELL_POWER, 5, h ? 87 : 77, 1.0, 15.0, 2.0 ), heroic( h )
+      stat_proc_callback_t( "heart_of_ignacious", p, STAT_SPELL_POWER, 5, h ? 87 : 77, 1.0, 15.0, 2.0, 0, false, RNG_DEFAULT, false ), heroic( h )
     {
       haste_buff = new stat_buff_t( p, "hearts_judgement", STAT_HASTE_RATING, heroic ? 363 : 321, 5, 20.0, 120.0 );
     }
@@ -898,17 +903,17 @@ static void register_matrix_restabilizer( item_t* item )
   struct matrix_restabilizer_callback_t : public stat_proc_callback_t
   {
     bool heroic;
-    stat_type max_stat;
-    proc_t* proc_matrix_restabilizer_haste;
-    proc_t* proc_matrix_restabilizer_crit;
-    proc_t* proc_matrix_restabilizer_mastery;
+    stat_buff_t* buff_matrix_restabilizer_crit;
+    stat_buff_t* buff_matrix_restabilizer_haste;
+    stat_buff_t* buff_matrix_restabilizer_mastery;
 
     matrix_restabilizer_callback_t( player_t* p, bool h ) :
-      stat_proc_callback_t( "matrix_restabilizer", p, STAT_CRIT_RATING, 1, heroic ? 1834 : 1624, 0.15, 30.0, 105.0 ), heroic( h )
+      stat_proc_callback_t( "matrix_restabilizer", p, STAT_CRIT_RATING, 1, 0, 0, 0, 0, 0, false, RNG_DEFAULT, false ),
+      heroic( h ), buff_matrix_restabilizer_crit( 0 ), buff_matrix_restabilizer_haste( 0 ), buff_matrix_restabilizer_mastery( 0 )
     {
-      proc_matrix_restabilizer_haste   = p -> get_proc( "matrix_restabilizer_haste"   );
-      proc_matrix_restabilizer_crit    = p -> get_proc( "matrix_restabilizer_crit"    );
-      proc_matrix_restabilizer_mastery = p -> get_proc( "matrix_restabilizer_mastery" );
+      buff_matrix_restabilizer_crit     = new stat_buff_t( p, "matrix_restabilizer_crit",    STAT_CRIT_RATING,    heroic ? 1834 : 1624, 1, 30, 105, .15, false, RNG_DEFAULT, false );
+      buff_matrix_restabilizer_haste    = new stat_buff_t( p, "matrix_restabilizer_haste",   STAT_HASTE_RATING,   heroic ? 1834 : 1624, 1, 30, 105, .15, false, RNG_DEFAULT, false );
+      buff_matrix_restabilizer_mastery  = new stat_buff_t( p, "matrix_restabilizer_mastery", STAT_MASTERY_RATING, heroic ? 1834 : 1624, 1, 30, 105, .15, false, RNG_DEFAULT, false );
     }
 
     virtual void trigger( action_t* a, void* call_data )
@@ -921,44 +926,23 @@ static void register_matrix_restabilizer( item_t* item )
       {
         if ( p -> stats.crit_rating > p -> stats.mastery_rating )
         {
-          max_stat = STAT_CRIT_RATING;
+          buff = buff_matrix_restabilizer_crit;
         }
         else
         {
-          max_stat = STAT_MASTERY_RATING;
+          buff = buff_matrix_restabilizer_mastery;
         }
       }
       else if ( p -> stats.haste_rating > p -> stats.mastery_rating )
       {
-        max_stat = STAT_HASTE_RATING;
+        buff = buff_matrix_restabilizer_haste;
       }
       else
       {
-        max_stat = STAT_MASTERY_RATING;
+        buff = buff_matrix_restabilizer_mastery;
       }
-
-      buff -> stat = max_stat;
 
       stat_proc_callback_t::trigger( a, call_data );
-
-      if ( buff -> check() )
-      {
-        switch ( max_stat )
-        {
-        case STAT_HASTE_RATING:
-          proc_matrix_restabilizer_haste -> occur();
-          break;
-        case STAT_CRIT_RATING:
-          proc_matrix_restabilizer_crit -> occur();
-          break;
-        case STAT_MASTERY_RATING:
-          proc_matrix_restabilizer_mastery -> occur();
-          break;
-        default:
-          assert( 0 );
-          break;
-        }
-      }
     }
   };
 
@@ -1055,6 +1039,7 @@ static void register_shadowmourne( item_t* item )
   // http://ptr.wowhead.com/?spell=71903
   // FIX ME! Duration? Colldown? Chance?
   buff_t* buff_stacks = new stat_buff_t( p, "shadowmourne_stacks", STAT_STRENGTH,  30, 10, 60.0,  0.0, 1 );
+  buff_stacks -> activated = false;
   buff_t* buff_final  = new stat_buff_t( p, "shadowmourne_final",  STAT_STRENGTH, 270, 10, 10.0, 10.0, 1 );
 
   struct shadowmourne_spell_t : public spell_t
@@ -1136,7 +1121,7 @@ static void register_sorrowsong( item_t* item )
   struct sorrowsong_callback_t : public stat_proc_callback_t
   {
     sorrowsong_callback_t( player_t* p, bool h ) :
-      stat_proc_callback_t( "sorrowsong", p, STAT_SPELL_POWER, 1, h ? 1710 : 1512, 0.10, 10.0, 20.0 )
+      stat_proc_callback_t( "sorrowsong", p, STAT_SPELL_POWER, 1, h ? 1710 : 1512, 0.10, 10.0, 20.0, 0, false, RNG_DEFAULT, false )
     {}
 
     virtual void trigger( action_t* a, void* call_data )
@@ -1649,14 +1634,14 @@ action_callback_t* unique_gear_t::register_stat_proc( int                type,
                                                       bool               reverse,
                                                       int                rng_type )
 {
-  action_callback_t* cb = new stat_proc_callback_t( name, player, stat, max_stacks, amount, proc_chance, duration, cooldown, tick, reverse, rng_type );
+  action_callback_t* cb = new stat_proc_callback_t( name, player, stat, max_stacks, amount, proc_chance, duration, cooldown, tick, reverse, rng_type, type == PROC_NONE );
 
-  if ( type == PROC_DAMAGE )
+  if ( type == PROC_DAMAGE || type == PROC_DAMAGE_HEAL )
   {
     player -> register_tick_damage_callback( mask, cb );
     player -> register_direct_damage_callback( mask, cb );
   }
-  else if ( type == PROC_HEAL )
+  if ( type == PROC_HEAL || type == PROC_DAMAGE_HEAL )
   {
     player -> register_tick_heal_callback( mask, cb );
     player -> register_direct_heal_callback( mask, cb );
@@ -1711,14 +1696,14 @@ action_callback_t* unique_gear_t::register_cost_reduction_proc( int             
                                                                 bool               reverse,
                                                                 int                rng_type )
 {
-  action_callback_t* cb = new cost_reduction_proc_callback_t( name, player, school, max_stacks, amount, proc_chance, duration, cooldown, refreshes, reverse, rng_type );
+  action_callback_t* cb = new cost_reduction_proc_callback_t( name, player, school, max_stacks, amount, proc_chance, duration, cooldown, refreshes, reverse, rng_type, type == PROC_NONE );
 
-  if ( type == PROC_DAMAGE )
+  if ( type == PROC_DAMAGE || type == PROC_DAMAGE_HEAL )
   {
     player -> register_tick_damage_callback( mask, cb );
     player -> register_direct_damage_callback( mask, cb );
   }
-  else if ( type == PROC_HEAL )
+  if ( type == PROC_HEAL || type == PROC_DAMAGE_HEAL )
   {
     player -> register_tick_heal_callback( mask, cb );
     player -> register_direct_heal_callback( mask, cb );
@@ -1777,12 +1762,12 @@ action_callback_t* unique_gear_t::register_discharge_proc( int                ty
   action_callback_t* cb = new discharge_proc_callback_t( name, player, max_stacks, school, amount, scaling, proc_chance, cooldown,
                                                          no_crits, no_buffs, no_debuffs, rng_type );
 
-  if ( type == PROC_DAMAGE )
+  if ( type == PROC_DAMAGE || type == PROC_DAMAGE_HEAL )
   {
     player -> register_tick_damage_callback( mask, cb );
     player -> register_direct_damage_callback( mask, cb );
   }
-  else if ( type == PROC_HEAL )
+  if ( type == PROC_HEAL || type == PROC_DAMAGE_HEAL )
   {
     player -> register_tick_heal_callback( mask, cb );
     player -> register_direct_heal_callback( mask, cb );
@@ -1846,12 +1831,12 @@ action_callback_t* unique_gear_t::register_chance_discharge_proc( int           
   action_callback_t* cb = new chance_discharge_proc_callback_t( name, player, max_stacks, school, amount, scaling, proc_chance, cooldown,
                                                                 no_crits, no_buffs, no_debuffs, rng_type );
 
-  if ( type == PROC_DAMAGE )
+  if ( type == PROC_DAMAGE || type == PROC_DAMAGE_HEAL )
   {
     player -> register_tick_damage_callback( mask, cb );
     player -> register_direct_damage_callback( mask, cb );
   }
-  else if ( type == PROC_HEAL )
+  if ( type == PROC_HEAL  || type == PROC_DAMAGE_HEAL )
   {
     player -> register_tick_heal_callback( mask, cb );
     player -> register_direct_heal_callback( mask, cb );
@@ -1895,7 +1880,7 @@ action_callback_t* unique_gear_t::register_chance_discharge_proc( int           
 
 
 // ==========================================================================
-// unique_gear_t::register_stat_proc
+// unique_gear_t::register_stat_discharge_proc
 // ==========================================================================
 
 action_callback_t* unique_gear_t::register_stat_discharge_proc( int                type,
@@ -1916,14 +1901,14 @@ action_callback_t* unique_gear_t::register_stat_discharge_proc( int             
                                                                 bool               no_debuffs )
 {
   action_callback_t* cb = new stat_discharge_proc_callback_t( name, player, stat, max_stacks, stat_amount, school, min_dmg, max_dmg, proc_chance,
-                                                              duration, cooldown, no_crits, no_buffs, no_debuffs );
+                                                              duration, cooldown, no_crits, no_buffs, no_debuffs, type == PROC_NONE );
 
-  if ( type == PROC_DAMAGE )
+  if ( type == PROC_DAMAGE || type == PROC_DAMAGE_HEAL )
   {
     player -> register_tick_damage_callback( mask, cb );
     player -> register_direct_damage_callback( mask, cb );
   }
-  else if ( type == PROC_HEAL )
+  if ( type == PROC_HEAL  || type == PROC_DAMAGE_HEAL )
   {
     player -> register_tick_heal_callback( mask, cb );
     player -> register_direct_heal_callback( mask, cb );
@@ -1971,7 +1956,7 @@ action_callback_t* unique_gear_t::register_stat_proc( item_t& i,
 
   return register_stat_proc( e.trigger_type, e.trigger_mask, name, i.player,
                              e.stat, e.max_stacks, e.stat_amount,
-                             e.proc_chance, e.duration, e.cooldown, e.tick, e.reverse );
+                             e.proc_chance, e.duration, e.cooldown, e.tick, e.reverse, RNG_DEFAULT );
 }
 
 // ==========================================================================
@@ -1985,7 +1970,7 @@ action_callback_t* unique_gear_t::register_cost_reduction_proc( item_t& i,
 
   return register_cost_reduction_proc( e.trigger_type, e.trigger_mask, name, i.player,
                                        e.school, e.max_stacks, e.discharge_amount,
-                                       e.proc_chance, e.duration, e.cooldown, ! e.no_refresh, e.reverse );
+                                       e.proc_chance, e.duration, e.cooldown, ! e.no_refresh, e.reverse, RNG_DEFAULT );
 }
 
 // ==========================================================================
@@ -2063,13 +2048,13 @@ bool unique_gear_t::get_equip_encoding( std::string&       encoding,
   else if ( name == "crushing_weight"                     ) e = ( heroic ? "OnAttackHit_2178Haste_10%_15Dur_75Cd" : "OnAttackHit_1926Haste_10%_15Dur_75Cd" );
   else if ( name == "dark_matter"                         ) e = "OnAttackHit_612Crit_15%_10Dur_45Cd";
   else if ( name == "darkmoon_card_crusade"               ) e = "OnDamage_8SP_10Stack_10Dur";
-  else if ( name == "dwyers_caber"                        ) e = "OnDamage_1020Crit_15%_20Dur_100Cd"; // FIXME: Verify ICD
+  else if ( name == "dwyers_caber"                        ) e = "OnDamage_1020Crit_15%_20Dur_50Cd"; // FIXME: Verify ICD
   else if ( name == "dying_curse"                         ) e = "OnSpellCast_765SP_15%_10Dur_45Cd";
   else if ( name == "elemental_focus_stone"               ) e = "OnSpellCast_522Haste_10%_10Dur_45Cd";
   else if ( name == "embrace_of_the_spider"               ) e = "OnSpellCast_505Haste_10%_10Dur_45Cd";
   else if ( name == "essence_of_the_cyclone"              ) e = ( heroic ? "OnAttackHit_2178Crit_10%_10Dur_50Cd" : "OnAttackHit_1926Crit_10%_10Dur_50Cd" );
   else if ( name == "eye_of_magtheridon"                  ) e = "OnSpellMiss_170SP_10Dur";
-  else if ( name == "eye_of_the_broodmother"              ) e = "OnSpellDamage_25SP_5Stack_10Dur";
+  else if ( name == "eye_of_the_broodmother"              ) e = "OnSpellDamageHeal_25SP_5Stack_10Dur";
   else if ( name == "flare_of_the_heavens"                ) e = "OnSpellCast_850SP_10%_10Dur_45Cd";
   else if ( name == "fluid_death"                         ) e = "OnAttackHit_38Agi_10Stack_15Dur";
   else if ( name == "forge_ember"                         ) e = "OnSpellHit_512SP_10%_10Dur_45Cd";
@@ -2151,8 +2136,8 @@ bool unique_gear_t::get_equip_encoding( std::string&       encoding,
   // Enchants
   else if ( name == "lightweave_old"                      ) e = "OnSpellCast_295SP_35%_15Dur_60Cd";
   else if ( name == "lightweave_embroidery_old"           ) e = "OnSpellCast_295SP_35%_15Dur_60Cd";
-  else if ( name == "lightweave"                          ) e = "OnSpellDamage_580Int_25%_15Dur_64Cd";
-  else if ( name == "lightweave_embroidery"               ) e = "OnSpellDamage_580Int_25%_15Dur_64Cd";
+  else if ( name == "lightweave" ||
+            name == "lightweave_embroidery"               ) e = "OnSpellDamageHeal_580Int_25%_15Dur_64Cd";
   else if ( name == "darkglow_embroidery_old"             ) e = "OnSpellCast_400Mana_35%_15Dur_60Cd";
   else if ( name == "darkglow_embroidery"                 ) e = "OnSpellCast_800Mana_30%_15Dur_45Cd";       // TO-DO: Confirm ICD.
   else if ( name == "swordguard_embroidery_old"           ) e = "OnAttackHit_400AP_20%_15Dur_60Cd";
@@ -2193,7 +2178,7 @@ bool unique_gear_t::get_use_encoding( std::string&       encoding,
   else if ( name == "electrospark_heartstarter"    ) e = "567Int_20Dur_120Cd";
   else if ( name == "energy_siphon"                ) e = "408SP_20Dur_120Cd";
   else if ( name == "ephemeral_snowflake"          ) e = "464Haste_20Dur_120Cd";
-  else if ( name == "essence_of_the_eternal_flame" ) e = ( heroic ? "1441Str_15Dur_120Cd" : "1277Str_15Dur_120Cd" );
+  else if ( name == "essence_of_the_eternal_flame" ) e = ( heroic ? "1441Str_15Dur_60Cd" : "1277Str_15Dur_60Cd" );
   else if ( name == "fiery_quintessence"           ) e = ( heroic ? "1297Int_25Dur_90Cd"  : "1149Int_25Dur_90Cd" );
   else if ( name == "figurine__demon_panther"      ) e = "1425Agi_20Dur_120Cd";
   else if ( name == "figurine__dream_owl"          ) e = "1425Spi_20Dur_120Cd";

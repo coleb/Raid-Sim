@@ -1878,8 +1878,7 @@ struct holy_shock_t : public paladin_spell_t
     paladin_spell_t::execute();
     if ( result_is_hit() )
     {
-      p -> resource_gain( RESOURCE_HOLY_POWER, 1,
-                          p -> gains_hp_holy_shock );
+      p -> resource_gain( RESOURCE_HOLY_POWER, 1, p -> gains_hp_holy_shock );
     }
   }
 };
@@ -2440,9 +2439,8 @@ void paladin_t::init_actions()
       action_list_str += "/crusader_strike";
       action_list_str += "/hammer_of_wrath";
       action_list_str += "/exorcism,if=buff.the_art_of_war.react";
-      action_list_str += "/judgement,if=buff.judgements_of_the_pure.remains<2";
-      // Don't delay CS too much
-      action_list_str += "/wait,sec=0.1,if=cooldown.crusader_strike.remains<0.5";
+      // action_list_str += "/judgement,if=buff.judgements_of_the_pure.remains<2";
+      // action_list_str += "/wait,sec=0.1,if=cooldown.crusader_strike.remains<0.5";
       action_list_str += "/judgement";
       action_list_str += "/holy_wrath";
       action_list_str += "/consecration";

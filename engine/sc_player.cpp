@@ -369,7 +369,7 @@ player_t::player_t( sim_t*             s,
   region_str( s->default_region_str ), server_str( s->default_server_str ), origin_str( "unknown" ),
   next( 0 ), index( -1 ), type( t ), role( ROLE_HYBRID ), target( NULL ), level( is_enemy() ? 88 : 85 ), use_pre_potion( 1 ),
   party( 0 ), member( 0 ),
-  skill( 0 ), initial_skill( s->default_skill ), distance( 0 ), gcd_ready( 0 ), base_gcd( 1.5 ),
+  skill( 0 ), initial_skill( s -> default_skill ), distance( 0 ), gcd_ready( 0 ), base_gcd( 1.5 ),
   potion_used( 0 ), sleeping( 1 ), initialized( 0 ),
   pet_list( 0 ), last_modified( 0 ), bugs( true ), specialization( TALENT_TAB_NONE ), invert_scaling( 0 ),
   vengeance_enabled( false ), vengeance_damage( 0.0 ), vengeance_value( 0.0 ), vengeance_max( 0.0 ),
@@ -2596,7 +2596,7 @@ double player_t::expertise_rating() SC_CONST
 double player_t::dodge_rating() SC_CONST
 {
   double a = stats.dodge_rating;
-  
+
   return a;
 }
 
@@ -2805,7 +2805,7 @@ void player_t::reset()
   readying = 0;
   in_combat = false;
   iteration_dmg = 0;
-  
+
   cast_delay_reaction = 0;
   cast_delay_occurred = 0;
 
@@ -2946,12 +2946,12 @@ void player_t::schedule_ready( double delta_time,
     // Record the last ability use time for cast_react
     cast_delay_occurred = readying -> occurs();
     cast_delay_reaction = rngs.lag_brain -> gauss( brain_lag, brain_lag_stddev );
-    if ( sim -> debug ) 
+    if ( sim -> debug )
     {
-      log_t::output( sim, "%s %s schedule_ready(): cast_finishes=%f cast_delay=%f", 
+      log_t::output( sim, "%s %s schedule_ready(): cast_finishes=%f cast_delay=%f",
         name_str.c_str(),
-        was_executing -> name_str.c_str(), 
-        readying -> occurs(), 
+        was_executing -> name_str.c_str(),
+        readying -> occurs(),
         cast_delay_reaction );
     }
   }
@@ -3311,7 +3311,7 @@ double player_t::resource_gain( int       resource,
 bool player_t::resource_available( int    resource,
                                    double cost ) SC_CONST
 {
-  if ( resource == RESOURCE_NONE || cost == 0 || infinite_resource[ resource ] == 1 )
+  if ( resource == RESOURCE_NONE || cost <= 0 || infinite_resource[ resource ] == 1 )
   {
     return true;
   }
@@ -3398,7 +3398,11 @@ double player_t::health_percentage() SC_CONST
 
 double player_t::time_to_die() SC_CONST
 {
-  if ( resource_base[ RESOURCE_HEALTH ] > 0 )
+  // FIXME: Someone can figure out a better way to do this, for now, we NEED to
+  // wait a minimum gcd before starting to estimate fight duration based on health,
+  // otherwise very odd things happen with multi-actor simulations and time_to_die
+  // expressions
+  if ( resource_base[ RESOURCE_HEALTH ] > 0 && sim -> current_time >= 1.0 )
   {
     return sim -> current_time * resource_current[ RESOURCE_HEALTH ] / dmg_taken;
   }
@@ -3695,7 +3699,7 @@ double player_t::target_mitigation( double            amount,
         resist = 0.75;
       mitigated_amount *= 1.0 - resist;
     }
-    
+
     if ( sim -> debug && action && ! action -> target -> is_enemy() && ! action -> target -> is_add() )
       log_t::output( sim, "Damage to %s after armor mitigation is %f", action -> target -> name(), mitigated_amount );
   }
@@ -4539,10 +4543,11 @@ struct lifeblood_t : public action_t
 
 struct restart_sequence_t : public action_t
 {
+  sequence_t* seq;
   std::string seq_name_str;
 
   restart_sequence_t( player_t* player, const std::string& options_str ) :
-    action_t( ACTION_OTHER, "restart_sequence", player )
+    action_t( ACTION_OTHER, "restart_sequence", player ), seq( 0 )
   {
     seq_name_str = "default"; // matches default name for sequences
     option_t options[] =
@@ -4557,17 +4562,30 @@ struct restart_sequence_t : public action_t
 
   virtual void execute()
   {
-    for ( action_t* a = player -> action_list; a; a = a -> next )
+    if ( ! seq )
     {
-      if ( a -> type != ACTION_SEQUENCE )
-        continue;
-
-      if ( ! seq_name_str.empty() )
-        if ( seq_name_str != a -> name_str )
+      for ( action_t* a = player -> action_list; a; a = a -> next )
+      {
+        if ( a -> type != ACTION_SEQUENCE )
           continue;
 
-      ( ( sequence_t* ) a ) -> restart();
+        if ( ! seq_name_str.empty() )
+          if ( seq_name_str != a -> name_str )
+          continue;
+
+        seq = dynamic_cast< sequence_t* >( a );
+      }
+
+      assert( seq );
     }
+
+    seq -> restart();
+  }
+
+  virtual bool ready()
+  {
+    if ( seq ) return ! seq -> restarted;
+    return action_t::ready();
   }
 };
 
@@ -4878,6 +4896,8 @@ struct use_item_t : public action_t
     cooldown = player -> get_cooldown( cooldown_name );
     cooldown -> duration = item -> use.cooldown;
     trigger_gcd = 0;
+
+    if ( buff != 0 ) buff -> cooldown = cooldown;
   }
 
   void lockout( double duration )
@@ -5349,6 +5369,15 @@ action_expr_t* player_t::create_expression( action_t* a,
     };
     return new mana_pct_expr_t( a );
   }
+  if ( name_str == "mana_pct_nonproc" )
+  {
+    struct mana_pct_nonproc_expr_t : public action_expr_t
+    {
+      mana_pct_nonproc_expr_t( action_t* a ) : action_expr_t( a, "mana_pct_nonproc", TOK_NUM ) {}
+      virtual int evaluate() { player_t* p = action -> player; result_num = 100 * ( p -> resource_current[ RESOURCE_MANA ] / p -> resource_buffed[ RESOURCE_MANA ] ); return TOK_NUM; }
+    };
+    return new mana_pct_nonproc_expr_t( a );
+  }
   if ( name_str == "health_pct" )
   {
     struct health_pct_expr_t : public action_expr_t
@@ -5506,6 +5535,15 @@ action_expr_t* player_t::create_expression( action_t* a,
     };
     return new max_mana_expr_t( a );
   }
+  if ( name_str == "max_mana_nonproc" )
+  {
+    struct max_mana_nonproc_expr_t : public action_expr_t
+    {
+      max_mana_nonproc_expr_t( action_t* a ) : action_expr_t( a, "max_mana_nonproc", TOK_NUM ) {}
+      virtual int evaluate() { result_num = action -> player -> resource_buffed[ RESOURCE_MANA ]; return TOK_NUM; }
+    };
+    return new max_mana_nonproc_expr_t( a );
+  }
   if ( name_str == "ptr" )
   {
     struct ptr_expr_t : public action_expr_t
@@ -5593,16 +5631,6 @@ action_expr_t* player_t::create_expression( action_t* a,
           virtual int evaluate() { result_num = action -> player_multiplier; return TOK_NUM; }
         };
         return new multiplier_expr_t( a );
-      }
-      if ( splits[ 2 ] == "remains" )
-      {
-        struct dot_remains_expr_t : public action_expr_t
-        {
-          dot_t* dot;
-          dot_remains_expr_t( action_t* a, dot_t* d ) : action_expr_t( a, "dot_remains", TOK_NUM ), dot( d ) {}
-          virtual int evaluate() { result_num = dot -> remains(); return TOK_NUM; }
-        };
-        return new dot_remains_expr_t( a, dot );
       }
       if ( splits[ 2 ] == "remains" )
       {
@@ -5885,6 +5913,27 @@ bool player_t::create_profile( std::string& profile_str, int save_type, bool sav
         profile_str += term;
       }
     }
+
+    if ( enchant.attribute[ ATTR_STRENGTH  ] != 0 )  profile_str += "enchant_strength="         + util_t::to_string( enchant.attribute[ ATTR_STRENGTH  ] );
+    if ( enchant.attribute[ ATTR_AGILITY   ] != 0 )  profile_str += "enchant_agility="          + util_t::to_string( enchant.attribute[ ATTR_AGILITY   ] );
+    if ( enchant.attribute[ ATTR_STAMINA   ] != 0 )  profile_str += "enchant_stamina="          + util_t::to_string( enchant.attribute[ ATTR_STAMINA   ] );
+    if ( enchant.attribute[ ATTR_INTELLECT ] != 0 )  profile_str += "enchant_intellect="        + util_t::to_string( enchant.attribute[ ATTR_INTELLECT ] );
+    if ( enchant.attribute[ ATTR_SPIRIT    ] != 0 )  profile_str += "enchant_spirit="           + util_t::to_string( enchant.attribute[ ATTR_SPIRIT    ] );
+    if ( enchant.spell_power                 != 0 )  profile_str += "enchant_spell_power="      + util_t::to_string( enchant.spell_power );
+    if ( enchant.mp5                         != 0 )  profile_str += "enchant_mp5="              + util_t::to_string( enchant.mp5 );
+    if ( enchant.attack_power                != 0 )  profile_str += "enchant_attack_power="     + util_t::to_string( enchant.attack_power );
+    if ( enchant.expertise_rating            != 0 )  profile_str += "enchant_expertise_rating=" + util_t::to_string( enchant.expertise_rating );
+    if ( enchant.armor                       != 0 )  profile_str += "enchant_armor="            + util_t::to_string( enchant.armor );
+    if ( enchant.haste_rating                != 0 )  profile_str += "enchant_haste_rating="     + util_t::to_string( enchant.haste_rating );
+    if ( enchant.hit_rating                  != 0 )  profile_str += "enchant_hit_rating="       + util_t::to_string( enchant.hit_rating );
+    if ( enchant.crit_rating                 != 0 )  profile_str += "enchant_crit_rating="      + util_t::to_string( enchant.crit_rating );
+    if ( enchant.mastery_rating              != 0 )  profile_str += "enchant_mastery_rating="   + util_t::to_string( enchant.mastery_rating );
+    if ( enchant.resource[ RESOURCE_HEALTH ] != 0 )  profile_str += "enchant_health="           + util_t::to_string( enchant.resource[ RESOURCE_HEALTH ] );
+    if ( enchant.resource[ RESOURCE_MANA   ] != 0 )  profile_str += "enchant_mana="             + util_t::to_string( enchant.resource[ RESOURCE_MANA   ] );
+    if ( enchant.resource[ RESOURCE_RAGE   ] != 0 )  profile_str += "enchant_rage="             + util_t::to_string( enchant.resource[ RESOURCE_RAGE   ] );
+    if ( enchant.resource[ RESOURCE_ENERGY ] != 0 )  profile_str += "enchant_energy="           + util_t::to_string( enchant.resource[ RESOURCE_ENERGY ] );
+    if ( enchant.resource[ RESOURCE_FOCUS  ] != 0 )  profile_str += "enchant_focus="            + util_t::to_string( enchant.resource[ RESOURCE_FOCUS  ] );
+    if ( enchant.resource[ RESOURCE_RUNIC  ] != 0 )  profile_str += "enchant_runic="            + util_t::to_string( enchant.resource[ RESOURCE_RUNIC  ] );
   }
 
   return true;
