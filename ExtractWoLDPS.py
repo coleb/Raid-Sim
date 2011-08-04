@@ -38,7 +38,6 @@ class DPSChart:
         self.players = {}
 
     def AddPlayer(self, uid, name, amount, active):
-        print uid, name, amount, active
         assert uid not in self.players
         self.players[uid] = Player(name, amount, active)
 
@@ -71,7 +70,6 @@ def main(argv=[__name__]):
     rows = rawTableData["rows"]
     for r in rows:
         del r["nameLink"]
-        print r
         
         typename = r["typeName"]
         if typename == "player":
@@ -87,10 +85,14 @@ def main(argv=[__name__]):
             if masterId is not None:
                 dpschart.AddPet(masterId, amount)
 
+    seconds = int(float(duration) / 1000)
+
     data = []
     for name, dps, edps, active in dpschart.GetDPS():
         noStatScaling = False
-        opt = ToonSim("cenarion-circle", name, noStatScaling)
+        args = {"max_time":"%i" % seconds,
+                "vary_combat_length": "0.001"}
+        opt = ToonSim("cenarion-circle", name, noStatScaling, **args)
 
         percentOfOpt = 0.0
         if opt > 0.0:
@@ -100,6 +102,7 @@ def main(argv=[__name__]):
 
     data.sort()
     print "<table>"
+    print "<tr><th>eDPS/oDPS</th><th>oDPS</th><th>eDPS</th><th>DPS</th><th>Activity</th><th>Name</th></tr>"
     for percentOfOpt, opt, edps, dps, active, name in data:
         print "<tr>",
         fmt = "<td>%6.1f</td><td>%6.0f</td><td>%6.0f</td><td>%6.0f</td><td>%6.1f</td><td>%s</td>"

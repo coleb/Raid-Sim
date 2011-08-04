@@ -5,7 +5,7 @@ from subprocess import Popen
 
 dname = os.path.dirname(__file__)
 
-def ToonSim(server, name, withStatScaling=True):
+def ToonSim(server, name, withStatScaling=True, *args, **kwargs):
     exe = os.path.join(dname, "engine", "simc")
     lname = "%s.log" % name
     logfile = open(lname, 'w')
@@ -16,6 +16,9 @@ def ToonSim(server, name, withStatScaling=True):
     if withStatScaling:
         args.append("iterations=10000")
         args.append("calculate_scale_factors=1")
+
+    for item in kwargs.items():
+        args.append("%s=%s" % item)
 
     proc = Popen(args, stdout=logfile)
     proc.wait()
