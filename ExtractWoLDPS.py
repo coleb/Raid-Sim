@@ -1,7 +1,7 @@
 #! /usr/bin/python
 import sys, re
 from urllib2 import urlopen
-from ToonSim import ToonSim
+from RaidSim import RaidSim
 
 vname = r"rawTableData = "
 scriptRegEx = re.compile(vname)
@@ -88,12 +88,18 @@ def main(argv=[__name__]):
     seconds = int(float(duration) / 1000)
 
     data = []
+    names = []
     for name, dps, edps, active in dpschart.GetDPS():
-        noStatScaling = False
-        args = {"max_time":"%i" % seconds,
-                "vary_combat_length": "0.001"}
-        opt = ToonSim("cenarion-circle", name, noStatScaling, **args)
-
+        names.append(name)
+        
+    withStatScaling = True
+    args = {"max_time":"%i" % seconds,
+            "vary_combat_length": "0.001"}
+    optdps = RaidSim("TestOutput", "cenarion-circle", names, withStatScaling, **args)
+    
+    for name, dps, edps, active in dpschart.GetDPS():
+        opt = optdps[name]
+        
         percentOfOpt = 0.0
         if opt > 0.0:
             percentOfOpt = 100*edps/opt
