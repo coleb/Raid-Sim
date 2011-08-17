@@ -385,7 +385,7 @@ player_t::player_t( sim_t*             s,
   // Haste
   base_haste_rating( 0 ), initial_haste_rating( 0 ), haste_rating( 0 ),
   spell_haste( 1.0 ),  buffed_spell_haste( 1.0 ),
-  attack_haste( 1.0 ), buffed_attack_haste( 1.0 ),
+  attack_haste( 1.0 ), buffed_attack_haste( 1.0 ), buffed_attack_speed( 1.0 ),
   // Mastery
   mastery( 0 ), buffed_mastery ( 0 ), mastery_rating( 0 ), initial_mastery_rating ( 0 ), base_mastery ( 8.0 ),
   // Spell Mechanics
@@ -1856,6 +1856,7 @@ item_t* player_t::find_item( const std::string& str )
 
   return 0;
 }
+
 
 // player_t::energy_regen_per_second ======================================
 
@@ -4645,6 +4646,7 @@ struct snapshot_stats_t : public action_t
 
     p -> buffed_spell_haste  = p -> composite_spell_haste();
     p -> buffed_attack_haste = p -> composite_attack_haste();
+    p -> buffed_attack_speed = p -> composite_attack_speed();
     p -> buffed_mastery      = p -> composite_mastery();
 
     p -> attribute_buffed[ ATTR_STRENGTH  ] = floor( p -> strength()  );
@@ -4714,50 +4716,6 @@ struct snapshot_stats_t : public action_t
   }
 };
 
-// Wait Until Ready Action ===================================================
-
-struct wait_until_ready_t : public action_t
-{
-  double sec;
-
-  wait_until_ready_t( player_t* player, const std::string& options_str ) :
-    action_t( ACTION_OTHER, "wait", player ), sec( 1.0 )
-  {
-    option_t options[] =
-    {
-      { "sec", OPT_FLT, &sec },
-      { NULL, OPT_UNKNOWN, NULL }
-    };
-    parse_options( options, options_str );
-
-    trigger_gcd = 0;
-  }
-
-  virtual double execute_time() SC_CONST
-  {
-    double wait = sec;
-    double remains = 0;
-
-    for ( action_t* a = player -> action_list; a; a = a -> next )
-    {
-      if ( a -> background ) continue;
-
-      remains = a -> cooldown -> remains();
-      if ( remains > 0 && remains < wait ) wait = remains;
-
-      remains = a -> dot -> remains();
-      if ( remains > 0 && remains < wait ) wait = remains;
-    }
-
-    return wait + 0.001;
-  }
-
-  virtual void execute()
-  {
-    player -> total_waiting += time_to_execute;
-  }
-};
-
 // Wait Fixed Action =========================================================
 
 struct wait_fixed_t : public action_t
@@ -4790,6 +4748,34 @@ struct wait_fixed_t : public action_t
   virtual void execute()
   {
     player -> total_waiting += time_to_execute;
+  }
+};
+
+// Wait Until Ready Action ===================================================
+
+struct wait_until_ready_t : public wait_fixed_t
+{
+  wait_until_ready_t( player_t* player, const std::string& options_str ) :
+    wait_fixed_t( player, options_str )
+  {}
+
+  virtual double execute_time() SC_CONST
+  {
+    double wait = wait_fixed_t::execute_time();
+    double remains = 0;
+
+    for ( action_t* a = player -> action_list; a; a = a -> next )
+    {
+      if ( a -> background ) continue;
+
+      remains = a -> cooldown -> remains();
+      if ( remains > 0 && remains < wait ) wait = remains;
+
+      remains = a -> dot -> remains();
+      if ( remains > 0 && remains < wait ) wait = remains;
+    }
+
+    return wait + 0.001;
   }
 };
 
@@ -5842,7 +5828,7 @@ bool player_t::create_profile( std::string& profile_str, int save_type, bool sav
       profile_str += "items=" + items_str + term;
     }
 
-    profile_str += "# Gear Summary\n";
+    profile_str += "# Gear Summary" + term;
     for ( int i=0; i < STAT_MAX; i++ )
     {
       double value = initial_stats.get_stat( i );
@@ -5914,26 +5900,26 @@ bool player_t::create_profile( std::string& profile_str, int save_type, bool sav
       }
     }
 
-    if ( enchant.attribute[ ATTR_STRENGTH  ] != 0 )  profile_str += "enchant_strength="         + util_t::to_string( enchant.attribute[ ATTR_STRENGTH  ] );
-    if ( enchant.attribute[ ATTR_AGILITY   ] != 0 )  profile_str += "enchant_agility="          + util_t::to_string( enchant.attribute[ ATTR_AGILITY   ] );
-    if ( enchant.attribute[ ATTR_STAMINA   ] != 0 )  profile_str += "enchant_stamina="          + util_t::to_string( enchant.attribute[ ATTR_STAMINA   ] );
-    if ( enchant.attribute[ ATTR_INTELLECT ] != 0 )  profile_str += "enchant_intellect="        + util_t::to_string( enchant.attribute[ ATTR_INTELLECT ] );
-    if ( enchant.attribute[ ATTR_SPIRIT    ] != 0 )  profile_str += "enchant_spirit="           + util_t::to_string( enchant.attribute[ ATTR_SPIRIT    ] );
-    if ( enchant.spell_power                 != 0 )  profile_str += "enchant_spell_power="      + util_t::to_string( enchant.spell_power );
-    if ( enchant.mp5                         != 0 )  profile_str += "enchant_mp5="              + util_t::to_string( enchant.mp5 );
-    if ( enchant.attack_power                != 0 )  profile_str += "enchant_attack_power="     + util_t::to_string( enchant.attack_power );
-    if ( enchant.expertise_rating            != 0 )  profile_str += "enchant_expertise_rating=" + util_t::to_string( enchant.expertise_rating );
-    if ( enchant.armor                       != 0 )  profile_str += "enchant_armor="            + util_t::to_string( enchant.armor );
-    if ( enchant.haste_rating                != 0 )  profile_str += "enchant_haste_rating="     + util_t::to_string( enchant.haste_rating );
-    if ( enchant.hit_rating                  != 0 )  profile_str += "enchant_hit_rating="       + util_t::to_string( enchant.hit_rating );
-    if ( enchant.crit_rating                 != 0 )  profile_str += "enchant_crit_rating="      + util_t::to_string( enchant.crit_rating );
-    if ( enchant.mastery_rating              != 0 )  profile_str += "enchant_mastery_rating="   + util_t::to_string( enchant.mastery_rating );
-    if ( enchant.resource[ RESOURCE_HEALTH ] != 0 )  profile_str += "enchant_health="           + util_t::to_string( enchant.resource[ RESOURCE_HEALTH ] );
-    if ( enchant.resource[ RESOURCE_MANA   ] != 0 )  profile_str += "enchant_mana="             + util_t::to_string( enchant.resource[ RESOURCE_MANA   ] );
-    if ( enchant.resource[ RESOURCE_RAGE   ] != 0 )  profile_str += "enchant_rage="             + util_t::to_string( enchant.resource[ RESOURCE_RAGE   ] );
-    if ( enchant.resource[ RESOURCE_ENERGY ] != 0 )  profile_str += "enchant_energy="           + util_t::to_string( enchant.resource[ RESOURCE_ENERGY ] );
-    if ( enchant.resource[ RESOURCE_FOCUS  ] != 0 )  profile_str += "enchant_focus="            + util_t::to_string( enchant.resource[ RESOURCE_FOCUS  ] );
-    if ( enchant.resource[ RESOURCE_RUNIC  ] != 0 )  profile_str += "enchant_runic="            + util_t::to_string( enchant.resource[ RESOURCE_RUNIC  ] );
+    if ( enchant.attribute[ ATTR_STRENGTH  ] != 0 )  profile_str += "enchant_strength="         + util_t::to_string( enchant.attribute[ ATTR_STRENGTH  ] ) + term;
+    if ( enchant.attribute[ ATTR_AGILITY   ] != 0 )  profile_str += "enchant_agility="          + util_t::to_string( enchant.attribute[ ATTR_AGILITY   ] )+ term;
+    if ( enchant.attribute[ ATTR_STAMINA   ] != 0 )  profile_str += "enchant_stamina="          + util_t::to_string( enchant.attribute[ ATTR_STAMINA   ] )+ term;
+    if ( enchant.attribute[ ATTR_INTELLECT ] != 0 )  profile_str += "enchant_intellect="        + util_t::to_string( enchant.attribute[ ATTR_INTELLECT ] )+ term;
+    if ( enchant.attribute[ ATTR_SPIRIT    ] != 0 )  profile_str += "enchant_spirit="           + util_t::to_string( enchant.attribute[ ATTR_SPIRIT    ] )+ term;
+    if ( enchant.spell_power                 != 0 )  profile_str += "enchant_spell_power="      + util_t::to_string( enchant.spell_power )+ term;
+    if ( enchant.mp5                         != 0 )  profile_str += "enchant_mp5="              + util_t::to_string( enchant.mp5 )+ term;
+    if ( enchant.attack_power                != 0 )  profile_str += "enchant_attack_power="     + util_t::to_string( enchant.attack_power )+ term;
+    if ( enchant.expertise_rating            != 0 )  profile_str += "enchant_expertise_rating=" + util_t::to_string( enchant.expertise_rating )+ term;
+    if ( enchant.armor                       != 0 )  profile_str += "enchant_armor="            + util_t::to_string( enchant.armor )+ term;
+    if ( enchant.haste_rating                != 0 )  profile_str += "enchant_haste_rating="     + util_t::to_string( enchant.haste_rating )+ term;
+    if ( enchant.hit_rating                  != 0 )  profile_str += "enchant_hit_rating="       + util_t::to_string( enchant.hit_rating )+ term;
+    if ( enchant.crit_rating                 != 0 )  profile_str += "enchant_crit_rating="      + util_t::to_string( enchant.crit_rating )+ term;
+    if ( enchant.mastery_rating              != 0 )  profile_str += "enchant_mastery_rating="   + util_t::to_string( enchant.mastery_rating )+ term;
+    if ( enchant.resource[ RESOURCE_HEALTH ] != 0 )  profile_str += "enchant_health="           + util_t::to_string( enchant.resource[ RESOURCE_HEALTH ] )+ term;
+    if ( enchant.resource[ RESOURCE_MANA   ] != 0 )  profile_str += "enchant_mana="             + util_t::to_string( enchant.resource[ RESOURCE_MANA   ] )+ term;
+    if ( enchant.resource[ RESOURCE_RAGE   ] != 0 )  profile_str += "enchant_rage="             + util_t::to_string( enchant.resource[ RESOURCE_RAGE   ] )+ term;
+    if ( enchant.resource[ RESOURCE_ENERGY ] != 0 )  profile_str += "enchant_energy="           + util_t::to_string( enchant.resource[ RESOURCE_ENERGY ] )+ term;
+    if ( enchant.resource[ RESOURCE_FOCUS  ] != 0 )  profile_str += "enchant_focus="            + util_t::to_string( enchant.resource[ RESOURCE_FOCUS  ] )+ term;
+    if ( enchant.resource[ RESOURCE_RUNIC  ] != 0 )  profile_str += "enchant_runic="            + util_t::to_string( enchant.resource[ RESOURCE_RUNIC  ] )+ term;
   }
 
   return true;

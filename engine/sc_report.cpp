@@ -396,12 +396,13 @@ static void print_text_spell_stats( FILE* file, player_t* p )
 static void print_text_attack_stats( FILE* file, player_t* p )
 {
   util_t::fprintf( file,
-                   "  Attack Stats  power=%.0f|%.0f(%.0f)  hit=%.2f%%|%.2f%%(%.0f)  crit=%.2f%%|%.2f%%(%.0f)  expertise=%.2f|%.2f(%.0f)  haste=%.2f%%|%.2f%%(%.0f)\n",
+                   "  Attack Stats  power=%.0f|%.0f(%.0f)  hit=%.2f%%|%.2f%%(%.0f)  crit=%.2f%%|%.2f%%(%.0f)  expertise=%.2f|%.2f(%.0f)  haste=%.2f%%|%.2f%%(%.0f)  speed=%.2f%%|%.2f%%(%.0f)\n",
                    p -> buffed_attack_power, p -> composite_attack_power() * p -> composite_attack_power_multiplier(), p -> stats.attack_power,
                    100 * p -> buffed_attack_hit,         100 * p -> composite_attack_hit(),         p -> stats.hit_rating,
                    100 * p -> buffed_attack_crit,        100 * p -> composite_attack_crit(),        p -> stats.crit_rating,
                    100 * p -> buffed_attack_expertise,   100 * p -> composite_attack_expertise(),   p -> stats.expertise_rating,
-                   100 * ( 1 / p -> buffed_attack_haste - 1 ), 100 * ( 1 / p -> attack_haste - 1 ), p -> stats.haste_rating );
+                   100 * ( 1 / p -> buffed_attack_haste - 1 ), 100 * ( 1 / p -> composite_attack_haste() - 1 ), p -> stats.haste_rating,
+                   100 * ( 1 / p -> buffed_attack_speed - 1 ), 100 * ( 1 / p -> composite_attack_speed() - 1 ), p -> stats.haste_rating );
 }
 
 // print_text_defense_stats =======================================================
@@ -2290,8 +2291,19 @@ static void print_html_stats ( FILE* file, player_t* a )
                      "\t\t\t\t\t\t\t\t\t\t<td class=\"right\">%.0f</td>\n"
                      "\t\t\t\t\t\t\t\t\t</tr>\n",
                      100 * ( 1 / a -> buffed_attack_haste - 1 ),
-                     100 * ( 1 / a -> attack_haste - 1 ),
+                     100 * ( 1 / a -> composite_attack_haste() - 1 ),
                      a -> stats.haste_rating );
+
+    util_t::fprintf( file,
+                      "\t\t\t\t\t\t\t\t\t<tr>\n"
+                      "\t\t\t\t\t\t\t\t\t\t<th class=\"left\">Swing Speed</th>\n"
+                      "\t\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f%%</td>\n"
+                      "\t\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f%%</td>\n"
+                      "\t\t\t\t\t\t\t\t\t\t<td class=\"right\">%.0f</td>\n"
+                      "\t\t\t\t\t\t\t\t\t</tr>\n",
+                      100 * ( 1 / a -> buffed_attack_speed - 1 ),
+                      100 * ( 1 / a -> composite_attack_speed() - 1 ),
+                      a -> stats.haste_rating );
 
     util_t::fprintf( file,
                      "\t\t\t\t\t\t\t\t\t<tr class=\"odd\">\n"
@@ -3399,6 +3411,13 @@ static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
     util_t::fprintf( file, " section-open" );
   }
   util_t::fprintf( file, "\">\n" );
+
+  if ( ! p -> thumbnail_url.empty()  )
+    util_t::fprintf( file,
+                     "\t\t\t<a href=\"%s\" class=\"toggle-thumbnail%s\"><img src=\"%s\" alt=\"%s\" class=\"player-thumbnail\"/></a>\n",
+                     p -> origin_str.c_str(), ( num_players == 1 ) ? "" : " hide",
+                     p -> thumbnail_url.c_str(), p -> name_str.c_str() );
+
   util_t::fprintf( file,
                    "\t\t\t<h2 class=\"toggle" );
   if ( num_players == 1 )
@@ -4207,6 +4226,7 @@ void report_t::print_html( sim_t* sim )
                      "\t\t\ttr.details td table.details tr.odd td {background-color: #292929; }\n"
                      "\t\t\ttr.details td table.details tr td {padding: 1px 3px 1px 3px; }\n"
                      "\t\t\ttr.details td table.details tr td.right {text-align: right; }\n"
+                     "\t\t\t.player-thumbnail {float: right;margin: 8px;border-radius: 12px;-moz-border-radius: 12px;-webkit-border-radius: 12px;-khtml-border-radius: 12px; }\n"
                      "\t\t</style>\n" );
   }
 
@@ -4452,6 +4472,7 @@ void report_t::print_html( sim_t* sim )
                      "\t\t\t\t\t\t}\n"
                      "\t\t\t\t\t}\n"
                      "\t\t\t\t\t$(this).next('.toggle-content').toggle(150);\n"
+                     "\t\t\t\t\t$(this).prev('.toggle-thumbnail').toggleClass('hide');\n"
                      "\t\t\t\t\tchart_containers = $(this).next('.toggle-content').find('.charts');\n"
                      "\t\t\t\t\tload_images(chart_containers);\n"
                      "\t\t\t\t});\n"

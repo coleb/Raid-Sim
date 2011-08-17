@@ -809,7 +809,7 @@ const char* chart_t::action_dmg( std::string& s,
   {
     if ( st -> quiet ) continue;
     if ( st -> total_dmg <= 0 ) continue;
-    if ( (p -> role == ROLE_HEAL) != (st -> type != STATS_DMG) ) continue;
+    if ( (p -> primary_role() == ROLE_HEAL) != (st -> type != STATS_DMG) ) continue;
     stats_list.push_back( st );
   }
 
@@ -819,7 +819,7 @@ const char* chart_t::action_dmg( std::string& s,
     {
       if ( st -> quiet ) continue;
       if ( st -> total_dmg <= 0 ) continue;
-      if ( (p -> role == ROLE_HEAL) != (st -> type != STATS_DMG) ) continue;
+      if ( (p -> primary_role() == ROLE_HEAL) != (st -> type != STATS_DMG) ) continue;
       stats_list.push_back( st );
     }
   }
@@ -877,7 +877,7 @@ const char* chart_t::action_dmg( std::string& s,
   std::string formatted_name = p -> name();
   util_t::urlencode( util_t::str_to_utf8( formatted_name ) );
   snprintf( buffer, sizeof( buffer ), "chtt=%s+%s+Sources", formatted_name.c_str(),
-            (p->role == ROLE_HEAL ? "Healing" : "Damage") );
+            ( p -> primary_role() == ROLE_HEAL ? "Healing" : "Damage" ) );
   s += buffer;
   s += "&amp;";
   if ( p -> sim -> print_styles )
@@ -1229,12 +1229,13 @@ const char* chart_t::reforge_dps( std::string& s,
   int num_stats = pd[ 0 ].size() - 1;
   if ( num_stats != 3 && num_stats != 2 )
   {
-    p -> sim -> errorf( "Cannot generate reforge plot for more than 3 stats.\n" );
+    p -> sim -> errorf( "You must choose 2 or 3 stats to generate a reforge plot.\n" );
     return 0;
   }
 
   for ( int i=0; i < ( int ) pd.size(); i++ )
   {
+    assert( num_stats < ( int ) pd[ i ].size() );
     if ( pd[ i ][ num_stats ] < min_dps )
       min_dps = pd[ i ][ num_stats ];
     if ( pd[ i ][ num_stats ] > max_dps )

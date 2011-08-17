@@ -495,7 +495,7 @@ struct priest_heal_t : public heal_t
     struct echo_of_light_t : public priest_heal_t
     {
       echo_of_light_t( player_t* p ) :
-        priest_heal_t( "echo_of_light", p, 77485 )
+        priest_heal_t( "echo_of_light", p, 77489 )
       {
         base_tick_time = 1.0;
         num_ticks      = 6;
@@ -575,8 +575,10 @@ struct priest_heal_t : public heal_t
 
     player_multiplier *= 1.0 + p -> passive_spells.spiritual_healing -> base_value( E_APPLY_AURA, A_ADD_PCT_MODIFIER ) ;
 
+    if ( p -> buffs_chakra_serenity -> up() )
+      player_crit += p -> buffs_chakra_serenity -> effect1().percent();
     if ( p -> buffs_serenity -> up() )
-      player_crit += 0.10;
+      player_crit += p -> buffs_serenity -> effect2().percent();
 
     player_multiplier *= 1.0 + p -> buffs_holy_archangel -> value();
   }
@@ -1165,9 +1167,90 @@ struct shadow_fiend_pet_t : public pet_t
   }
 };
 
+// ==========================================================================
+// Pet Lightwell
+// ==========================================================================
+
+struct lightwell_pet_t : public pet_t
+{
+  struct lightwell_renew_t : public heal_t
+  {
+    lightwell_renew_t( lightwell_pet_t* player ) :
+      heal_t( "lightwell_renew", player, 7001 )
+    {
+      priest_t* p = player -> owner -> cast_priest();
+
+      may_crit = false;
+      tick_may_crit = true;
+
+      tick_power_mod = 0.308;
+      base_multiplier *= ( 1.0 + p -> constants.twin_disciplines_value ) * 1.15;
+    }
+
+    lightwell_pet_t* cast()
+    {
+      return static_cast<lightwell_pet_t*>( player );
+    }
+
+    virtual void execute()
+    {
+      cast() -> charges--;
+
+      assert( heal_target.size() == 1 );
+      heal_target[ 0 ] = find_lowest_player();
+
+      heal_t::execute();
+    }
+
+    virtual void last_tick()
+    {
+      heal_t::last_tick();
+
+      if ( cast() -> charges <= 0 )
+        cast() -> dismiss();
+    }
+
+    virtual bool ready()
+    {
+      if ( cast() -> charges <= 0 )
+        return false;
+      return heal_t::ready();
+    }
+  };
+
+  int charges;
+
+  lightwell_pet_t( sim_t* sim, priest_t* p ) :
+    pet_t( sim, p, "lightwell", PET_NONE, true ),
+    charges( 0 )
+  {
+    role = ROLE_HEAL;
+    action_list_str = "/snapshot_stats/lightwell_renew/wait,sec=cooldown.lightwell_renew.remains";
+  }
+
+  virtual action_t* create_action( const std::string& name,
+                                   const std::string& options_str )
+  {
+    if ( name == "lightwell_renew" ) return new lightwell_renew_t( this );
+
+    return pet_t::create_action( name, options_str );
+  }
+
+  virtual void summon( double duration )
+  {
+    priest_t* p = owner -> cast_priest();
+
+    spell_haste = p -> spell_haste;
+    spell_power[ SCHOOL_HOLY ] = p -> composite_spell_power( SCHOOL_HOLY );
+
+    charges = 10 + p -> glyphs.lightwell -> effect1().base_value();
+
+    pet_t::summon( duration );
+  }
+};
 
 // ==========================================================================
-// Pet Cauterizing Flames
+// Pet Cauterizing Flame
 // ==========================================================================
 
 struct cauterizing_flame_pet_t : public pet_t
@@ -1192,7 +1275,7 @@ struct cauterizing_flame_pet_t : public pet_t
   };
 
   cauterizing_flame_pet_t( sim_t* sim, player_t* owner ) :
-    pet_t( sim, owner, "cauterizing_flame" )
+    pet_t( sim, owner, "cauterizing_flame", PET_NONE, true )
   {
     role = ROLE_HEAL;
     action_list_str = "/snapshot_stats/cauterizing_flame_heal/wait_until_ready";
@@ -2131,31 +2214,31 @@ struct mind_sear_t : public priest_spell_t
 
 // Penance Spell ============================================================
 
-struct penance_tick_t : public priest_spell_t
-{
-  penance_tick_t( player_t* player ) :
-    priest_spell_t( "penance_tick", player, 47666 )
-  {
-    background  = true;
-    dual        = true;
-    direct_tick = true;
-
-    stats = player -> get_stats( "penance", this );
-  }
-
-  virtual void player_buff()
-  {
-    priest_spell_t::player_buff();
-
-    priest_t* p = player -> cast_priest();
-
-    player_multiplier *= 1.0 + ( p -> buffs_holy_evangelism -> stack() * p -> buffs_holy_evangelism -> effect1().percent() );
-  }
-};
-
 struct penance_t : public priest_spell_t
 {
-  spell_t* tick_spell;
+  struct penance_tick_t : public priest_spell_t
+  {
+    penance_tick_t( player_t* player ) :
+      priest_spell_t( "penance_tick", player, 47666 )
+    {
+      background  = true;
+      dual        = true;
+      direct_tick = true;
+
+      stats = player -> get_stats( "penance", this );
+    }
+
+    virtual void player_buff()
+    {
+      priest_spell_t::player_buff();
+
+      priest_t* p = player -> cast_priest();
+
+      player_multiplier *= 1.0 + ( p -> buffs_holy_evangelism -> stack() * p -> buffs_holy_evangelism -> effect1().percent() );
+    }
+  };
+
+  penance_tick_t* tick_spell;
 
   penance_t( player_t* player, const std::string& options_str ) :
     priest_spell_t( "penance", player, "Penance" ),
@@ -2167,13 +2250,15 @@ struct penance_t : public priest_spell_t
 
     parse_options( NULL, options_str );
 
-    harmful        = false;
+    may_crit       = false;
+    may_miss       = false;
     channeled      = true;
     tick_zero      = true;
     num_ticks      = 2;
     base_tick_time = 1.0;
+    hasted_ticks   = false;
 
-    cooldown -> duration  += p -> glyphs.penance -> effect1().seconds();
+    cooldown -> duration = spell_id_t::cooldown() + p -> glyphs.penance -> effect1().seconds();
 
     tick_spell = new penance_tick_t( p );
   }
@@ -2637,7 +2722,18 @@ struct shadow_fiend_spell_t : public priest_spell_t
     priest_spell_t::execute();
 
     p -> summon_pet( "shadow_fiend", duration() );
+  }
 
+  virtual bool ready()
+  {
+    priest_t* p = player -> cast_priest();
+
+    if ( p -> buffs_shadowfiend -> check() )
+    {
+      return false;
+    }
+
+    return priest_spell_t::ready();
   }
 };
 
@@ -3060,7 +3156,7 @@ struct flash_heal_t : public priest_heal_t
 
     priest_heal_t::execute();
 
-    // Assuming a SoL Flash Heal can't proc SoL
+    // TEST: Assuming a SoL Flash Heal can't proc SoL
     if ( p -> buffs_surge_of_light -> up() )
       p -> buffs_surge_of_light -> expire();
     else if ( p -> buffs_surge_of_light -> trigger() )
@@ -3176,7 +3272,7 @@ struct binding_heal_t : public priest_heal_t
     {
       for ( player_t* q = sim -> player_list; q; q = q -> next )
       {
-        if ( ! q -> is_pet() && q != heal_target[0] && p -> get_player_distance( q ) < ( range * range ) )
+        if ( q != p && ! q -> is_pet() && p -> get_player_distance( q ) < ( range * range ) )
         {
           heal_target.push_back( q );
           break;
@@ -3186,7 +3282,7 @@ struct binding_heal_t : public priest_heal_t
 
     priest_heal_t::execute();
 
-    p -> buffs_serendipity -> trigger( 1 );
+    p -> buffs_serendipity -> trigger();
 
     if ( p -> buffs_surge_of_light -> trigger() )
       p -> procs_surge_of_light -> occur();
@@ -3228,7 +3324,7 @@ struct binding_heal_t : public priest_heal_t
 
     priest_t* p = player -> cast_priest();
 
-    if ( p -> buffs_inner_focus -> up() )
+    if ( p -> buffs_inner_focus -> check() )
       player_crit += p -> buffs_inner_focus -> effect2().percent();
   }
 
@@ -3865,8 +3961,7 @@ struct penance_heal_t : public priest_heal_t
     hasted_ticks   = false;
 
     cooldown = player -> get_cooldown( "penance" );
-    cooldown -> duration  = spell_id_t::cooldown();
-    cooldown -> duration += p -> glyphs.penance -> effect1().seconds();
+    cooldown -> duration = spell_id_t::cooldown() + p -> glyphs.penance -> effect1().seconds();
 
     penance_tick = new penance_heal_tick_t( p );
   }
@@ -4105,72 +4200,33 @@ struct holy_word_t : public priest_spell_t
 
 // Lightwell Spell ==========================================================
 
-struct lightwell_t : public priest_heal_t
+struct lightwell_t : public spell_t
 {
-  struct lightwell_hot_t : public priest_heal_t
-  {
-    int charges;
-    double consume_interval;
-
-    lightwell_hot_t( player_t* player ) :
-      priest_heal_t( "lightwell_hot", player, 7001 ),
-      charges( 0 ), consume_interval( 0.0 )
-    {
-      // Hardcoded in the tooltip
-      tick_power_mod = 0.308;
-      base_multiplier *= 3 * 1.25;
-
-      proc          = true;
-      background    = true;
-      hasted_ticks  = false; // FIXME: Lightwell ticks _are_ hasted, but it doesn't benefit from,
-                             //        buffs, only bare haste rating.
-      may_crit      = false;
-    }
-
-    virtual void execute()
-    {
-      priest_heal_t::execute();
-
-      if ( charges >= 0 )
-      {
-        // Assuming a Lightwell Charge is used every 10 seconds
-        execute_event = new ( sim ) action_execute_event_t( sim, this, consume_interval );
-        charges -= 1;
-      }
-    }
-  };
-
-  lightwell_hot_t* lw_hot;
   double consume_interval;
 
-  lightwell_t( player_t* player, const std::string& options_str ) :
-    priest_heal_t( "lightwell", player, 724 ), lw_hot( 0 ), consume_interval( 10.0 )
+  lightwell_t( priest_t* p, const std::string& options_str ) :
+    spell_t( "lightwell", 724, p ), consume_interval( 10 )
   {
     option_t options[] =
     {
-      { "consume_interval", OPT_FLT, &consume_interval },
-      { NULL,     OPT_UNKNOWN, NULL       }
+      { "consume_interval", OPT_FLT,     &consume_interval },
+      { NULL,               OPT_UNKNOWN, NULL              }
     };
     parse_options( options, options_str );
 
+    harmful = false;
+
     assert( consume_interval > 0 && consume_interval < cooldown -> duration );
-
-    priest_t* p = player -> cast_priest();
-    check_talent( p -> talents.lightwell -> rank() );
-
-    lw_hot = new lightwell_hot_t( p );
-    add_child( lw_hot );
   }
 
   virtual void execute()
   {
-    priest_heal_t::execute();
-
     priest_t* p = player -> cast_priest();
 
-    lw_hot -> charges = 10 + p -> glyphs.lightwell -> effect1().base_value();
-    lw_hot -> consume_interval = consume_interval;
-    lw_hot -> execute();
+    spell_t::execute();
+
+    p -> find_pet( "lightwell" ) -> get_cooldown( "lightwell_renew" ) -> duration = consume_interval;
+    p -> summon_pet( "lightwell", duration() );
   }
 };
 
@@ -4326,14 +4382,18 @@ void priest_t::trigger_cauterizing_flame()
 
 int priest_t::primary_role() SC_CONST
 {
-  if ( player_t::primary_role() == ROLE_HEAL )
+  switch( player_t::primary_role() )
+  {
+  case ROLE_HEAL:
     return ROLE_HEAL;
-
-  if ( player_t::primary_role() == ROLE_DPS || player_t::primary_role() == ROLE_SPELL )
+  case ROLE_DPS:
+  case ROLE_SPELL:
     return ROLE_SPELL;
-
-  if ( primary_tree() == TREE_DISCIPLINE || primary_tree() == TREE_HOLY )
-    return ROLE_HEAL;
+  default:
+    if ( primary_tree() == TREE_DISCIPLINE || primary_tree() == TREE_HOLY )
+      return ROLE_HEAL;
+    break;
+  }
 
   return ROLE_SPELL;
 }
@@ -4534,6 +4594,7 @@ pet_t* priest_t::create_pet( const std::string& pet_name,
   if ( p ) return p;
 
   if ( pet_name == "shadow_fiend" ) return new shadow_fiend_pet_t( sim, this );
+  if ( pet_name == "lightwell" ) return new lightwell_pet_t( sim, this );
   if ( pet_name == "cauterizing_flame" ) return new cauterizing_flame_pet_t( sim, this );
 
   return 0;
@@ -4545,6 +4606,7 @@ void priest_t::create_pets()
 {
   create_pet( "shadow_fiend" );
   active_cauterizing_flame = create_pet( "cauterizing_flame" );
+  create_pet( "lightwell" );
 }
 
 // priest_t::init_base =======================================================
@@ -4808,8 +4870,11 @@ void priest_t::init_buffs()
 
   // Discipline
   buffs_borrowed_time              = new buff_t( this, talents.borrowed_time -> effect_trigger_spell( 1 ), "borrowed_time", talents.borrowed_time -> rank() );
+  // TEST: buffs_borrowed_time -> activated = false;
   buffs_dark_evangelism            = new buff_t( this, talents.evangelism -> rank() == 2 ? 87118 : 87117, "dark_evangelism", talents.evangelism -> rank() );
+  buffs_dark_evangelism -> activated = false;
   buffs_holy_evangelism            = new buff_t( this, talents.evangelism -> rank() == 2 ? 81661 : 81660, "holy_evangelism", talents.evangelism -> rank() );
+  buffs_holy_evangelism -> activated = false;
   buffs_dark_archangel             = new buff_t( this, 87153, "dark_archangel" );
   buffs_holy_archangel             = new buff_t( this, 81700, "holy_archangel" );
   buffs_inner_fire                 = new buff_t( this,   588, "inner_fire"                                              );
@@ -4823,9 +4888,12 @@ void priest_t::init_buffs()
   buffs_chakra_sanctuary           = new buff_t( this, 81206, "chakra_sanctuary" );
   buffs_chakra_serenity            = new buff_t( this, 81208, "chakra_serenity" );
   buffs_serendipity                = new buff_t( this, talents.serendipity -> effect_trigger_spell( 1 ), "serendipity", talents.serendipity -> rank() );
-  buffs_serenity                   = new buff_t( this, 88684, "chakra_serenity_crit" );
+  // TEST: buffs_serendipity -> activated = false;
+  buffs_serenity                   = new buff_t( this, 88684, "serenity" );
   buffs_serenity -> cooldown -> duration = 0;
+  // TEST: buffs_serenity -> activated = false;
   buffs_surge_of_light             = new buff_t( this, talents.surge_of_light, NULL );
+  // TEST: buffs_surge_of_light -> activated = false;
 
 
   // Shadow
@@ -4948,22 +5016,30 @@ void priest_t::init_actions()
       // DAMAGE DEALER
       if ( primary_role() != ROLE_HEAL )
       {
-                                                         action_list_str += "/mana_potion,if=mana_pct<=75";
-        if ( level >= 66 )                               action_list_str += "/shadow_fiend,if=mana_pct<=50";
-        if ( level >= 64 )                               action_list_str += "/hymn_of_hope";
-        if ( level >= 66 )                               action_list_str += ",if=pet.shadow_fiend.active&time>200";
-        if ( race == RACE_TROLL )                        action_list_str += "/berserking";
+                                                         action_list_str += "/volcanic_potion,if=!in_combat|buff.bloodlust.up|time_to_die<=40";
         if ( race == RACE_BLOOD_ELF )                    action_list_str += "/arcane_torrent,if=mana_pct<=90";
+        if ( level >= 66 )                               action_list_str += "/shadow_fiend,if=mana_pct<=60";
+        if ( level >= 64 )                               action_list_str += "/hymn_of_hope";
+        if ( level >= 66 )                               action_list_str += ",if=pet.shadow_fiend.active&mana_pct<=20";
+        if ( race == RACE_TROLL )                        action_list_str += "/berserking";
         if ( talents.power_infusion -> rank() )          action_list_str += "/power_infusion";
         if ( talents.archangel -> ok() )                 action_list_str += "/archangel,if=buff.holy_evangelism.stack>=5";
-        if ( talents.rapture -> ok() )                   action_list_str += "/power_word_shield,if=buff.weakened_soul.down";
+        if ( talents.rapture -> ok() )                   action_list_str += "/power_word_shield,if=!cooldown.rapture.remains";
+        if ( talents.borrowed_time -> ok() )
+        {
+          if ( level >= 28 )                             action_list_str += "/devouring_plague,if=buff.borrowed_time.up&(remains<3*tick_time|!ticking)";
+                                                         action_list_str += "/shadow_word_pain,if=buff.borrowed_time.up&(remains<2*tick_time|!ticking)";
+                                                         action_list_str += "/penance,if=buff.borrowed_time.up";
+        }
                                                          action_list_str += "/holy_fire";
-        if ( level >= 28 )                               action_list_str += "/devouring_plague,if=remains<tick_time|!ticking";
+        if ( ! talents.borrowed_time -> ok() )
+        {
+          if ( level >= 28 )                             action_list_str += "/devouring_plague,if=remains<tick_time|!ticking";
                                                          action_list_str += "/shadow_word_pain,if=remains<tick_time|!ticking";
+        }
                                                          action_list_str += "/penance";
         if ( ! talents.archangel -> ok() )               action_list_str += "/mind_blast";
                                                          action_list_str += "/smite";
-        if ( talents.archangel -> ok() )                 action_list_str += ",if=buff.holy_evangelism.stack<5|buff.holy_evangelism.remains<cooldown.archangel.remains+0.5";
       }
       // HEALER
       else
@@ -4973,8 +5049,30 @@ void priest_t::init_actions()
         if ( level >= 66 )                               action_list_str += "/shadow_fiend,if=mana_pct<=20";
         if ( level >= 64 )                               action_list_str += "/hymn_of_hope";
         if ( level >= 66 )                               action_list_str += ",if=pet.shadow_fiend.active";
-        if ( talents.archangel -> ok() )                 action_list_str += "/archangel,if=buff.holy_evangelism.stack>=5";
         if ( race == RACE_TROLL )                        action_list_str += "/berserking";
+        if ( talents.inner_focus ->ok() )                action_list_str += "/inner_focus";
+        if ( talents.power_infusion -> ok() )            action_list_str += "/power_infusion";
+                                                         action_list_str += "/power_word_shield";
+        if ( talents.rapture -> ok() )                   action_list_str += ",if=!cooldown.rapture.remains";
+        if ( talents.archangel -> ok() )                 action_list_str += "/archangel,if=buff.holy_evangelism.stack>=5";
+        if ( talents.borrowed_time -> ok() )
+        {
+                                                         action_list_str += "/penance_heal,if=buff.borrowed_time.up";
+          if ( talents.grace -> ok() )                   action_list_str += "|buff.grace.down";
+        }
+        if ( talents.inner_focus -> ok() )               action_list_str += "/greater_heal,if=buff.inner_focus.up";
+        if ( talents.archangel -> ok() )
+        {
+                                                         action_list_str += "/holy_fire";
+          if ( talents.atonement -> ok() )
+          {
+                                                         action_list_str += "/smite,if=";
+            if ( glyphs.smite -> ok() )                  action_list_str += "dot.holy_fire.remains>cast_time&";
+                                                         action_list_str += "buff.holy_evangelism.stack<5&buff.holy_archangel.down";
+          }
+        }
+                                                         action_list_str += "/penance_heal";
+                                                         action_list_str += "/greater_heal";
       }
       break;
 
@@ -4984,11 +5082,11 @@ void priest_t::init_actions()
       if ( primary_role() != ROLE_HEAL )
       {
                                                          action_list_str += "/mana_potion,if=mana_pct<=75";
+        if ( race == RACE_BLOOD_ELF )                    action_list_str += "/arcane_torrent,if=mana_pct<=90";
         if ( level >= 66 )                               action_list_str += "/shadow_fiend,if=mana_pct<=50";
         if ( level >= 64 )                               action_list_str += "/hymn_of_hope";
         if ( level >= 66 )                               action_list_str += ",if=pet.shadow_fiend.active&time>200";
         if ( race == RACE_TROLL )                        action_list_str += "/berserking";
-        if ( race == RACE_BLOOD_ELF )                    action_list_str += "/arcane_torrent,if=mana_pct<=90";
         if ( talents.chakra -> ok() )                    action_list_str += "/chakra";
         if ( talents.archangel -> ok() )                 action_list_str += "/archangel,if=buff.holy_evangelism.stack>=5";
                                                          action_list_str += "/holy_fire";

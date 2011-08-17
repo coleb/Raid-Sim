@@ -312,14 +312,17 @@ struct hunter_pet_t : public pet_t
       pet_t( sim, owner, pet_name, pt )
   {
     main_hand_weapon.type       = WEAPON_BEAST;
-    main_hand_weapon.min_dmg    = rating_t::interpolate( level, 0, 0, 51, 85 ); // FIXME needs level 60 and 70 values
-    main_hand_weapon.max_dmg    = rating_t::interpolate( level, 0, 0, 78, 134 ); // FIXME needs level 60 and 70 values
+    main_hand_weapon.min_dmg    = rating_t::interpolate( level, 0, 0, 51, 73 ); // FIXME needs level 60 and 70 values
+    main_hand_weapon.max_dmg    = rating_t::interpolate( level, 0, 0, 78, 110 ); // FIXME needs level 60 and 70 values
+    // Level 85 numbers from Rivkah from EJ, 07.08.2011
     main_hand_weapon.damage     = ( main_hand_weapon.min_dmg + main_hand_weapon.max_dmg ) / 2;
     main_hand_weapon.swing_time = 2.0;
 
     stamina_per_owner = 0.45;
 
     health_per_stamina *= 1.05; // 3.1.0 change # Cunning, Ferocity and Tenacity pets now all have +5% damage, +5% armor and +5% health bonuses
+    initial_armor_multiplier *= 1.05;
+
 
     create_talents();
     create_options();
@@ -933,6 +936,9 @@ struct hunter_pet_attack_t : public attack_t
 
     // Assume happy pet
     base_multiplier *= 1.25;
+
+    // 3.1.0 change # Cunning, Ferocity and Tenacity pets now all have +5% damage, +5% armor and +5% health bonuses
+    base_multiplier *= 1.05;
   }
 
   hunter_pet_attack_t( const char* n, hunter_pet_t* player, const char* sname, bool special=true ) :
@@ -1894,6 +1900,8 @@ struct aimed_shot_mm_t : public hunter_attack_t
 
     weapon = &( p -> ranged_weapon );
     assert( weapon -> group() == WEAPON_RANGED );
+    base_dd_min *= weapon_multiplier; // Aimed Shot's weapon multiplier applies to the base damage as well
+    base_dd_max *= weapon_multiplier;
 
     normalize_weapon_speed = true;
   }
@@ -1955,7 +1963,9 @@ struct aimed_shot_t : public hunter_attack_t
     weapon = &( p -> ranged_weapon );
     assert( weapon -> group() == WEAPON_RANGED );
     normalize_weapon_speed = true;
-    
+    base_dd_min *= weapon_multiplier; // Aimed Shot's weapon multiplier applies to the base damage as well
+    base_dd_max *= weapon_multiplier;
+
     casted = 0;
 
     // Hotfix on Feb 18th, 2011: http://blue.mmo-champion.com/topic/157148/patch-406-hotfixes-february-18
@@ -2125,7 +2135,6 @@ struct black_arrow_t : public hunter_attack_t
 
     base_dd_min=base_dd_max=0;
     tick_power_mod=extra_coeff();
-
   }
 
   virtual void tick()
@@ -2425,7 +2434,9 @@ struct kill_shot_t : public hunter_attack_t
     assert( weapon -> group() == WEAPON_RANGED );
 
     weapon_multiplier = effect_average( 2 ) / 100.0;
-    direct_power_mod = 0.45;
+    base_dd_min *= weapon_multiplier; // Kill Shot's weapon multiplier applies to the base damage as well
+    base_dd_max *= weapon_multiplier;
+    direct_power_mod = 0.45 * weapon_multiplier; // and the coefficient too
 
     base_crit += p -> talents.sniper_training -> effect2().percent();
 

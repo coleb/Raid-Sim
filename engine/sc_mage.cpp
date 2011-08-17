@@ -152,6 +152,7 @@ struct mage_t : public player_t
   rng_t* rng_improved_freeze;
   rng_t* rng_nether_vortex;
   rng_t* rng_tier12_mirror_image;
+  rng_t* rng_mage_armor_start;
 
   // Rotation (DPS vs DPM)
   struct rotation_t
@@ -2305,8 +2306,8 @@ struct ice_lance_t : public mage_spell_t
     mage_spell_t::player_buff();
     if ( p -> buffs_fingers_of_frost -> up() )
     {
-      player_multiplier *= 2.0; // Built in bonus against frozen targets
-      player_multiplier *= 1.25;
+      player_multiplier *= 1.0 + effect2().percent(); // Built in bonus against frozen targets
+      player_multiplier *= 1.25; // Buff from Fingers of Frost
     }
   }
 };
@@ -2409,6 +2410,48 @@ struct mage_armor_t : public mage_spell_t
     mage_t* p = player -> cast_mage();
     if( p -> buffs_mage_armor -> check() ) return false;
     return mage_spell_t::ready();
+  }
+};
+
+// Mage Armor Buff ==========================================================
+
+struct mage_armor_buff_t : public buff_t
+{
+  struct mage_armor_event_t : public event_t
+  {
+    mage_armor_event_t( player_t* player, double tick_time ) :
+      event_t( player -> sim, player, "mage_armor" )
+    {
+      if ( tick_time < 0 ) tick_time = 0;
+      if ( tick_time > 5 ) tick_time = 5;
+      sim -> add_event( this, tick_time );
+    }
+
+    virtual void execute()
+    {
+      mage_t* p = player -> cast_mage();
+      if ( p -> buffs_mage_armor -> check() )
+      {
+        double gain_amount = p -> resource_max[ RESOURCE_MANA ] * p -> spells.mage_armor -> effect2().percent();
+        gain_amount *= 1.0 + p -> glyphs.mage_armor -> effect1().percent();
+
+        p -> resource_gain( RESOURCE_MANA, gain_amount, p -> gains_mage_armor );
+
+        new ( sim ) mage_armor_event_t( player, 5.0 );
+      }
+    }
+  };
+
+  mage_armor_buff_t( player_t* p ) :
+    buff_t ( p, p -> cast_mage() -> spells.mage_armor, NULL )
+  {}
+
+  virtual void start( int stacks, double value )
+  {
+    mage_t* p = player -> cast_mage();
+    double d = p -> rng_mage_armor_start -> real() * 5.0; // Random start of the first mana regen tick.
+    new ( sim ) mage_armor_event_t( player, d );
+    buff_t::start( stacks, value );
   }
 };
 
@@ -3182,7 +3225,7 @@ void mage_t::init_buffs()
   buffs_icy_veins            = new buff_t( this, spells.icy_veins,             "cooldown", 0.0, NULL ); // CD managed in action
   buffs_improved_mana_gem    = new buff_t( this, talents.improved_mana_gem,    "duration", 15.0, NULL );
   buffs_invocation           = new buff_t( this, talents.invocation,           NULL );
-  buffs_mage_armor           = new buff_t( this, spells.mage_armor,            NULL );
+  buffs_mage_armor           = new mage_armor_buff_t( this );
   buffs_molten_armor         = new buff_t( this, spells.molten_armor,          NULL );
 
   buffs_arcane_potency       = new buff_t( this, "arcane_potency",       2 );
@@ -3252,6 +3295,7 @@ void mage_t::init_rng()
   rng_improved_freeze     = get_rng( "improved_freeze"     );
   rng_nether_vortex       = get_rng( "nether_vortex"       );
   rng_tier12_mirror_image = get_rng( "tier12_mirror_image" );
+  rng_mage_armor_start    = get_rng( "rng_mage_armor_start");
 }
 
 // mage_t::init_actions =====================================================
@@ -3401,15 +3445,15 @@ void mage_t::init_actions()
         action_list_str += "/presence_of_mind,arcane_blast";
       }
 
-      if ( has_shard == true )
+      if ( has_shard )
       {
         action_list_str += "/arcane_blast,if=target.time_to_die<=50|cooldown.evocation.remains<=50";
         action_list_str += "/sequence,name=conserve:arcane_blast:arcane_blast:arcane_blast:arcane_blast:arcane_blast,if=!buff.bloodlust.up";
       }
       else
       {
-        action_list_str += "/arcane_blast,if=target.time_to_die<40|cooldown.evocation.remains<=40";
-        action_list_str += "/sequence,name=conserve:arcane_blast:arcane_blast:arcane_blast:arcane_blast,if=!buff.bloodlust.up";
+        action_list_str += "/arcane_blast,if=target.time_to_die<35|cooldown.evocation.remains<=35";
+        action_list_str += "/sequence,name=conserve:arcane_blast:arcane_blast:arcane_blast";
       }
       action_list_str += "/arcane_missiles";
       action_list_str += "/arcane_barrage,if=buff.arcane_blast.stack>0"; // when AM hasn't procced
@@ -3624,15 +3668,7 @@ void mage_t::regen( double periodicity )
 
   player_t::regen( periodicity );
 
-  if ( buffs_mage_armor -> up() )
-  {
-    double gain_amount = resource_max[ RESOURCE_MANA ] * spells.mage_armor -> effect2().percent();
-    gain_amount *= periodicity / 5.0;
-    gain_amount *= 1.0 + glyphs.mage_armor -> effect1().percent();
-
-    resource_gain( RESOURCE_MANA, gain_amount, gains_mage_armor );
-  }
-  else if ( buffs_frost_armor -> up() && glyphs.frost_armor -> ok() )
+  if ( buffs_frost_armor -> up() && glyphs.frost_armor -> ok() )
   {
     double gain_amount = resource_max[ RESOURCE_MANA ] * glyphs.frost_armor -> effect1().percent();
     gain_amount *= periodicity / 5.0;

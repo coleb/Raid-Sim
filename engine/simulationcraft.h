@@ -76,7 +76,7 @@
 #include "data_definitions.hh"
 
 #define SC_MAJOR_VERSION "420"
-#define SC_MINOR_VERSION "4"
+#define SC_MINOR_VERSION "5"
 #define SC_USE_PTR ( 0 )
 #define SC_BETA ( 0 )
 
@@ -1614,6 +1614,8 @@ struct util_t
   static stat_type translate_item_mod( int stat_mod );
   static slot_type translate_invtype( int inv_type );
   static weapon_type translate_weapon_subclass( item_subclass_weapon weapon_subclass );
+  static profession_type translate_profession_id( int skill_id );
+
   static bool socket_gem_match( int socket, int gem );
 
   static int string_split( std::vector<std::string>& results, const std::string& str, const char* delim, bool allow_quotes = false );
@@ -2938,7 +2940,7 @@ struct player_t
   // Haste
   double base_haste_rating, initial_haste_rating, haste_rating;
   double spell_haste, buffed_spell_haste;
-  double attack_haste, buffed_attack_haste;
+  double attack_haste, buffed_attack_haste, buffed_attack_speed;
 
   // Attributes
   double attribute                   [ ATTRIBUTE_MAX ];
@@ -3104,6 +3106,7 @@ struct player_t
   std::string save_talents_str;
   std::string save_actions_str;
   std::string comment_str;
+  std::string thumbnail_url;
 
   // Gear
   std::string items_str, meta_gem_str;
@@ -4396,12 +4399,14 @@ struct rng_t
 
 // String utils =================================================================
 
-std::string tolower( std::string src );
-std::string trim( std::string src );
-void replace_char( std::string& src, char old_c, char new_c  );
-void replace_str( std::string& src, std::string old_str, std::string new_str  );
-bool str_to_float( std::string src, double& dest );
+std::string tolower( const std::string& src );
 std::string proper_option_name( const std::string& full_name );
+#if 0 // UNUSED
+std::string trim( const std::string& src );
+void replace_char( std::string& str, char old_c, char new_c  );
+void replace_str( std::string& str, const std::string& old_str, const std::string& new_str  );
+bool str_to_float( const std::string& src, double& dest );
+#endif // UNUSED
 
 // Thread Wrappers ===========================================================
 
@@ -4420,12 +4425,6 @@ struct thread_t
 
 struct armory_t
 {
-  static int download_servers( std::vector<std::string>& servers,
-                               const std::string& region );
-  static int download_guild( std::vector<std::string>& characters,
-                             const std::string& region,
-                             const std::string& server,
-                             const std::string& name );
   static bool download_guild( sim_t* sim,
                               const std::string& region,
                               const std::string& server,
@@ -4486,7 +4485,7 @@ struct wowhead_t
                              const std::string gem_ids[ 3 ],
                              int cache_only=0,
                              bool ptr=false );
-  static bool download_item( item_t&, const std::string& item_id, int cache_only=0,bool ptr=false );
+  static bool download_item( item_t&, const std::string& item_id, int cache_only=0, bool ptr=false );
   static bool download_glyph( player_t* player, std::string& glyph_name, const std::string& glyph_id, int cache_only=0, bool ptr=false );
   static int  parse_gem( item_t& item, const std::string& gem_id, int cache_only=0, bool ptr=false );
 };
@@ -4522,6 +4521,28 @@ struct rawr_t
   static player_t* load_player( sim_t*, const std::string& character_filename );
   static player_t* load_player( sim_t*, const std::string& character_filename, const std::string& character_xml );
 };
+
+// Blizzard Community Platform API ===========================================
+
+namespace bcp_api
+{
+  bool download_guild( sim_t* sim,
+                       const std::string& region,
+                       const std::string& server,
+                       const std::string& name,
+                       const std::vector<int>& ranks,
+                       int player_type = PLAYER_NONE,
+                       int max_rank=0,
+                       bool allow_cache=0 );
+  player_t* download_player( sim_t*,
+                             const std::string& region,
+                             const std::string& server,
+                             const std::string& name,
+                             const std::string& talents=std::string("active"),
+                             bool allow_cache=false );
+  bool download_item( item_t&, const std::string& item_id, bool cache_only=false );
+  bool download_glyph( player_t* player, std::string& glyph_name, const std::string& glyph_id, bool cache_only=false );
+}
 
 // HTTP Download  ============================================================
 

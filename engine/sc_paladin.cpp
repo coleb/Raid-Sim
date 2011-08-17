@@ -252,6 +252,8 @@ struct paladin_t : public player_t
   virtual double    composite_attribute_multiplier( int attr ) SC_CONST;
   virtual double    composite_player_multiplier( const school_type school, action_t* a = NULL ) SC_CONST;
   virtual double    composite_attack_expertise() SC_CONST;
+  virtual double    composite_attack_haste() SC_CONST;
+  virtual double    composite_spell_haste() SC_CONST;
   virtual double    composite_spell_power( const school_type school ) SC_CONST;
   virtual double    composite_tank_block() SC_CONST;
   virtual double    composite_tank_crit( const school_type school ) SC_CONST;
@@ -270,6 +272,7 @@ struct paladin_t : public player_t
   int               holy_power_stacks() SC_CONST;
   double            get_divine_bulwark() SC_CONST;
   double            get_hand_of_light() SC_CONST;
+  double            jotp_haste() SC_CONST;
 };
 
 namespace { // ANONYMOUS NAMESPACE ==========================================
@@ -352,6 +355,7 @@ struct guardian_of_ancient_kings_ret_t : public pet_t
 
   virtual void dismiss()
   {
+    if (sleeping) return;
     pet_t::dismiss();
     if ( owner -> cast_paladin() -> ancient_fury_explosion )
       owner -> cast_paladin() -> ancient_fury_explosion -> execute();
@@ -372,27 +376,26 @@ struct paladin_attack_t : public attack_t
 {
   bool trigger_seal;
   bool trigger_seal_of_righteousness;
-  bool spell_haste; // Some attacks (CS w/ sanctity of battle, censure) use spell haste. sigh.
-  double jotp_haste;
+  bool use_spell_haste; // Some attacks (CS w/ sanctity of battle, censure) use spell haste. sigh.
   bool trigger_dp;
 
   paladin_attack_t( const char* n, paladin_t* p, const school_type s=SCHOOL_PHYSICAL, int t=TREE_NONE, bool special=true, bool use2hspec=true )
     : attack_t( n, p, RESOURCE_MANA, s, t, special ),
-      trigger_seal( false ), trigger_seal_of_righteousness( false ), spell_haste( false ),  jotp_haste( 1.0 ), trigger_dp( false )
+      trigger_seal( false ), trigger_seal_of_righteousness( false ), use_spell_haste( false ), trigger_dp( false )
   {
     initialize_( use2hspec );
   }
 
   paladin_attack_t( const char* n, uint32_t id, paladin_t* p, bool use2hspec=true, bool special=true )
     : attack_t( n, id, p, TREE_NONE, special ),
-      trigger_seal( false ), trigger_seal_of_righteousness( false ), spell_haste( false ), jotp_haste( 1.0 ), trigger_dp( false )
+      trigger_seal( false ), trigger_seal_of_righteousness( false ), use_spell_haste( false ), trigger_dp( false )
   {
     initialize_( use2hspec );
   }
 
   paladin_attack_t( const char* n, const char* sname, paladin_t* p, bool use2hspec=true, bool special=true )
     : attack_t( n, sname, p, TREE_NONE, special ),
-      trigger_seal( false ), trigger_seal_of_righteousness( false ), spell_haste( false ), jotp_haste( 1.0 ), trigger_dp( false )
+      trigger_seal( false ), trigger_seal_of_righteousness( false ), use_spell_haste( false ), trigger_dp( false )
   {
     initialize_( use2hspec );
   }
@@ -404,9 +407,6 @@ struct paladin_attack_t : public attack_t
     class_flag1 = ! use2hspec;
 
     base_multiplier *= 1.0 + p() -> talents.communion -> effect3().percent();
-
-    if ( p() -> talents.judgements_of_the_pure -> rank() )
-      jotp_haste = 1.0 / ( 1.0 + p() -> buffs_judgements_of_the_pure -> base_value( E_APPLY_AURA, A_HASTE_ALL ) );
   }
 
   paladin_t* p() SC_CONST
@@ -417,12 +417,13 @@ struct paladin_attack_t : public attack_t
   virtual double haste() SC_CONST
   {
     paladin_t* p = player -> cast_paladin();
-    double h = spell_haste ? p -> composite_spell_haste() : attack_t::haste();
-    if ( p -> buffs_judgements_of_the_pure -> up() )
-    {
-      h *= jotp_haste;
-    }
-    return h;
+    return use_spell_haste ? p -> composite_spell_haste() : attack_t::haste();
+  }
+
+  virtual double total_haste() SC_CONST
+  {
+    paladin_t* p = player -> cast_paladin();
+    return use_spell_haste ? p -> composite_spell_haste() : attack_t::total_haste();
   }
 
   virtual void execute()
@@ -483,7 +484,6 @@ struct paladin_attack_t : public attack_t
       player_multiplier *= 1.0 + p -> buffs_inquisition -> value();
     }
   }
-
 
   virtual double cost() SC_CONST
   {
@@ -592,10 +592,8 @@ static void trigger_tier12_2pc_melee( attack_t* s, double dmg )
 
   struct flames_of_the_faithful_t : public paladin_attack_t
   {
-    bool use_bug;
-
     flames_of_the_faithful_t( paladin_t* player ) :
-      paladin_attack_t( "flames_of_the_faithful", 99092, player ), use_bug( false )
+      paladin_attack_t( "flames_of_the_faithful", 99092, player )
     {
       background    = true;
       proc          = true;
@@ -607,20 +605,8 @@ static void trigger_tier12_2pc_melee( attack_t* s, double dmg )
     }
     virtual void travel( player_t* t, int travel_result, double total_dot_dmg )
     {
-      if ( use_bug )
-      {
-        num_ticks++;
-      }
-
       paladin_attack_t::travel( t, travel_result, 0 );
-
       int nticks = dot -> num_ticks;
-      if ( use_bug )
-      {
-        num_ticks--;
-        nticks--;
-        use_bug = false;
-      }
       base_td = total_dot_dmg / nticks;
     }
     virtual double travel_time()
@@ -652,13 +638,6 @@ static void trigger_tier12_2pc_melee( attack_t* s, double dmg )
   if ( dot -> ticking )
   {
     total_dot_dmg += p -> active_flames_of_the_faithful_proc -> base_td * dot -> ticks();
-  }
-  else
-  {
-    if ( p -> bugs )
-    {
-      ( ( flames_of_the_faithful_t* )( p -> active_flames_of_the_faithful_proc ) )-> use_bug = true;
-    }
   }
 
   if( ( p -> dbc.spell( 99092 ) -> duration() + sim -> aura_delay ) < dot -> remains() )
@@ -767,7 +746,7 @@ struct crusader_strike_t : public paladin_attack_t
   {
     parse_options( NULL, options_str );
 
-    spell_haste  = true;
+    use_spell_haste  = true;
     trigger_seal = true;
 
     // JotW decreases the CD by 1.5 seconds for Prot Pallies, but it's not in the tooltip
@@ -833,7 +812,7 @@ struct divine_storm_t : public paladin_attack_t
     weapon_multiplier = 0.0;
 
     aoe               = -1;
-    spell_haste       = true;
+    use_spell_haste   = true;
     trigger_dp        = true;
     trigger_seal      = false;
     trigger_seal_of_righteousness = true;
@@ -1198,7 +1177,7 @@ struct seal_of_truth_dot_t : public paladin_attack_t
     background       = true;
     proc             = true;
     hasted_ticks     = true;
-    spell_haste      = true;
+    use_spell_haste  = true;
     tick_may_crit    = true;
     may_crit         = false;
     may_dodge        = false;
@@ -1250,8 +1229,6 @@ struct seal_of_truth_proc_t : public paladin_attack_t
     may_miss    = false;
     may_dodge   = false;
     may_parry   = false;
-    if ( p -> bugs )
-      weapon_multiplier = 0.15; // files say 9% but in-game testing says 15%
 
     base_multiplier *= 1.0 + p -> talents.seals_of_the_pure -> effect1().percent();
   }
@@ -1480,23 +1457,22 @@ struct templars_verdict_t : public paladin_attack_t
 
 struct paladin_spell_t : public spell_t
 {
-  double jotp_haste;
   bool trigger_dp;
 
   paladin_spell_t( const char* n, paladin_t* p, const school_type s=SCHOOL_HOLY, int t=TREE_NONE )
-    : spell_t( n, p, RESOURCE_MANA, s, t ), jotp_haste( 1.0 ), trigger_dp( false )
+    : spell_t( n, p, RESOURCE_MANA, s, t ), trigger_dp( false )
   {
     initialize_();
   }
 
   paladin_spell_t( const char* n, uint32_t id, paladin_t* p )
-    : spell_t( n, id, p ), jotp_haste( 1.0 ), trigger_dp( false )
+    : spell_t( n, id, p ), trigger_dp( false )
   {
     initialize_();
   }
 
   paladin_spell_t( const char *n, const char *sname, paladin_t* p )
-    : spell_t( n, sname, p ), jotp_haste( 1.0 ), trigger_dp( false )
+    : spell_t( n, sname, p ), trigger_dp( false )
   {
     initialize_();
   }
@@ -1504,25 +1480,11 @@ struct paladin_spell_t : public spell_t
   void initialize_()
   {
     base_multiplier *= 1.0 + p() -> talents.communion -> effect3().percent();
-
-    if ( p() -> talents.judgements_of_the_pure -> rank() )
-      jotp_haste = 1.0 / ( 1.0 + p() -> buffs_judgements_of_the_pure -> base_value( E_APPLY_AURA, A_HASTE_ALL ) );
   }
 
   paladin_t* p() SC_CONST
   {
     return static_cast<paladin_t*>( player );
-  }
-
-  virtual double haste() SC_CONST
-  {
-    paladin_t* p = player -> cast_paladin();
-    double h = spell_t::haste();
-    if ( p -> buffs_judgements_of_the_pure -> up() )
-    {
-      h *= jotp_haste;
-    }
-    return h;
   }
 
   virtual void player_buff()
@@ -1606,7 +1568,7 @@ struct avenging_wrath_t : public paladin_spell_t
 struct consecration_tick_t : public paladin_spell_t
 {
   consecration_tick_t( paladin_t* p )
-    : paladin_spell_t( "consecration", 81297, p )
+    : paladin_spell_t( "consecration_tick", 81297, p )
   {
     aoe         = -1;
     dual        = true;
@@ -1614,6 +1576,7 @@ struct consecration_tick_t : public paladin_spell_t
     background  = true;
     may_crit    = true;
     may_miss    = true;
+    hasted_ticks = false;
 
     base_spell_power_multiplier  = direct_power_mod;
     base_attack_power_multiplier = extra_coeff();
@@ -1632,6 +1595,7 @@ struct consecration_t : public paladin_spell_t
   {
     parse_options( NULL, options_str );;
 
+    hasted_ticks   = false;
     may_miss       = false;
     num_ticks      = 10;
     base_tick_time = 1;
@@ -2173,7 +2137,7 @@ void paladin_t::init_base()
   initial_spell_power_per_intellect = 1.0;
 
   base_spell_power  = 0;
-  base_attack_power = ( level * 3 ) - 20;
+  base_attack_power = level * 3;
 
   resource_base[ RESOURCE_HOLY_POWER ] = 3;
 
@@ -2679,6 +2643,30 @@ double paladin_t::composite_attack_expertise() SC_CONST
     m += glyphs.seal_of_truth -> mod_additive( P_EFFECT_2 ) / 100.0;
   }
   return m;
+}
+
+// paladin_t::jotp_haste =============================================
+
+double paladin_t::jotp_haste() SC_CONST
+{
+  if ( talents.judgements_of_the_pure -> rank() && buffs_judgements_of_the_pure -> up() )
+    return 1.0 / ( 1.0 + buffs_judgements_of_the_pure -> base_value( E_APPLY_AURA, A_HASTE_ALL ) );
+  else
+    return 1.0;
+}
+
+// paladin_t::composite_attack_haste =================================
+
+double paladin_t::composite_attack_haste() SC_CONST
+{
+  return player_t::composite_attack_haste() * jotp_haste();
+}
+
+// paladin_t::composite_spell_haste =================================
+
+double paladin_t::composite_spell_haste() SC_CONST
+{
+  return player_t::composite_spell_haste() * jotp_haste();
 }
 
 // paladin_t::composite_attribute_multiplier =================================

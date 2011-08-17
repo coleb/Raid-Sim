@@ -177,13 +177,18 @@ static bool parse_player( sim_t*             sim,
 
     if ( wowhead.empty() )
     {
-      if ( region == "cn" )
-      {
-        sim -> active_player = armory_t::download_player( sim, region, server, player_name, "active" );
-      }
+      if ( true )
+        sim -> active_player = bcp_api::download_player( sim, region, server, player_name, "active" );
       else
       {
-        sim -> active_player = battle_net_t::download_player( sim, region, server, player_name, "active" );
+        if ( region == "cn" )
+        {
+          sim -> active_player = armory_t::download_player( sim, region, server, player_name, "active" );
+        }
+        else
+        {
+          sim -> active_player = battle_net_t::download_player( sim, region, server, player_name, "active" );
+        }
       }
     }
     else
@@ -291,8 +296,8 @@ static bool parse_armory( sim_t*             sim,
       return false;
     }
 
-    std::string region = splits[ 0 ];
-    std::string server = splits[ 1 ];
+    const std::string& region = splits[ 0 ];
+    const std::string& server = splits[ 1 ];
 
     for ( int i=2; i < num_splits; i++ )
     {
@@ -311,7 +316,12 @@ static bool parse_armory( sim_t*             sim,
       }
       if ( ! sim -> input_is_utf8 )
         sim -> input_is_utf8 = utf8::is_valid( player_name.begin(), player_name.end() ) && utf8::is_valid( server.begin(), server.end() );
-      if ( region == "cn" )
+
+      if ( true )
+      {
+        sim -> active_player = bcp_api::download_player( sim, region, server, player_name, description );
+      }
+      else if ( region == "cn" )
       {
         sim -> active_player = armory_t::download_player( sim, region, server, player_name, description );
       }
@@ -373,6 +383,9 @@ static bool parse_armory( sim_t*             sim,
 
     int player_type = PLAYER_NONE;
     if ( ! type_str.empty() ) player_type = util_t::parse_player_type( type_str );
+
+    if ( true )
+      return bcp_api::download_guild( sim, region, server, guild_name, ranks_list, player_type, max_rank, cache != 0 );
 
     if ( region == "cn" )
     {
@@ -464,6 +477,51 @@ static bool parse_rawr( sim_t*             sim,
     {
       sim -> errorf( "Unable to parse Rawr Character Save file '%s'\n", value.c_str() );
     }
+  }
+
+  return sim -> active_player != 0;
+}
+
+// parse_bcp_api ============================================================
+
+static bool parse_bcp_api( sim_t*             sim,
+                           const std::string& name,
+                           const std::string& value )
+{
+  if ( name != "bcp" ) return false;
+
+  std::vector<std::string> splits;
+  int num_splits = util_t::string_split( splits, value, ",." );
+
+  if ( num_splits < 3 )
+  {
+    sim -> errorf( "Expected format is: bcp=region,server,player1,player2,...\n" );
+    return false;
+  }
+
+  const std::string& region = splits[ 0 ];
+  const std::string& server = splits[ 1 ];
+
+  for ( int i=2; i < num_splits; i++ )
+  {
+    std::string talents = "active";
+
+    if ( splits[ i ][ 0 ] == '!' )
+    {
+      splits[ i ].erase( 0, 1 );
+      talents = "inactive";
+    }
+
+    std::string::size_type pos = splits[ i ].find('|');
+    if ( pos != std::string::npos )
+    {
+      std::string::size_type n = splits[ i ].length() - pos - 1;
+      talents.assign( splits[ i ], pos + 1, n );
+      splits[ i ].erase( pos, n + 1 );
+    }
+
+    sim -> active_player = bcp_api::download_player( sim, region, server, splits[ i ], talents );
+    if ( ! sim -> active_player ) return false;
   }
 
   return sim -> active_player != 0;
@@ -2218,6 +2276,7 @@ void sim_t::create_options()
     { "wowhead",                          OPT_FUNC,   ( void* ) ::parse_wowhead                     },
     { "chardev",                          OPT_FUNC,   ( void* ) ::parse_chardev                     },
     { "rawr",                             OPT_FUNC,   ( void* ) ::parse_rawr                        },
+    { "bcp",                              OPT_FUNC,   ( void* ) ::parse_bcp_api                     },
     { "http_clear_cache",                 OPT_FUNC,   ( void* ) ::http_t::clear_cache               },
     { "default_region",                   OPT_STRING, &( default_region_str                       ) },
     { "default_server",                   OPT_STRING, &( default_server_str                       ) },
@@ -2252,7 +2311,7 @@ void sim_t::create_options()
     { "report_pets_separately",           OPT_BOOL,   &( report_pets_separately                   ) },
     { "report_targets",                   OPT_BOOL,   &( report_targets                           ) },
     { "report_details",                   OPT_BOOL,   &( report_details                           ) },
-    { "report_rng",                       OPT_BOOL,   &( report_rng                           ) },
+    { "report_rng",                       OPT_BOOL,   &( report_rng                               ) },
     { NULL, OPT_UNKNOWN, NULL }
   };
 
