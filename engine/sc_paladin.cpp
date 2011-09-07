@@ -99,6 +99,8 @@ struct paladin_t : public player_t
   proc_t* procs_parry_haste;
   proc_t* procs_munched_tier12_2pc_melee;
   proc_t* procs_rolled_tier12_2pc_melee;
+  proc_t* procs_wasted_divine_purpose;
+  proc_t* procs_wasted_art_of_war;
 
   // Spells
   struct spells_t
@@ -228,14 +230,14 @@ struct paladin_t : public player_t
     active_hand_of_light_proc          = 0;
     ancient_fury_explosion             = 0;
 
-    ret_pvp_gloves = 0;
+    ret_pvp_gloves = -1;
 
     create_talents();
     create_glyphs();
-    
+
     distance = ( primary_tree() == TREE_HOLY ) ? 30 : 3;
     default_distance = distance;
-    
+
     create_options();
   }
 
@@ -247,6 +249,7 @@ struct paladin_t : public player_t
   virtual void      init_buffs();
   virtual void      init_talents();
   virtual void      init_spells();
+  virtual void      init_values();
   virtual void      init_actions();
   virtual void      reset();
   virtual double    composite_attribute_multiplier( int attr ) SC_CONST;
@@ -256,7 +259,9 @@ struct paladin_t : public player_t
   virtual double    composite_spell_haste() SC_CONST;
   virtual double    composite_spell_power( const school_type school ) SC_CONST;
   virtual double    composite_tank_block() SC_CONST;
+  virtual double    composite_tank_block_reduction() SC_CONST;
   virtual double    composite_tank_crit( const school_type school ) SC_CONST;
+  virtual void      create_options();
   virtual double    matching_gear_multiplier( const attribute_type attr ) SC_CONST;
   virtual action_t* create_action( const std::string& name, const std::string& options_str );
   virtual int       decode_set( item_t& item );
@@ -470,7 +475,14 @@ struct paladin_attack_t : public attack_t
         }
       }
       if ( trigger_dp )
-        p() -> buffs_divine_purpose -> trigger();
+      {
+        bool already_up = pa -> buffs_divine_purpose -> check() != 0;
+        bool triggered = pa -> buffs_divine_purpose -> trigger();
+        if ( already_up && triggered )
+        {
+          pa -> procs_wasted_divine_purpose -> occur();
+        }
+      }
     }
   }
 
@@ -540,7 +552,12 @@ struct melee_t : public paladin_attack_t
     paladin_attack_t::execute();
     if ( result_is_hit() )
     {
-      p -> buffs_the_art_of_war -> trigger();
+      bool already_up = p -> buffs_the_art_of_war -> check() != 0;
+      bool triggered = p -> buffs_the_art_of_war -> trigger();
+      if ( already_up && triggered )
+      {
+        p -> procs_wasted_art_of_war -> occur();
+      }
     }
     if ( !proc && p -> buffs_reckoning -> up() )
     {
@@ -563,6 +580,8 @@ struct auto_attack_t : public paladin_attack_t
     p -> main_hand_attack = new melee_t( p );
 
     trigger_gcd = 0;
+
+    parse_options( NULL, options_str );
   }
 
   virtual void execute()
@@ -613,7 +632,7 @@ static void trigger_tier12_2pc_melee( attack_t* s, double dmg )
     {
       return sim -> gauss( sim -> aura_delay, 0.25 * sim -> aura_delay );
     }
-    virtual void target_debuff( player_t* t, int dmg_type )
+    virtual void target_debuff( player_t* /* t */, int /* dmg_type */ )
     {
       target_multiplier            = 1.0;
       target_hit                   = 0;
@@ -625,7 +644,7 @@ static void trigger_tier12_2pc_melee( attack_t* s, double dmg )
       if ( sim -> debug )
         log_t::output( sim, "action_t::target_debuff: %s multiplier=%.2f hit=%.2f crit=%.2f attack_power=%.2f spell_power=%.2f penetration=%.0f",
                        name(), target_multiplier, target_hit, target_crit, target_attack_power, target_spell_power, target_penetration );
-    }    
+    }
     virtual double total_td_multiplier() SC_CONST { return 1.0; }
   };
 
@@ -870,6 +889,7 @@ struct hammer_of_the_righteous_aoe_t : public paladin_attack_t
     may_dodge = false;
     may_parry = false;
     may_miss  = false;
+    background = true;
     aoe       = -1;
 
     direct_power_mod = extra_coeff();
@@ -1306,6 +1326,9 @@ struct judgement_t : public paladin_attack_t
     seal_of_insight       = new seal_of_insight_judgement_t      ( p );
     seal_of_righteousness = new seal_of_righteousness_judgement_t( p );
     seal_of_truth         = new seal_of_truth_judgement_t        ( p );
+
+    if ( p -> set_bonus.pvp_4pc_melee() )
+      cooldown -> duration -= 1.0;
   }
 
   action_t* active_seal() SC_CONST
@@ -1508,8 +1531,13 @@ struct paladin_spell_t : public spell_t
     {
       if ( trigger_dp )
       {
-        paladin_t* p = player -> cast_paladin();
-        p -> buffs_divine_purpose -> trigger();
+        paladin_t* pa = player -> cast_paladin();
+        bool already_up = pa -> buffs_divine_purpose -> check() != 0;
+        bool triggered = pa -> buffs_divine_purpose -> trigger();
+        if ( already_up && triggered )
+        {
+          pa -> procs_wasted_divine_purpose -> occur();
+        }
       }
     }
   }
@@ -2219,6 +2247,8 @@ void paladin_t::init_procs()
   procs_parry_haste              = get_proc( "parry_haste"                    );
   procs_munched_tier12_2pc_melee = get_proc( "munched_flames_of_the_faithful" );
   procs_rolled_tier12_2pc_melee  = get_proc( "rolled_flames_of_the_faithful"  );
+  procs_wasted_divine_purpose    = get_proc( "wasted_divine_purpose"          );
+  procs_wasted_art_of_war        = get_proc( "wasted_art_of_war"              );
 }
 
 // paladin_t::init_scaling ==================================================
@@ -2257,9 +2287,9 @@ int paladin_t::decode_set( item_t& item )
 
   const char* s = item.name();
 
-  if ( item.slot == SLOT_HANDS && strstr( s, "gladiators_scaled_gauntlets" ) && item.ilevel > 140 )
+  if ( item.slot == SLOT_HANDS && ret_pvp_gloves == -1 )  // i.e. hasn't been overriden by option
   {
-    ret_pvp_gloves = 1;
+    ret_pvp_gloves = strstr( s, "gladiators_scaled_gauntlets" ) && item.ilevel > 140;
   }
 
   if ( strstr( s, "reinforced_sapphirium" ) )
@@ -2298,6 +2328,14 @@ int paladin_t::decode_set( item_t& item )
     if ( is_tank   ) return SET_T12_TANK;
   }
 
+  // PVP Season 9-10 Heal
+  if ( strstr( s, "vicious_gladiators_ornamented"  ) ) return SET_PVP_HEAL;
+  if ( strstr( s, "ruthless_gladiators_ornamented" ) ) return SET_PVP_HEAL;
+
+  // PVP Season 9-10 Hybrid
+  if ( strstr( s, "vicious_gladiators_scaled"  ) ) return SET_PVP_MELEE;
+  if ( strstr( s, "ruthless_gladiators_scaled" ) ) return SET_PVP_MELEE;
+
   return SET_NONE;
 }
 
@@ -2315,7 +2353,7 @@ void paladin_t::init_buffs()
   buffs_divine_plea            = new buff_t( this, 54428, "divine_plea", 1, 0 ); // Let the ability handle the CD
   buffs_divine_purpose         = new buff_t( this, 90174, "divine_purpose", talents.divine_purpose -> effect1().percent() );
   buffs_grand_crusader         = new buff_t( this, talents.grand_crusader -> effect_trigger_spell( 1 ), "grand_crusader", talents.grand_crusader -> proc_chance() );
-  buffs_holy_shield            = new buff_t( this, 87342, "holy_shield" );
+  buffs_holy_shield            = new buff_t( this, 20925, "holy_shield" );
   buffs_inquisition            = new buff_t( this, 84963, "inquisition" );
   buffs_judgements_of_the_bold = new buff_t( this, 89906, "judgements_of_the_bold", ( primary_tree() == TREE_RETRIBUTION ? 1 : 0 ) );
   buffs_judgements_of_the_pure = new buff_t( this, talents.judgements_of_the_pure -> effect_trigger_spell( 1 ), "judgements_of_the_pure", talents.judgements_of_the_pure -> proc_chance() );
@@ -2384,30 +2422,22 @@ void paladin_t::init_actions()
           action_list_str += items[ i ].name();
         }
       }
-      // Lifeblood
-      if ( profession[ PROF_HERBALISM ] >= 450 )
-        action_list_str += "/lifeblood";
-
-      std::string hp_proc_str = "divine_purpose";
-      if ( race == RACE_BLOOD_ELF ) action_list_str += "/arcane_torrent";
+      init_use_profession_actions();
+      init_use_racial_actions();
       action_list_str += "/zealotry";
       if ( level >= 85 )
-        action_list_str += "/guardian_of_ancient_kings,if=buff.zealotry.remains<31|cooldown.zealotry.remains>60";
-      action_list_str += "/avenging_wrath,if=buff.zealotry.remains<21";
+        action_list_str += "/guardian_of_ancient_kings,if=(buff.zealotry.remains<31&buff.zealotry.up)|cooldown.zealotry.remains>60";
+      action_list_str += "/avenging_wrath,if=buff.zealotry.remains<21&buff.zealotry.up";
       if ( level >= 81 )
-        action_list_str += "/inquisition,if=(buff.inquisition.down|buff.inquisition.remains<5)&(holy_power=3|buff."+hp_proc_str+".react)";
-      // CS before TV if <3 power, even with HoL/DP up
+        action_list_str += "/inquisition,if=(buff.inquisition.down|buff.inquisition.remains<5)&(holy_power=3|buff.divine_purpose.react)";
+      action_list_str += "/crusader_strike,if=holy_power<3";  // CS before TV if <3 power, even with DP up
+      action_list_str += "/templars_verdict,if=buff.divine_purpose.react";
       action_list_str += "/templars_verdict,if=holy_power=3";
-      action_list_str += "/crusader_strike,if=buff."+hp_proc_str+".react&(buff."+hp_proc_str+".remains>2)&holy_power<3";
-      action_list_str += "/templars_verdict,if=buff."+hp_proc_str+".react";
-      action_list_str += "/crusader_strike";
       action_list_str += "/hammer_of_wrath";
       action_list_str += "/exorcism,if=buff.the_art_of_war.react";
-      // action_list_str += "/judgement,if=buff.judgements_of_the_pure.remains<2";
-      // action_list_str += "/wait,sec=0.1,if=cooldown.crusader_strike.remains<0.5";
       action_list_str += "/judgement";
       action_list_str += "/holy_wrath";
-      action_list_str += "/consecration";
+      action_list_str += "/consecration,if=mana>17000";  // Consecration is expensive, only use if we have plenty of mana
       action_list_str += "/divine_plea";
     }
     break;
@@ -2435,12 +2465,12 @@ void paladin_t::init_actions()
           action_list_str += items[ i ].name();
         }
       }
-      // Lifeblood
-      if ( profession[ PROF_HERBALISM ] >= 450 )
-        action_list_str += "/lifeblood";
-      if ( race == RACE_BLOOD_ELF ) action_list_str += "/arcane_torrent";
+      init_use_profession_actions();
+      init_use_racial_actions();
       action_list_str += "/avenging_wrath";
+      action_list_str += "/guardian_of_ancient_kings,if=health_pct<=30";
       action_list_str += "/word_of_glory,if=health_pct<=50";
+      action_list_str += "/holy_shield";
       action_list_str += "/shield_of_the_righteous,if=holy_power=3";
       action_list_str += "/crusader_strike";
       action_list_str += "/judgement";
@@ -2474,10 +2504,8 @@ void paladin_t::init_actions()
           action_list_str += items[ i ].name();
         }
       }
-      // Lifeblood
-      if ( profession[ PROF_HERBALISM ] >= 450 )
-        action_list_str += "/lifeblood";
-      if ( race == RACE_BLOOD_ELF ) action_list_str += "/arcane_torrent";
+      init_use_profession_actions();
+      init_use_racial_actions();
       action_list_str += "/avenging_wrath";
       action_list_str += "/judgement";
       action_list_str += "/holy_wrath";
@@ -2614,6 +2642,25 @@ void paladin_t::init_spells()
   sets = new set_bonus_array_t( this, set_bonuses );
 }
 
+// paladin_t::init_values ========================================================
+
+void paladin_t::init_values()
+{
+  player_t::init_values();
+
+  if ( set_bonus.pvp_2pc_heal() )
+      attribute_initial[ ATTR_INTELLECT ] += 70;
+
+  if ( set_bonus.pvp_4pc_heal() )
+      attribute_initial[ ATTR_INTELLECT ] += 90;
+
+  if ( set_bonus.pvp_2pc_melee() )
+      attribute_initial[ ATTR_STRENGTH ] += 70;
+
+  if ( set_bonus.pvp_4pc_melee() )
+      attribute_initial[ ATTR_STRENGTH ] += 90;
+}
+
 // paladin_t::primary_role ===============================================
 
 int paladin_t::primary_role() SC_CONST
@@ -2719,6 +2766,15 @@ double paladin_t::composite_tank_block() SC_CONST
 {
   double b = player_t::composite_tank_block();
   b += get_divine_bulwark();
+  return b;
+}
+
+// paladin_t::composite_tank_block_reduction =================================
+
+double paladin_t::composite_tank_block_reduction() SC_CONST
+{
+  double b = player_t::composite_tank_block_reduction();
+  b += buffs_holy_shield -> up() * buffs_holy_shield -> effect1().percent();
   return b;
 }
 
@@ -2836,10 +2892,26 @@ cooldown_t* paladin_t::get_cooldown( const std::string& name )
   return player_t::get_cooldown( name );
 }
 
+// paladin_t::create_options =================================================
+
+void paladin_t::create_options()
+{
+  player_t::create_options();
+
+  option_t paladin_options[] =
+  {
+    { "pvp_gloves", OPT_BOOL,    &( ret_pvp_gloves ) },
+    { NULL, OPT_UNKNOWN, NULL }
+  };
+
+  option_t::copy( options, paladin_options );
+}
+
+
 // paladin_t::create_pet =====================================================
 
 pet_t* paladin_t::create_pet( const std::string& pet_name,
-                              const std::string& pet_type )
+                              const std::string& /* pet_type */ )
 {
   pet_t* p = find_pet( pet_name );
   if ( p ) return p;
@@ -2869,6 +2941,8 @@ void paladin_t::combat_begin()
   player_t::combat_begin();
 
   if ( talents.communion -> rank() ) sim -> auras.communion -> trigger();
+
+  resource_current[ RESOURCE_HOLY_POWER ] = 0;
 }
 
 // paladin_t::holy_power_stacks ==============================================

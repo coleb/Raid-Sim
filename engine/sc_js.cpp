@@ -129,7 +129,7 @@ static void parse_value( sim_t*                  sim,
       }
 
       token_type = parse_token( token_str, input, index );
-      
+
       // Apparently Blizzard does not know what kind of pets Hunters have in their game
       if ( token_type == ',' ) continue;
 
@@ -214,10 +214,10 @@ static void parse_value( sim_t*                  sim,
   else if ( token_type == 'S' )
   {
     node -> value = token_str;
-    
+
     std::string::size_type start = index;
     token_type = parse_token( token_str, input, index );
-    
+
     if ( token_type == '=' )
     {
       token_type = parse_token( token_str, input, index );
@@ -258,11 +258,11 @@ static js_node_t* split_path( js_node_t*         node,
 
 js_node_t* js_t::create( sim_t* sim, const std::string& input )
 {
+  if ( input.empty() ) return 0;
+
   js_node_t* root = new js_node_t( "root" );
 
   std::string::size_type index=0;
-
-  // Only parsing "values" not "statements" nor "expressions".
 
   std::string token_str;
   char token_type = parse_token( token_str, input, index );
@@ -319,7 +319,7 @@ int js_t::get_children( std::vector<js_node_t*>& nodes,
 js_node_t* js_t::get_node( js_node_t*         root,
                            const std::string& path )
 {
-  if ( path.empty() || path.size() == 0 || path == root -> name() )
+  if ( path.empty() || path == root -> name() )
     return root;
 
   return split_path( root, path );
@@ -331,7 +331,7 @@ int js_t::get_nodes( std::vector<js_node_t*>& nodes,
                      js_node_t*               root,
                      const std::string&       path )
 {
-  if ( path.empty() || path.size() == 0 || path == root -> name() )
+  if ( path.empty() || path == root -> name() )
   {
     nodes.push_back( root );
   }

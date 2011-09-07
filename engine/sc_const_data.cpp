@@ -36,16 +36,16 @@ static unsigned             idx_td_size[2]     = { 0, 0 };
 const char* dbc_t::build_level( bool ptr )
 {
 #if SC_USE_PTR
-  return ptr ? "14333" : "14333";
+  return ptr ? "14492" : "14480";
 #else
-  return "14333";
+  return "14480";
 #endif
 }
 
 const char* dbc_t::wow_version( bool ptr )
 {
 #if SC_USE_PTR
-  return ptr ? "4.2.0" : "4.2.0";
+  return ptr ? "4.2.2" : "4.2.0";
 #else
   return "4.2.0";
 #endif
@@ -303,7 +303,7 @@ stat_data_t& dbc_t::race_base( race_type r ) SC_CONST
 #endif
 }
 
-stat_data_t& dbc_t::race_base( pet_type_t r ) SC_CONST
+stat_data_t& dbc_t::race_base( pet_type_t /* r */ ) SC_CONST
 {
   return race_base( RACE_NONE );
 }
@@ -534,7 +534,7 @@ unsigned dbc_t::glyph_spell( unsigned class_id, unsigned glyph_type, unsigned n 
 unsigned dbc_t::set_bonus_spell( unsigned class_id, unsigned tier, unsigned n ) SC_CONST
 {
 #if SC_USE_PTR
-  assert( class_id < CLASS_SIZE && tier < ( ptr ? PTR_TIER_BONUSES_MAX_TIER : TIER_BONUSES_MAX_TIER ) && n < set_bonus_spell_size() );
+  assert( class_id < CLASS_SIZE && tier < (unsigned) ( ptr ? PTR_TIER_BONUSES_MAX_TIER : TIER_BONUSES_MAX_TIER ) && n < set_bonus_spell_size() );
   return ptr ? __ptr_tier_bonuses_data[ class_id ][ tier ][ n ]
              : __tier_bonuses_data[ class_id ][ tier ][ n ];
 #else
@@ -1279,7 +1279,7 @@ unsigned dbc_t::class_ability_id( player_type c, const char* spell_name, int tre
 }
 
 // TODO: Implement racial spell fetch at some point
-unsigned dbc_t::race_ability_id( player_type c, race_type r, const char* spell_name ) SC_CONST
+unsigned dbc_t::race_ability_id( player_type /* c */, race_type /* r */, const char* /* spell_name */ ) SC_CONST
 {
   return 0;
 }
@@ -1451,7 +1451,7 @@ bool dbc_t::is_class_ability( uint32_t spell_id ) SC_CONST
   return false;
 }
 
-bool dbc_t::is_race_ability( uint32_t spell_id ) SC_CONST
+bool dbc_t::is_race_ability( uint32_t /* spell_id */ ) SC_CONST
 {
   return false;
 }

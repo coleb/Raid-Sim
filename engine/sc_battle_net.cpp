@@ -12,10 +12,11 @@ namespace {  // ANONYMOUS NAMESPACE ==========================================
 static xml_node_t* download_character_sheet( sim_t* sim,
                                              const std::string& region,
                                              const std::string& server,
-                                             const std::string& name )
+                                             const std::string& name,
+                                             cache::behavior_t caching )
 {
   std::string url = "http://" + region + ".battle.net/wow/en/character/" + server + "/" + name + "/advanced";
-  xml_node_t* node = xml_t::download( sim, url, "", -1, sim -> current_throttle );
+  xml_node_t* node = xml_t::get( sim, url, std::string(), caching, sim -> current_throttle );
   if ( sim -> debug ) xml_t::print( node, sim -> output_file );
   return node;
 }
@@ -26,10 +27,11 @@ static xml_node_t* download_character_talents( sim_t* sim,
                                                const std::string& region,
                                                const std::string& server,
                                                const std::string& name,
-                                               const char* p_s )
+                                               const char* p_s,
+                                               cache::behavior_t caching )
 {
   std::string url = "http://" + region + ".battle.net/wow/en/character/" + server + "/" + name + "/talent/" + p_s;
-  xml_node_t* node = xml_t::download( sim, url, "", -1, sim -> current_throttle );
+  xml_node_t* node = xml_t::get( sim, url, std::string(), caching, sim -> current_throttle );
   if ( sim -> debug ) xml_t::print( node, sim -> output_file );
   return node;
 }
@@ -43,12 +45,12 @@ player_t* battle_net_t::download_player( sim_t* sim,
                                          const std::string& server,
                                          const std::string& name,
                                          const std::string& talents_description,
-                                         int cache )
+                                         cache::behavior_t caching )
 {
   sim -> current_slot = 0;
   sim -> current_name = name;
 
-  xml_node_t* sheet_xml   = download_character_sheet( sim, region, server, name );
+  xml_node_t* sheet_xml   = download_character_sheet( sim, region, server, name, caching );
   xml_node_t* talents_xml = 0;
 
   if ( ! sheet_xml )
@@ -67,11 +69,11 @@ player_t* battle_net_t::download_player( sim_t* sim,
 
   if ( util_t::str_compare_ci( talents_description, "primary" ) )
   {
-    talents_xml = download_character_talents( sim, region, server, name, "primary" );
+    talents_xml = download_character_talents( sim, region, server, name, "primary", caching );
   }
   else if ( util_t::str_compare_ci( talents_description, "secondary" ) )
   {
-    talents_xml = download_character_talents( sim, region, server, name, "secondary" );
+    talents_xml = download_character_talents( sim, region, server, name, "secondary", caching );
   }
 
   xml_node_t* profile_info = xml_t::get_node( sheet_xml, "div", "class", "profile-info" );
@@ -98,7 +100,7 @@ player_t* battle_net_t::download_player( sim_t* sim,
     return 0;
   }
 
-  size_t pos = 0;
+  std::size_t pos = 0;
   name_str.erase( name_str.end() - 1 );
 
   if ( ( pos = name_str.rfind( '/' ) ) == std::string::npos )
@@ -162,8 +164,8 @@ player_t* battle_net_t::download_player( sim_t* sim,
   p -> region_str = region;
   p -> server_str = server_str;
 
-  std::string origin_str = "http://" + region + ".battle.net/wow/en/character/" + server + "/" + name + "/advanced";
-  http_t::format( p -> origin_str, origin_str );
+  p -> origin_str = "http://" + region + ".battle.net/wow/en/character/" + server + "/" + name + "/advanced";
+  http_t::format( p -> origin_str );
 
   std::string last_modified;
   if ( xml_t::get_value( last_modified, xml_t::get_node( sheet_xml, "div", "class", "summary-lastupdate" ), "." ) )
@@ -208,7 +210,7 @@ player_t* battle_net_t::download_player( sim_t* sim,
       if( ( util_t::str_compare_ci( talents_description,   "active" ) &&   active ) ||
           ( util_t::str_compare_ci( talents_description, "inactive" ) && ! active ) )
       {
-        talents_xml = download_character_talents( sim, region, server, name, ( primary ? "primary" : "secondary" ) );
+        talents_xml = download_character_talents( sim, region, server, name, ( primary ? "primary" : "secondary" ), caching );
         break;
       }
 
@@ -218,7 +220,7 @@ player_t* battle_net_t::download_player( sim_t* sim,
         armory_t::format( build_str );
         if( util_t::str_compare_ci( talents_description, build_str ) )
         {
-          talents_xml = download_character_talents( sim, region, server, name, ( primary ? "primary" : "secondary" ) );
+          talents_xml = download_character_talents( sim, region, server, name, ( primary ? "primary" : "secondary" ), caching );
           break;
         }
       }
@@ -335,7 +337,7 @@ player_t* battle_net_t::download_player( sim_t* sim,
       id_str = id_str.substr( id_str.rfind('/') + 1 );
     else
       id_str = "";
-    
+
     std::vector<std::string> tokens;
     int num_tokens = util_t::string_split( tokens, data_item_str, "&=" );
 
@@ -373,7 +375,7 @@ player_t* battle_net_t::download_player( sim_t* sim,
     }
   }
 
-  p -> armory_extensions( region, server, name );
+  p -> armory_extensions( region, server, name, caching );
 
   return p;
 }
@@ -387,7 +389,7 @@ bool battle_net_t::download_guild( sim_t* sim,
                                    const std::vector<int>& ranks,
                                    int player_filter,
                                    int max_rank,
-                                   int cache )
+                                   cache::behavior_t caching )
 {
   std::string url_name = name;
   std::string url_server = server;
@@ -395,7 +397,7 @@ bool battle_net_t::download_guild( sim_t* sim,
   util_t::urlencode( url_server );
   std::string url = "http://" + region + ".battle.net/wow/en/guild/" + url_server + "/" + url_name + "/roster";
 
-  xml_node_t* node = xml_t::download( sim, url, "", ( cache ) ? 0 : -1, sim -> current_throttle );
+  xml_node_t* node = xml_t::get( sim, url, std::string(), caching, sim -> current_throttle );
   xml_node_t* guild_info = xml_t::get_node( xml_t::get_node( node, "div", "id", "roster" ), "tbody" );
   if ( ! guild_info ) return false;
 
@@ -426,7 +428,7 @@ bool battle_net_t::download_guild( sim_t* sim,
       return false;
     else // Urldecode the name, as xml_t::get_value seems to have issues with utf-8
     {
-      size_t pos = 0;
+      std::size_t pos = 0;
       c_url.erase( c_url.end() - 1 );
 
       if ( ( pos = c_url.rfind( '/' ) ) == std::string::npos )
@@ -468,7 +470,7 @@ bool battle_net_t::download_guild( sim_t* sim,
       std::string& character_name = character_names[ i ];
 
       sim -> errorf( "Downloading character: %s\n", character_name.c_str() );
-      player_t* p = battle_net_t::download_player( sim, region, server, character_name, "active", cache );
+      player_t* p = battle_net_t::download_player( sim, region, server, character_name, "active", caching );
 
       if ( ! p )
       {

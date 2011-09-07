@@ -11,7 +11,7 @@
 
 // action_t::action_t =======================================================
 
-void action_t::_init_action_t()
+void action_t::init_action_t_()
 {
   sim                            = s_player->sim;
   name_str                       = s_token;
@@ -193,7 +193,7 @@ action_t::action_t( int               ty,
   player( s_player ), target( s_player -> target ), school( s ), resource( r ),
   tree( tr ), special( sp )
 {
-  _init_action_t();
+  init_action_t_();
 }
 
 action_t::action_t( int ty, const char* name, const char* sname, player_t* p, int t, bool sp ) :
@@ -202,7 +202,7 @@ action_t::action_t( int ty, const char* name, const char* sname, player_t* p, in
   player( s_player ), target( s_player -> sim -> target ), school( get_school_type() ), resource( power_type() ),
   tree( t ), special( sp )
 {
-  _init_action_t();
+  init_action_t_();
 }
 
 action_t::action_t( int ty, const active_spell_t& s, int t, bool sp ) :
@@ -211,7 +211,7 @@ action_t::action_t( int ty, const active_spell_t& s, int t, bool sp ) :
   player( s_player ), target( s_player -> sim -> target ), school( get_school_type() ), resource( power_type() ),
   tree( t ), special( sp )
 {
-  _init_action_t();
+  init_action_t_();
 }
 
 action_t::action_t( int type, const char* name, const uint32_t id, player_t* p, int t, bool sp ) :
@@ -220,7 +220,7 @@ action_t::action_t( int type, const char* name, const uint32_t id, player_t* p, 
   player( s_player ), target( s_player -> sim -> target ), school( get_school_type() ), resource( power_type() ),
   tree( t ), special( sp )
 {
-  _init_action_t();
+  init_action_t_();
 }
 
 action_t::~action_t()
@@ -598,7 +598,6 @@ void action_t::player_buff()
         player_multiplier *= 0.90;
       }
     }
-
     else if ( school != SCHOOL_PHYSICAL )
     {
       player_penetration = p -> composite_spell_penetration();
@@ -630,7 +629,7 @@ void action_t::player_buff()
 
 // action_t::target_debuff ==================================================
 
-void action_t::target_debuff( player_t* t, int dmg_type )
+void action_t::target_debuff( player_t* t, int /* dmg_type */ )
 {
   target_multiplier            = 1.0;
   target_hit                   = 0;
@@ -972,17 +971,7 @@ double action_t::calculate_direct_damage()
     dmg *= 1.0 - resistance();
   }
 
-  if ( result == RESULT_BLOCK )
-  {
-    dmg *= ( 1 - 0.3 );
-    if ( dmg < 0 ) dmg = 0;
-  }
 
-  if ( result == RESULT_CRIT_BLOCK )
-  {
-    dmg *= ( 1 - 0.6 );
-    if ( dmg < 0 ) dmg = 0;
-  }
 
   if ( ! sim -> average_range ) dmg = floor( dmg + sim -> real() );
 
@@ -1086,6 +1075,7 @@ void action_t::tick()
 
   stats -> add_tick( time_to_tick );
 }
+
 // action_t::last_tick =======================================================
 
 void action_t::last_tick()
@@ -1166,7 +1156,7 @@ void action_t::assess_damage( player_t* t,
                      player -> name(), name(),
                      target -> name(), dmg_adjusted,
                      util_t::school_type_string( school ),
-                     util_t::result_type_string( result ) );
+                     util_t::result_type_string( dmg_result ) );
     }
 
     direct_dmg = dmg_adjusted;
@@ -1182,7 +1172,7 @@ void action_t::assess_damage( player_t* t,
                      dot -> current_tick, dot -> num_ticks,
                      t -> name(), dmg_adjusted,
                      util_t::school_type_string( school ),
-                     util_t::result_type_string( result ) );
+                     util_t::result_type_string( dmg_result ) );
     }
 
     tick_dmg = dmg_adjusted;
@@ -1222,7 +1212,7 @@ void action_t::schedule_execute()
   {
     player -> executing = this;
     player -> gcd_ready = sim -> current_time + gcd();
-    if( player -> action_queued )
+    if( player -> action_queued && sim -> strict_gcd_queue )
     {
       player -> gcd_ready -= sim -> queue_gcd_reduction;
     }
@@ -1652,6 +1642,18 @@ void action_t::check_talent( int talent_rank )
   }
 
   background = true; // prevent action from being executed
+}
+
+// action_t::check_race =====================================================
+
+void action_t::check_race( int race )
+{
+  if ( player -> race != race )
+  {
+    sim -> errorf( "Player %s attempting to execute action %s while not being a %s.\n", player -> name(), name(), util_t::race_type_string( race ) );
+
+    background = true; // prevent action from being executed
+  }
 }
 
 // action_t::check_spec =====================================================

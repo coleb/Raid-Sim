@@ -566,7 +566,7 @@ struct weapon_stat_proc_callback_t : public action_callback_t
   weapon_stat_proc_callback_t( player_t* p, weapon_t* w, buff_t* b, double ppm=0.0, bool all=false ) :
     action_callback_t( p -> sim, p ), weapon( w ), buff( b ), PPM( ppm ), all_damage( all ) {}
 
-  virtual void trigger( action_t* a, void* call_data )
+  virtual void trigger( action_t* a, void* /* call_data */ )
   {
     if( ! all_damage && a -> proc ) return;
     if( weapon && a -> weapon != weapon ) return;
@@ -631,7 +631,7 @@ struct weapon_discharge_proc_callback_t : public action_callback_t
 
   virtual void deactivate() { action_callback_t::deactivate(); stacks=0; }
 
-  virtual void trigger( action_t* a, void* call_data )
+  virtual void trigger( action_t* a, void* /* call_data */ )
   {
     if( a -> proc ) return;
     if( weapon && a -> weapon != weapon ) return;
@@ -667,6 +667,12 @@ struct weapon_discharge_proc_callback_t : public action_callback_t
 static void register_synapse_springs( item_t* item )
 {
   player_t* p = item -> player;
+
+  if ( p -> profession[ PROF_ENGINEERING ] < 425 )
+  {
+    item -> sim -> errorf( "Player %s attempting to use synapse springs without 425 in engineering.\n", p -> name() );
+    return;
+  }
 
   int attr[] = { ATTR_STRENGTH, ATTR_AGILITY, ATTR_INTELLECT, ATTRIBUTE_NONE };
   int stat[] = { STAT_STRENGTH, STAT_AGILITY, STAT_INTELLECT, STAT_NONE };
@@ -789,7 +795,7 @@ void enchant_t::init( player_t* p )
         action_callback_t( p -> sim, p ), mh_buff( mhb ), oh_buff( ohb ), s_buff( sb )
       {
       }
-      virtual void trigger( action_t* a, void* call_data )
+      virtual void trigger( action_t* /* a */, void* /* call_data */ )
       {
         if( s_buff -> cooldown -> remains() > 0 ) return;
         if( ! s_buff -> rng -> roll( 0.15 ) ) return;
@@ -989,9 +995,10 @@ bool enchant_t::get_reforge_encoding( std::string& name,
                                       std::string& encoding,
                                       const std::string& reforge_id )
 {
-  name = encoding = "";
+  name.clear();
+  encoding.clear();
 
-  if ( reforge_id.empty() || reforge_id == "" || reforge_id == "0" )
+  if ( reforge_id.empty() || reforge_id == "0" )
     return true;
 
   int start = 0;
@@ -1061,7 +1068,7 @@ bool enchant_t::download( item_t&            item,
 {
   item.armory_enchant_str.clear();
 
-  if ( enchant_id.empty() || enchant_id == "" || enchant_id == "0" )
+  if ( enchant_id.empty() || enchant_id == "0" )
     return true;
 
   std::string description;
@@ -1081,7 +1088,7 @@ bool enchant_t::download_addon( item_t&            item,
 {
   item.armory_addon_str.clear();
 
-  if ( addon_id.empty() || addon_id == "" || addon_id == "0" )
+  if ( addon_id.empty() || addon_id == "0" )
     return true;
 
   std::string description;
@@ -1101,7 +1108,7 @@ bool enchant_t::download_reforge( item_t&            item,
 {
   item.armory_reforge_str.clear();
 
-  if ( reforge_id.empty() || reforge_id == "" || reforge_id == "0" )
+  if ( reforge_id.empty() || reforge_id == "0" )
     return true;
 
   std::string description;

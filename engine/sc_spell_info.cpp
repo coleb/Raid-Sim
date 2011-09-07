@@ -182,7 +182,7 @@ static const char * _effect_subtype_strings[] =
   0,                            0,                          0,                      0,                          0,                       // 355
 };
 
-static std::string spell_flags( sim_t* sim, const spell_data_t* spell )
+static std::string spell_flags( sim_t* /* sim */, const spell_data_t* spell )
 {
   std::ostringstream s;
 
@@ -536,7 +536,7 @@ std::string spell_info_t::talent_to_str( sim_t* sim, const talent_data_t* talent
   if ( talent -> mask_class() )
   {
     s << "Class        : ";
-    for ( unsigned int i = 0; i < 12; i++ )
+    for ( unsigned int i = 1; i < 12; i++ )
     {
       if ( talent -> mask_class() & ( 1 << ( i - 1 ) ) )
         s << _class_map[ i ].name << ", ";

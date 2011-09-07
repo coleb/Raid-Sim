@@ -426,7 +426,7 @@ static void print_text_gains( FILE* file, player_t* p )
   int max_length = 0;
   for ( gain_t* g = p -> gain_list; g; g = g -> next )
   {
-    if ( g -> actual > 0 )
+    if ( g -> actual > 0 || g -> overflow > 0 )
     {
       int length = ( int ) strlen( g -> name() );
       if ( length > max_length ) max_length = length;
@@ -438,7 +438,7 @@ static void print_text_gains( FILE* file, player_t* p )
 
   for ( gain_t* g = p -> gain_list; g; g = g -> next )
   {
-    if ( g -> actual > 0 )
+    if ( g -> actual > 0 || g -> overflow > 0 )
     {
       util_t::fprintf( file, "    %8.1f : %-*s", g -> actual, max_length, g -> name() );
       double overflow_pct = 100.0 * g -> overflow / ( g -> actual + g -> overflow );
@@ -459,7 +459,7 @@ static void print_text_pet_gains( FILE* file, player_t* p )
     int max_length = 0;
     for ( gain_t* g = pet -> gain_list; g; g = g -> next )
     {
-      if ( g -> actual > 0 )
+      if ( g -> actual > 0 || g -> overflow > 0 )
       {
         int length = ( int ) strlen( g -> name() );
         if ( length > max_length ) max_length = length;
@@ -471,7 +471,7 @@ static void print_text_pet_gains( FILE* file, player_t* p )
 
       for ( gain_t* g = pet -> gain_list; g; g = g -> next )
       {
-        if ( g -> actual > 0 )
+        if ( g -> actual > 0 || g -> overflow > 0 )
         {
           util_t::fprintf( file, "    %7.1f : %-*s", g -> actual, max_length, g -> name() );
           double overflow_pct = 100.0 * g -> overflow / ( g -> actual + g -> overflow );
@@ -813,7 +813,7 @@ static void print_text_hat_donors( FILE* file, sim_t* sim )
 
 // print_text_player =========================================================
 
-static void print_text_player( FILE* file, sim_t* sim, player_t* p, int j )
+static void print_text_player( FILE* file, player_t* p )
 {
   util_t::fprintf( file, "\n%s: %s %s %s %s %d\n",
                    p -> is_enemy() ? "Target" : p -> is_add() ? "Add" : "Player",
@@ -1021,7 +1021,7 @@ static void print_html_contents( FILE*  file, sim_t* sim )
   }
   for ( i=0; i < n; i++ )
   {
-    util_t::fprintf( file, cols[i].c_str() );
+    util_t::fprintf( file, "%s", cols[i].c_str() );
   }
 
   util_t::fprintf( file,
@@ -1996,7 +1996,7 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
 
 // print_html_action_resource ==================================================
 
-static void print_html_action_resource( FILE* file, stats_t* s, player_t* p, int j )
+static void print_html_action_resource( FILE* file, stats_t* s, int j )
 {
 
   util_t::fprintf( file,
@@ -2385,8 +2385,8 @@ static void print_html_stats ( FILE* file, player_t* a )
     util_t::fprintf( file,
                      "\t\t\t\t\t\t\t\t\t<tr class=\"odd\">\n"
                      "\t\t\t\t\t\t\t\t\t\t<th class=\"left\">Mastery</th>\n"
-                     "\t\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f% </td>\n"
-                     "\t\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f%</td>\n"
+                     "\t\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f%%</td>\n"
+                     "\t\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f%%</td>\n"
                      "\t\t\t\t\t\t\t\t\t\t<td class=\"right\">%.0f</td>\n"
                      "\t\t\t\t\t\t\t\t\t</tr>\n",
                      a -> buffed_mastery,
@@ -2649,7 +2649,7 @@ util_t::fprintf( file,
 
 // print_html_player_statistics =========================================================
 
-static void print_html_player_statistics( FILE* file, sim_t* sim, player_t* p )
+static void print_html_player_statistics( FILE* file, player_t* p )
 {
 
 // Statistics & Data Analysis
@@ -2701,7 +2701,7 @@ static void print_html_player_statistics( FILE* file, sim_t* sim, player_t* p )
 
  util_t::fprintf( file,
                   "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">Range [ ( max - min ) / 2 * 100% ]</td>\n"
+                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">Range [ ( max - min ) / 2 * 100%% ]</td>\n"
                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
                   "\t\t\t\t\t\t\t\t</tr>\n",
                   p -> dps ? ( ( p -> dps_max - p -> dps_min ) / 2 ) * 100 / p -> dps : 0 );
@@ -2837,10 +2837,9 @@ static void print_html_player_statistics( FILE* file, sim_t* sim, player_t* p )
 
 // print_html_player_resources =========================================================
 
-static void print_html_player_resources( FILE* file, sim_t* sim, player_t* p )
+static void print_html_player_resources( FILE* file, player_t* p )
 {
 // Resources Section
-
 
 util_t::fprintf( file,
 
@@ -2868,7 +2867,7 @@ for ( stats_t* s = p -> stats_list; s; s = s -> next )
 {
   if ( s -> rpe > 0 )
   {
-    print_html_action_resource( file, s, p, i );
+    print_html_action_resource( file, s, i );
     i++;
   }
 }
@@ -2890,10 +2889,9 @@ for ( pet_t* pet = p -> pet_list; pet; pet = pet -> next_pet )
                          "\t\t\t\t\t\t\t\t<th class=\"left small\">pet - %s</th>\n"
                          "\t\t\t\t\t\t\t\t<td colspan=\"3\" class=\"filler\"></td>\n"
                          "\t\t\t\t\t\t\t</tr>\n",
-                         pet -> name_str.c_str(),
-                         pet -> dps );
+                         pet -> name_str.c_str() );
       }
-      print_html_action_resource( file, s, p, i );
+      print_html_action_resource( file, s, i );
       i++;
     }
   }
@@ -2913,12 +2911,12 @@ util_t::fprintf( file,
                  "\t\t\t\t\t\t\t\t<th>Count</th>\n"
                  "\t\t\t\t\t\t\t\t<th>Total</th>\n"
                  "\t\t\t\t\t\t\t\t<th>Average</th>\n"
-                 "\t\t\t\t\t\t\t\t<th>Overflow</th>\n"
+                 "\t\t\t\t\t\t\t\t<th colspan=2>Overflow</th>\n"
                  "\t\t\t\t\t\t\t</tr>\n" );
 i = 1;
 for ( gain_t* g = p -> gain_list; g; g = g -> next )
 {
-  if ( g -> actual > 0 )
+  if ( g -> actual > 0 || g -> overflow > 0 )
   {
     double overflow_pct = 100.0 * g -> overflow / ( g -> actual + g -> overflow );
     util_t::fprintf( file,
@@ -2934,6 +2932,7 @@ for ( gain_t* g = p -> gain_list; g; g = g -> next )
                      "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f</td>\n"
                      "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f</td>\n"
                      "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f</td>\n"
+                     "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f</td>\n"
                      "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f%%</td>\n"
                      "\t\t\t\t\t\t\t</tr>\n",
                      g -> name(),
@@ -2941,7 +2940,8 @@ for ( gain_t* g = p -> gain_list; g; g = g -> next )
                      g -> count,
                      g -> actual,
                      g -> actual / g -> count,
-                     overflow_pct );
+                     g -> overflow,
+                     overflow_pct);
     i++;
   }
 }
@@ -2951,7 +2951,7 @@ for ( pet_t* pet = p -> pet_list; pet; pet = pet -> next_pet )
   bool first = true;
   for ( gain_t* g = pet -> gain_list; g; g = g -> next )
   {
-    if ( g -> actual > 0 )
+    if ( g -> actual > 0 || g -> overflow > 0 )
     {
       if ( first )
       {
@@ -2972,6 +2972,7 @@ for ( pet_t* pet = p -> pet_list; pet; pet = pet -> next_pet )
                        "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f</td>\n"
                        "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f</td>\n"
                        "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f</td>\n"
+                       "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f</td>\n"
                        "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f%%</td>\n"
                        "\t\t\t\t\t\t\t</tr>\n",
                        g -> name(),
@@ -2979,42 +2980,57 @@ for ( pet_t* pet = p -> pet_list; pet; pet = pet -> next_pet )
                        g -> count,
                        g -> actual,
                        g -> actual / g -> count,
-                       overflow_pct );
+                       overflow_pct,
+                       g -> overflow);
     }
   }
 }
 util_t::fprintf( file,
                  "\t\t\t\t\t\t</table>\n" );
 
-char buffer[ 1024 ];
-std::string gains_str                     = "";
-for ( i = 0; i < RESOURCE_MAX; i++ )
+util_t::fprintf( file,
+                 "\t\t\t\t\t\t<div class=\"charts charts-left\">\n" );
+for ( i = RESOURCE_NONE; i < RESOURCE_MAX; ++i )
 {
-  gains_str                     = "";
+  // hack hack. don't display RESOURCE_RUNE_<TYPE> yet. only shown in tabular data.  WiP
+  if ( i == RESOURCE_RUNE_BLOOD || i == RESOURCE_RUNE_UNHOLY || i == RESOURCE_RUNE_FROST ) continue;
   double total_gain=0;
   for ( gain_t* g = p -> gain_list; g; g = g -> next )
   {
-    if ( g -> actual <= 0 ) continue;
-    if ( g -> type != i ) continue;
-    total_gain += g -> actual;
+    if ( g -> actual > 0 && g -> type == i )
+      total_gain += g -> actual;
   }
 
   if ( total_gain > 0 )
   {
-    chart_t::gains              ( p -> gains_chart, p, (resource_type) i );
+    chart_t::gains( p -> gains_chart, p, ( resource_type ) i );
     if ( ! p -> gains_chart.empty() )
-      {
-
-      snprintf( buffer, sizeof( buffer ), "<img src=\"%s\" alt=\"Resource Gains Chart\" />\n", p -> gains_chart.c_str() );
-
-      gains_str = buffer;
-      }
-    util_t::fprintf( file,
-                 "\t\t\t\t\t\t%s\n",
-                 gains_str.c_str() );
-
+    {
+      util_t::fprintf( file,
+                       "\t\t\t\t\t\t\t<img src=\"%s\" alt=\"Resource Gains Chart\" />\n",
+                       p -> gains_chart.c_str() );
+    }
   }
 }
+util_t::fprintf( file,
+                 "\t\t\t\t\t\t</div>\n" );
+
+
+util_t::fprintf( file,
+                 "\t\t\t\t\t\t<div class=\"charts\">\n" );
+for ( int i = RESOURCE_NONE + 1; i < RESOURCE_MAX; i++ )
+{
+  if ( p -> resource_max[ i ] > 0 && ! p -> timeline_resource_chart[ i ].empty() )
+  {
+    util_t::fprintf( file,
+                     "\t\t\t\t\t\t<img src=\"%s\" alt=\"Resource Timeline Chart\" />\n",
+                     p -> timeline_resource_chart[ i ].c_str() );
+  }
+}
+util_t::fprintf( file,
+                 "\t\t\t\t\t\t</div>\n"
+                 "\t\t\t\t\t<div class=\"clear\"></div>\n" );
+
 util_t::fprintf( file,
                  "\t\t\t\t\t</div>\n"
                  "\t\t\t\t</div>\n" );
@@ -3042,7 +3058,6 @@ std::string action_dmg_str                      = "";
 std::string reforge_dps_str                     = "";
 std::string scaling_dps_str                     = "";
 std::string scale_factors_str                   = "";
-std::string timeline_resource_str               = "";
 std::string timeline_resource_health_str        = "";
 std::string timeline_dps_str                    = "";
 std::string distribution_dps_str                = "";
@@ -3109,18 +3124,6 @@ if ( ! p -> reforge_dps_chart.empty() )
       reforge_dps_str = p -> reforge_dps_chart;
 //        reforge_dps_str += "</span>\n";
     }
-  }
-}
-
-if ( ! p -> timeline_resource_chart.empty() )
-{
-  if ( num_players == 1 )
-  {
-    timeline_resource_str = "<img src=\"" + p -> timeline_resource_chart + "\" alt=\"Resource Timeline Chart\" />\n";
-  }
-  else
-  {
-    timeline_resource_str = "<span class=\"chart-timeline-resource\" title=\"Resource Timeline Chart\">" + p -> timeline_resource_chart + "</span>\n";
   }
 }
 if ( ! p -> timeline_resource_health_chart.empty() && healer_in_the_raid )
@@ -3191,7 +3194,6 @@ util_t::fprintf( file,
                  "              %s"
                  "              %s"
                  "              %s"
-                 "              %s"
                  "\t\t\t\t\t\t</div>\n"
                  "\t\t\t\t\t\t<div class=\"clear\"></div>\n"
                  "\t\t\t\t\t</div>\n"
@@ -3201,7 +3203,6 @@ util_t::fprintf( file,
                  scaling_dps_str.c_str(),
                  reforge_dps_str.c_str(),
                  scale_factors_str.c_str(),
-                 timeline_resource_str.c_str(),
                  timeline_resource_health_str.c_str(),
                  timeline_dps_str.c_str(),
                  distribution_dps_str.c_str(),
@@ -3211,7 +3212,7 @@ util_t::fprintf( file,
 
 // print_html_player_buffs =========================================================
 
-static void print_html_player_buffs( FILE* file, sim_t* sim, player_t* p )
+static void print_html_player_buffs( FILE* file, player_t* p )
 {
   int i=0;
 // Buff Section
@@ -3231,9 +3232,7 @@ static void print_html_player_buffs( FILE* file, sim_t* sim, player_t* p )
                    "\t\t\t\t\t\t\t\t<th>Trigger</th>\n"
                    "\t\t\t\t\t\t\t\t<th>Up-Time</th>\n"
                    "\t\t\t\t\t\t\t\t<th>Benefit</th>\n"
-                   "\t\t\t\t\t\t\t</tr>\n",
-                   p -> name(),
-                   p -> name() );
+                   "\t\t\t\t\t\t\t</tr>\n" );
 
   std::vector<buff_t*> dynamic_buffs;
   for ( buff_t* b = p -> buff_list; b; b = b -> next )
@@ -3248,10 +3247,10 @@ static void print_html_player_buffs( FILE* file, sim_t* sim, player_t* p )
   {
     buff_t* b = dynamic_buffs[ i ];
 
-    std::string buff_name = "";
+    std::string buff_name;
     if( b -> player && b -> player -> is_pet() )
     {
-      buff_name += b -> player -> name_str + "-";
+      buff_name += b -> player -> name_str + '-';
     }
     buff_name += b -> name();
 
@@ -3453,9 +3452,10 @@ static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
   util_t::fprintf( file,
                    "\t\t\t\t\t<li><b>Level:</b> %d</li>\n"
                    "\t\t\t\t\t<li><b>Role:</b> %s</li>\n"
+                   "\t\t\t\t\t<li><b>Position:</b> %s</li>\n"
                    "\t\t\t\t</ul>\n"
                    "\t\t\t\t<div class=\"clear\"></div>\n",
-                   p -> level, util_t::role_type_string( p -> primary_role() ) );
+                   p -> level, util_t::role_type_string( p -> primary_role() ), p -> position_str.c_str() );
 
   // Main player table
   util_t::fprintf( file,
@@ -3514,7 +3514,9 @@ static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
                      "\t\t\t\t\t\t<table class=\"sc mt\">\n" );
     if ( p -> origin_str.compare( "unknown" ) )
     {
-      std::string  enc_url = p -> origin_str; report_t::encode_html(  enc_url );
+      std::string enc_url = p -> origin_str;
+      util_t::urldecode( enc_url );
+      report_t::encode_html( enc_url );
       util_t::fprintf( file,
                        "\t\t\t\t\t\t\t<tr class=\"left\">\n"
                        "\t\t\t\t\t\t\t\t<th><a href=\"#help-origin\" class=\"help\">Origin</a></th>\n"
@@ -3523,9 +3525,10 @@ static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
                        p -> origin_str.c_str(),
                        enc_url.c_str() );
     }
-    if ( !p -> talents_str.empty() )
+    if ( ! p -> talents_str.empty() )
     {
-      std::string  enc_url = p -> talents_str; report_t::encode_html(  enc_url );
+      std::string enc_url = p -> talents_str;
+      report_t::encode_html( enc_url );
       util_t::fprintf( file,
                        "\t\t\t\t\t\t\t<tr class=\"left\">\n"
                        "\t\t\t\t\t\t\t\t<th>Talents</th>\n"
@@ -3647,9 +3650,9 @@ static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
                    "\t\t\t\t</div>\n" );
 
 
-  print_html_player_resources( file, sim, p );
+  print_html_player_resources( file, p );
 
-  print_html_player_buffs( file, sim, p );
+  print_html_player_buffs( file, p );
 
   util_t::fprintf( file,
                    "\t\t\t\t\t<div class=\"player-section uptimes\">\n"
@@ -3696,9 +3699,7 @@ static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
                    "\t\t\t\t\t\t\t\t\t<th></th>\n"
                    "\t\t\t\t\t\t\t\t\t<th>Count</th>\n"
                    "\t\t\t\t\t\t\t\t\t<th>Interval</th>\n"
-                   "\t\t\t\t\t\t\t\t</tr>\n",
-                   n.c_str(),
-                   n.c_str() );
+                   "\t\t\t\t\t\t\t\t</tr>\n" );
   i = 1;
   for ( proc_t* proc = p -> proc_list; proc; proc = proc -> next )
   {
@@ -3778,7 +3779,7 @@ static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
 
 
 
-  print_html_player_statistics( file, sim, p );
+  print_html_player_statistics( file, p );
 
   print_html_player_action_priority_list( file, sim, p );
 
@@ -3848,23 +3849,22 @@ static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
 
 // report_t::encode_html =============================================================
 
+static inline void replace_entity( std::string& str, char c, const char* text )
+{
+  std::size_t len = strlen( text );
+  std::string::size_type pos = 0;
+  while ( ( pos = str.find( c, pos ) ) != str.npos )
+  {
+    str.replace( pos, 1, text );
+    pos += len;
+  }
+}
+
 void report_t::encode_html ( std::string& buffer )
 {
-  for ( std::string::size_type pos = buffer.find( "&", 0 ); pos != std::string::npos; pos = buffer.find( "&", pos ) )
-  {
-    buffer.replace( pos, 1, "&amp;" );
-    pos+=2;
-  }
-  for ( std::string::size_type pos = buffer.find( "<", 0 ); pos != std::string::npos; pos = buffer.find( "<", pos ) )
-  {
-    buffer.replace( pos, 1, "&lt;" );
-    pos+=2;
-  }
-  for ( std::string::size_type pos = buffer.find( ">", 0 ); pos != std::string::npos; pos = buffer.find( ">", pos ) )
-  {
-    buffer.replace( pos, 1, "&gt;" );
-    pos+=2;
-  }
+  replace_entity( buffer, '&', "&amp;" );
+  replace_entity( buffer, '<', "&lt;" );
+  replace_entity( buffer, '>', "&gt;" );
 }
 
 // report_t::print_text ======================================================
@@ -3914,7 +3914,7 @@ void report_t::print_text( FILE* file, sim_t* sim, bool detail )
   // Report Players
   for ( int i=0; i < num_players; i++ )
   {
-    print_text_player( file, sim, sim -> players_by_name[ i ], i );
+    print_text_player( file, sim -> players_by_name[ i ] );
 
     // Pets
     if ( sim -> report_pets_separately )
@@ -3922,7 +3922,7 @@ void report_t::print_text( FILE* file, sim_t* sim, bool detail )
       for ( pet_t* pet = sim -> players_by_name[ i ] -> pet_list; pet; pet = pet -> next_pet )
       {
         if ( pet -> summoned )
-          print_text_player( file, sim, pet, 1 );
+          print_text_player( file, pet );
       }
     }
   }
@@ -3934,7 +3934,7 @@ void report_t::print_text( FILE* file, sim_t* sim, bool detail )
 
     for ( int i=0; i < ( int ) sim -> targets_by_name.size(); i++ )
     {
-      print_text_player( file, sim, sim -> targets_by_name[ i ], i );
+      print_text_player( file, sim -> targets_by_name[ i ] );
 
       // Pets
       if ( sim -> report_pets_separately )
@@ -3942,7 +3942,7 @@ void report_t::print_text( FILE* file, sim_t* sim, bool detail )
         for ( pet_t* pet = sim -> players_by_name[ i ] -> pet_list; pet; pet = pet -> next_pet )
         {
           if ( pet -> summoned )
-            print_text_player( file, sim, pet, 1 );
+            print_text_player( file, pet );
         }
       }
     }

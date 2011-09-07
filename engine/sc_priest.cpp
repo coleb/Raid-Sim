@@ -9,6 +9,8 @@
 // Priest
 // ==========================================================================
 
+struct remove_dots_event_t;
+
 struct priest_t : public player_t
 {
   // Buffs
@@ -307,6 +309,8 @@ struct priest_t : public player_t
   bool   was_sub_25;
   int    double_dot;
 
+  remove_dots_event_t* remove_dots_event;
+
   priest_t( sim_t* sim, const std::string& name, race_type r = RACE_NONE ) : player_t( sim, PRIEST, name, r )
   {
     if ( race == RACE_NONE ) race = RACE_NIGHT_ELF;
@@ -347,6 +351,8 @@ struct priest_t : public player_t
 
     active_cauterizing_flame             = 0;
 
+    remove_dots_event                    = 0;
+
     create_talents();
     create_glyphs();
     create_options();
@@ -365,6 +371,7 @@ struct priest_t : public player_t
   virtual void      init_procs();
   virtual void      init_scaling();
   virtual void      reset();
+  virtual void      demise();
   virtual void      init_party();
   virtual void      create_options();
   virtual bool      create_profile( std::string& profile_str, int save_type=SAVE_ALL, bool save_html=false );
@@ -403,6 +410,25 @@ struct priest_t : public player_t
   virtual void pre_analyze_hook();
 
   void trigger_cauterizing_flame();
+};
+
+struct remove_dots_event_t : public event_t
+{
+  priest_t* p;
+
+  remove_dots_event_t( sim_t* sim, priest_t* pr ) : event_t( sim, pr ), p( pr )
+  {
+    double delay_duration = sim -> gauss( sim -> default_aura_delay, sim -> default_aura_delay_stddev );
+    name = "mind_spike_remove_dots";
+    sim -> add_event( this, delay_duration );
+  }
+  virtual void execute()
+  {
+    p -> remove_dots_event = 0;
+    if ( p -> dots_shadow_word_pain   -> ticking ) { p -> dots_shadow_word_pain -> action -> cancel(); p -> dots_shadow_word_pain -> reset(); }
+    if ( p -> dots_vampiric_touch     -> ticking ) { p -> dots_vampiric_touch   -> action -> cancel(); p -> dots_vampiric_touch   -> reset(); }
+    if ( p -> dots_devouring_plague   -> ticking ) { p -> dots_devouring_plague -> action -> cancel(); p -> dots_devouring_plague -> reset(); }
+  }
 };
 
 namespace   // ANONYMOUS NAMESPACE ==========================================
@@ -486,7 +512,7 @@ struct priest_heal_t : public heal_t
   divine_aegis_t* da;
   bool can_trigger_DA;
 
-  void trigger_echo_of_light( heal_t* a, player_t* t )
+  void trigger_echo_of_light( heal_t* a, player_t* /* t */ )
   {
     priest_t* p = a -> player -> cast_priest();
 
@@ -802,7 +828,7 @@ public:
     _init_priest_spell_t();
   }
 
-  priest_spell_t( const active_spell_t& s, int t = TREE_NONE ) :
+  priest_spell_t( const active_spell_t& s ) :
     spell_t( s )
   {
     _init_priest_spell_t();
@@ -1491,9 +1517,7 @@ struct devouring_plague_t : public priest_spell_t
       if ( p -> bugs )
       {
         // Currently it's rounding up but only using haste rating haste.
-        double d = num_ticks * base_tick_time;
-        double t = floor( ( base_tick_time * p -> spell_haste * 1000.0 ) + 0.5 ) / 1000.0;
-        n = ( int ) ceil( ( d / t ) );
+        n = ( int ) ceil( num_ticks / p -> spell_haste );
       }
 
       burst_spell -> base_dd_min    = dmg * n;
@@ -1815,9 +1839,13 @@ struct mind_blast_t : public priest_spell_t
 
     p -> buffs_mind_melt -> expire();
     p -> buffs_mind_spike -> expire();
-    p -> buffs_shadow_orb -> expire();
 
-    p -> buffs_empowered_shadow -> trigger( 1, p -> empowered_shadows_amount() );
+    if ( p -> buffs_shadow_orb -> check() )
+    {
+      p -> buffs_shadow_orb -> expire();
+
+      p -> buffs_empowered_shadow -> trigger( 1, p -> empowered_shadows_amount() );
+    }
 
     if ( result_is_hit() )
     {
@@ -2154,9 +2182,18 @@ struct mind_spike_t : public priest_spell_t
       }
 
       p -> buffs_mind_melt  -> trigger( 1, 1.0 );
-      p -> buffs_shadow_orb -> expire();
-      p -> buffs_empowered_shadow -> trigger( 1, p -> empowered_shadows_amount() );
+
+      if ( p -> buffs_shadow_orb -> check() )
+      {
+        p -> buffs_shadow_orb -> expire();
+        p -> buffs_empowered_shadow -> trigger( 1, p -> empowered_shadows_amount() );
+      }
       p -> buffs_mind_spike -> trigger( 1, effect2().percent() );
+
+      if ( ! p -> remove_dots_event )
+      {
+        p -> remove_dots_event = new ( sim ) remove_dots_event_t( sim, p );
+      }
     }
   }
 
@@ -4587,7 +4624,7 @@ action_t* priest_t::create_action( const std::string& name,
 // priest_t::create_pet ======================================================
 
 pet_t* priest_t::create_pet( const std::string& pet_name,
-                             const std::string& pet_type )
+                             const std::string& /* pet_type */ )
 {
   pet_t* p = find_pet( pet_name );
 
@@ -4946,9 +4983,7 @@ void priest_t::init_actions()
       }
     }
 
-    // Lifeblood
-    if ( profession[ PROF_HERBALISM ] >= 450 )
-      action_list_str += "/lifeblood";
+    init_use_profession_actions();
 
     switch ( primary_tree() )
     {
@@ -4965,11 +5000,9 @@ void priest_t::init_actions()
                                                          action_list_str += "/speed_potion,if=buff.bloodlust.react|target.time_to_die<=20";
       }
 
-                                                         action_list_str += "/mind_blast,if=buff.shadow_orb.react>=1";
-                                                         action_list_str += "&!set_bonus.tier12_4pc_caster";
+                                                         action_list_str += "/mind_blast";
 
-      if ( race == RACE_TROLL )                          action_list_str += "/berserking";
-      if ( race == RACE_BLOOD_ELF )                      action_list_str += "/arcane_torrent";
+                                                         init_use_racial_actions();
                                                          action_list_str += "/shadow_word_pain,if=(!ticking|dot.shadow_word_pain.remains<gcd+0.5)&miss_react";
       if ( level >= 28 )                                 action_list_str += "/devouring_plague,if=(!ticking|dot.devouring_plague.remains<gcd+1.0)&miss_react";
 
@@ -4990,14 +5023,11 @@ void priest_t::init_actions()
                                                          action_list_str += "&dot.devouring_plague.remains>5";
       }
 
-                                                         action_list_str += "/mind_blast,if=buff.shadow_orb.react>=1";
-                                                         action_list_str += "&set_bonus.tier12_4pc_caster";
-
                                                          action_list_str += "/start_moving,health_percentage<=25,if=cooldown.shadow_word_death.remains<=0.1";
 
                                                          action_list_str += "/shadow_word_death,health_percentage<=25";
       if ( level >= 66 )                                 action_list_str += "/shadow_fiend";
-                                                         action_list_str += "/mind_blast";
+
       if ( double_dot )
       {
                                                          action_list_str += "/mind_flay_2,if=(dot.shadow_word_pain_2.remains<dot.shadow_word_pain.remains)&miss_react";
@@ -5094,7 +5124,6 @@ void priest_t::init_actions()
                                                          action_list_str += "/shadow_word_pain,if=remains<tick_time|!ticking";
         if ( ! talents.archangel -> ok() )               action_list_str += "/mind_blast";
                                                          action_list_str += "/smite";
-        if ( talents.archangel -> ok() )                 action_list_str += ",if=buff.holy_evangelism.stack<5|buff.holy_evangelism.remains<cooldown.archangel.remains+0.5";
       }
       // HEALER
       else
@@ -5228,8 +5257,15 @@ void priest_t::reset()
 
   heals_echo_of_light                  = 0;
 
+  remove_dots_event                    = 0;
 
   init_party();
+}
+
+void priest_t::demise()
+{
+  event_t::cancel( remove_dots_event );
+  player_t::demise();
 }
 
 // priest_t::fixup_atonement_stats  ==========================================

@@ -72,14 +72,19 @@ static const char* resource_color( int type )
 {
   switch ( type )
   {
-  case RESOURCE_HEALTH:   return class_color( HUNTER );
-  case RESOURCE_MANA:     return class_color( SHAMAN );
-  case RESOURCE_RAGE:     return class_color( DEATH_KNIGHT );
-  case RESOURCE_ENERGY:   return class_text_color( ROGUE );
-  case RESOURCE_FOCUS:    return class_text_color( ROGUE );
-  case RESOURCE_RUNIC:    return class_color( DEATH_KNIGHT );
-  case RESOURCE_HOLY_POWER:    return class_color( PALADIN );
-  case RESOURCE_NONE:     return "000000";
+  case RESOURCE_HEALTH:       return class_color( HUNTER );
+  case RESOURCE_MANA:         return class_color( SHAMAN );
+  case RESOURCE_RAGE:         return class_color( DEATH_KNIGHT );
+  case RESOURCE_ENERGY:       return class_text_color( ROGUE );
+  case RESOURCE_FOCUS:        return class_text_color( ROGUE );
+  case RESOURCE_RUNIC:        return class_color( DEATH_KNIGHT );
+  case RESOURCE_RUNE:         return class_color( DEATH_KNIGHT );
+  case RESOURCE_RUNE_BLOOD:   return class_color( DEATH_KNIGHT );
+  case RESOURCE_RUNE_UNHOLY:  return class_color( HUNTER );
+  case RESOURCE_RUNE_FROST:   return class_color( SHAMAN );
+  case RESOURCE_HOLY_POWER:   return class_color( PALADIN );
+  case RESOURCE_SOUL_SHARDS:  return class_color( WARLOCK );
+  case RESOURCE_NONE:         return "000000";
   default: assert( 0 );
   }
   return 0;
@@ -145,7 +150,12 @@ static const char* chart_resource_type_string( int type )
   case RESOURCE_ENERGY:       return "Energy";
   case RESOURCE_FOCUS:        return "Focus";
   case RESOURCE_RUNIC:        return "Runic Power";
+  case RESOURCE_RUNE:         return "All Runes";
+  case RESOURCE_RUNE_BLOOD:   return "Blood Rune";
+  case RESOURCE_RUNE_UNHOLY:  return "Unholy Rune";
+  case RESOURCE_RUNE_FROST:   return "Frost Rune";
   case RESOURCE_SOUL_SHARDS:  return "Soul Shards";
+  case RESOURCE_HOLY_POWER:   return "Holy Power";
   }
   return "Unknown";
 }
@@ -254,8 +264,8 @@ int chart_t::raid_dps( std::vector<std::string>& images,
     for ( int i=0; i < num_players; i++ )
     {
       player_t* p = player_list[ i ];
-      std::string formatted_name = p -> name_str;
-      util_t::urlencode( util_t::str_to_utf8( formatted_name ) );
+      std::string formatted_name;
+      http_t::format( formatted_name, p -> name_str );
       snprintf( buffer, sizeof( buffer ), "%st++%.0f++%s,%s,%d,0,15", ( i?"|":"" ), p -> dps, formatted_name.c_str(), get_text_color( p ), i ); s += buffer;
     }
     s += "&amp;";
@@ -954,7 +964,7 @@ const char* chart_t::gains( std::string& s,
   s += "&amp;";
   std::string formatted_name = p -> name_str;
   util_t::urlencode( util_t::str_to_utf8( formatted_name ) );
-  snprintf( buffer, sizeof( buffer ), "chtt=%s+Resource+Gains", formatted_name.c_str() ); s += buffer;
+  snprintf( buffer, sizeof( buffer ), "chtt=%s+%s+Gains", formatted_name.c_str(), chart_resource_type_string( type ) ); s += buffer;
   s += "&amp;";
   if ( p -> sim -> print_styles )
   {
@@ -1425,11 +1435,7 @@ const char* chart_t::timeline_dps( std::string& s,
   int max_points  = 600;
   int increment   = 1;
 
-  if ( max_buckets <= max_points )
-  {
-    max_points = max_buckets;
-  }
-  else
+  if ( max_buckets > max_points )
   {
     increment = ( ( int ) floor( max_buckets / ( double ) max_points ) ) + 1;
   }
@@ -1509,11 +1515,7 @@ const char* chart_t::timeline_dps_error( std::string& s,
   int max_points  = 600;
   int increment   = 1;
 
-  if ( max_buckets <= max_points )
-  {
-    max_points = max_buckets;
-  }
-  else
+  if ( max_buckets > max_points )
   {
     increment = ( ( int ) floor( max_buckets / ( double ) max_points ) ) + 1;
   }
@@ -1591,23 +1593,20 @@ const char* chart_t::timeline_dps_error( std::string& s,
 // chart_t::timeline_resource ================================================
 
 const char* chart_t::timeline_resource( std::string& s,
-                                        player_t* p )
+                                        player_t* p, int resource_type )
 {
 
-  if ( p -> primary_resource() == RESOURCE_NONE )
-    return 0;
+  if ( resource_type == RESOURCE_NONE || p -> resource_base[ resource_type ] <= 0 ||
+      p -> resource_gained[ resource_type ] == 0 && p -> resource_lost[ resource_type ] == 0 )
+    return "";
 
-  int max_buckets = ( int ) p -> timeline_resource.size();
+  int max_buckets = ( int ) p -> timeline_resource[resource_type].size();
   int max_points  = 600;
   int increment   = 1;
 
   if ( max_buckets <= 0 ) return 0;
 
-  if ( max_buckets <= max_points )
-  {
-    max_points = max_buckets;
-  }
-  else
+  if ( max_buckets > max_points )
   {
     increment = ( ( int ) floor( max_buckets / ( double ) max_points ) ) + 1;
   }
@@ -1615,11 +1614,15 @@ const char* chart_t::timeline_resource( std::string& s,
   double resource_max=0;
   for ( int i=0; i < max_buckets; i++ )
   {
-    if ( p -> timeline_resource[ i ] > resource_max )
+    if ( p -> timeline_resource[resource_type][ i ] > resource_max )
     {
-      resource_max = p -> timeline_resource[ i ];
+      resource_max = p -> timeline_resource[resource_type][ i ];
     }
   }
+
+  if ( resource_max == 0 )
+    return "";
+
   double resource_range  = 60.0;
   double resource_adjust = resource_range / resource_max;
 
@@ -1646,7 +1649,7 @@ const char* chart_t::timeline_resource( std::string& s,
   s += "chd=s:";
   for ( int i=0; i < max_buckets; i += increment )
   {
-    s += simple_encoding( ( int ) ( p -> timeline_resource[ i ] * resource_adjust ) );
+    s += simple_encoding( ( int ) ( p -> timeline_resource[resource_type][ i ] * resource_adjust ) );
   }
   s += "&amp;";
   snprintf( buffer, sizeof( buffer ), "chds=0,%.0f", resource_range ); s += buffer;
@@ -1657,7 +1660,7 @@ const char* chart_t::timeline_resource( std::string& s,
   s += "&amp;";
   std::string formatted_name = p -> name_str;
   util_t::urlencode( util_t::str_to_utf8( formatted_name ) );
-  snprintf( buffer, sizeof( buffer ), "chtt=%s+%s+Timeline", formatted_name.c_str(), chart_resource_type_string( p -> primary_resource() ) ); s += buffer;
+  snprintf( buffer, sizeof( buffer ), "chtt=%s+%s+Timeline", formatted_name.c_str(), chart_resource_type_string( resource_type ) ); s += buffer;
   s += "&amp;";
   if ( p -> sim -> print_styles )
   {
@@ -1668,89 +1671,7 @@ const char* chart_t::timeline_resource( std::string& s,
     s += "chts=dddddd,18";
   }
   s += "&amp;";
-  snprintf( buffer, sizeof( buffer ), "chco=%s", resource_color( p -> primary_resource() ) ); s += buffer;
-
-  return s.c_str();
-}
-
-// chart_t::timeline_health ================================================
-
-const char* chart_t::timeline_health( std::string& s,
-                                      player_t* p )
-{
-  resource_type resource=RESOURCE_HEALTH;
-  int max_buckets = ( int ) p -> timeline_resource.size();
-  int max_points  = 600;
-  int increment   = 1;
-
-  if ( max_buckets <= 0 ) return 0;
-
-  if ( max_buckets <= max_points )
-  {
-    max_points = max_buckets;
-  }
-  else
-  {
-    increment = ( ( int ) floor( max_buckets / ( double ) max_points ) ) + 1;
-  }
-
-  double resource_max=0;
-  for ( int i=0; i < max_buckets; i++ )
-  {
-    if ( p -> timeline_health[ i ] > resource_max )
-    {
-      resource_max = p -> timeline_health[ i ];
-    }
-  }
-  double resource_range  = 60.0;
-  double resource_adjust = resource_range / resource_max;
-
-  char buffer[ 1024 ];
-
-  s = get_chart_base_url();
-  s += "chs=525x185";
-  s += "&amp;";
-  s += "cht=lc";
-  s += "&amp;";
-  s += "chxs=0,ffffff|1,ffffff";
-  s += "&amp;";
-  if ( p -> sim -> print_styles )
-  {
-    s += "chf=c,ls,0,EEEEEE,0.2,FFFFFF,0.2";
-  }
-  else
-  {
-    s += "chf=bg,s,333333";
-  }
-  s += "&amp;";
-  s += "chg=100,20";
-  s += "&amp;";
-  s += "chd=s:";
-  for ( int i=0; i < max_buckets; i += increment )
-  {
-    s += simple_encoding( ( int ) ( p -> timeline_health[ i ] * resource_adjust ) );
-  }
-  s += "&amp;";
-  snprintf( buffer, sizeof( buffer ), "chds=0,%.0f", resource_range ); s += buffer;
-  s += "&amp;";
-  s += "chxt=x,y";
-  s += "&amp;";
-  snprintf( buffer, sizeof( buffer ), "chxl=0:|0|sec=%d|1:|0|max=%.0f", max_buckets, resource_max ); s += buffer;
-  s += "&amp;";
-  std::string formatted_name = p -> name_str;
-  util_t::urlencode( util_t::str_to_utf8( formatted_name ) );
-  snprintf( buffer, sizeof( buffer ), "chtt=%s+%s+Timeline", formatted_name.c_str(), chart_resource_type_string( resource ) ); s += buffer;
-  s += "&amp;";
-  if ( p -> sim -> print_styles )
-  {
-    s += "chts=666666,18";
-  }
-  else
-  {
-    s += "chts=dddddd,18";
-  }
-  s += "&amp;";
-  snprintf( buffer, sizeof( buffer ), "chco=%s", resource_color( resource ) ); s += buffer;
+  snprintf( buffer, sizeof( buffer ), "chco=%s", resource_color( resource_type ) ); s += buffer;
 
   return s.c_str();
 }
@@ -2001,7 +1922,7 @@ const char* chart_t::gear_weights_wowreforge( std::string& s,
   char buffer[ 1024 ];
 
   std::string region_str, server_str, name_str;
-  
+
   // Use valid names if we are provided those
   if ( ! p -> region_str.empty() && ! p -> server_str.empty() && ! p -> name_str.empty() )
   {
@@ -2032,7 +1953,7 @@ const char* chart_t::gear_weights_wowreforge( std::string& s,
     snprintf( buffer, sizeof( buffer ), ",%s:%.*f", util_t::stat_type_abbrev( i ), p -> sim -> report_precision, value );
     s += buffer;
   }
-  
+
   util_t::urlencode( s );
 
   return s.c_str();

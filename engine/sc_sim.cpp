@@ -53,7 +53,7 @@ sim_t* sim_signal_handler_t::global_sim = 0;
 #else
 struct sim_signal_handler_t
 {
-  static void init( sim_t* sim ) {}
+  static void init( sim_t* ) {}
 };
 #endif
 
@@ -145,9 +145,9 @@ static bool parse_player( sim_t*             sim,
   if ( name == "player" )
   {
     std::string player_name = value;
-    std::string player_options = "";
+    std::string player_options;
 
-    std::string::size_type cut_pt = value.find_first_of( "," );
+    std::string::size_type cut_pt = value.find_first_of( ',' );
 
     if ( cut_pt != value.npos )
     {
@@ -159,47 +159,46 @@ static bool parse_player( sim_t*             sim,
     std::string region = sim -> default_region_str;
     std::string server = sim -> default_server_str;
     std::string talents = "active";
-    int cache=0;
+    int use_cache=0;
 
     option_t options[] =
     {
-      { "wowhead", OPT_STRING, &wowhead  },
-      { "region",  OPT_STRING, &region   },
-      { "server",  OPT_STRING, &server   },
-      { "talents", OPT_STRING, &talents  },
-      { "cache",   OPT_BOOL,   &cache    },
+      { "wowhead", OPT_STRING, &wowhead   },
+      { "region",  OPT_STRING, &region    },
+      { "server",  OPT_STRING, &server    },
+      { "talents", OPT_STRING, &talents   },
+      { "cache",   OPT_BOOL,   &use_cache },
       { NULL, OPT_UNKNOWN, NULL }
     };
 
     option_t::parse( sim, "player", options, player_options );
 
     sim -> input_is_utf8 = utf8::is_valid( player_name.begin(), player_name.end() ) && utf8::is_valid( server.begin(), server.end() );
+    cache::behavior_t caching = use_cache ? cache::ANY : cache::behavior();
 
     if ( wowhead.empty() )
     {
       if ( true )
-        sim -> active_player = bcp_api::download_player( sim, region, server, player_name, "active" );
+        sim -> active_player = bcp_api::download_player( sim, region, server, player_name, "active", caching );
       else
       {
         if ( region == "cn" )
         {
-          sim -> active_player = armory_t::download_player( sim, region, server, player_name, "active" );
+          sim -> active_player = armory_t::download_player( sim, region, server, player_name, "active", caching );
         }
         else
         {
-          sim -> active_player = battle_net_t::download_player( sim, region, server, player_name, "active" );
+          sim -> active_player = battle_net_t::download_player( sim, region, server, player_name, "active", caching );
         }
       }
     }
     else
     {
-      sim -> active_player = wowhead_t::download_player( sim, wowhead, ( talents == "active" ) );
+      sim -> active_player = wowhead_t::download_player( sim, wowhead, ( talents == "active" ), caching );
 
-      if ( sim -> active_player )
-        if ( player_name != sim -> active_player -> name() )
-          sim -> errorf( "Mismatch between player name '%s' and wowhead name '%s' for id '%s'\n",
-                         player_name.c_str(), sim -> active_player -> name(), wowhead.c_str() );
-
+      if ( sim -> active_player && player_name != sim -> active_player -> name() )
+        sim -> errorf( "Mismatch between player name '%s' and wowhead name '%s' for id '%s'\n",
+                       player_name.c_str(), sim -> active_player -> name(), wowhead.c_str() );
     }
   }
   else if( name == "pet" )
@@ -218,7 +217,7 @@ static bool parse_player( sim_t*             sim,
   }
   else if ( name == "copy" )
   {
-    std::string::size_type cut_pt = value.find_first_of( "," );
+    std::string::size_type cut_pt = value.find_first_of( ',' );
 
     player_t* source;
     std::string player_name;
@@ -254,7 +253,7 @@ static bool parse_player( sim_t*             sim,
 // parse_proxy ==============================================================
 
 static bool parse_proxy( sim_t*             sim,
-                         const std::string& name,
+                         const std::string& /* name */,
                          const std::string& value )
 {
 
@@ -270,13 +269,29 @@ static bool parse_proxy( sim_t*             sim,
   int port = atoi( splits[ 2 ].c_str() );
   if ( splits[ 0 ] == "http" && port > 0 && port < 65536 )
   {
-    http_t::proxy_type = splits[ 0 ];
-    http_t::proxy_host = splits[ 1 ];
-    http_t::proxy_port = port;
+    http_t::proxy.type = splits[ 0 ];
+    http_t::proxy.host = splits[ 1 ];
+    http_t::proxy.port = port;
     return true;
   }
 
   return false;
+}
+
+// parse_armory =============================================================
+
+static bool parse_cache( sim_t*             /* sim */,
+                         const std::string& name,
+                         const std::string& value )
+{
+  if ( name != "cache" ) return false;
+
+  if ( value == "1" ) cache::behavior( cache::ANY );
+  else if ( value == "0" ) cache::behavior( cache::CURRENT );
+  else if ( util_t::str_compare_ci( value, "only" ) ) cache::behavior( cache::ONLY );
+  else return false;
+
+  return true;
 }
 
 // parse_armory =============================================================
@@ -308,12 +323,13 @@ static bool parse_armory( sim_t*             sim,
         player_name.erase( 0, 1 );
         description = "inactive";
       }
-      std::vector<std::string> encoding;
-      if ( util_t::string_split( encoding, player_name, "|" ) > 1 )
+      std::string::size_type pos = player_name.find( '|' );
+      if ( pos != player_name.npos )
       {
-        player_name = encoding[ 0 ];
-        description = encoding[ 1 ];
+        description.assign( player_name, pos + 1, player_name.npos );
+        player_name.erase( pos );
       }
+
       if ( ! sim -> input_is_utf8 )
         sim -> input_is_utf8 = utf8::is_valid( player_name.begin(), player_name.end() ) && utf8::is_valid( server.begin(), server.end() );
 
@@ -336,11 +352,11 @@ static bool parse_armory( sim_t*             sim,
   else if ( name == "guild" )
   {
     std::string guild_name = value;
-    std::string guild_options = "";
+    std::string guild_options;
     std::vector<int> ranks_list;
     std::vector<std::string> ranks;
 
-    std::string::size_type cut_pt = value.find_first_of( "," );
+    std::string::size_type cut_pt = value.find_first_of( ',' );
 
     if ( cut_pt != value.npos )
     {
@@ -353,16 +369,16 @@ static bool parse_armory( sim_t*             sim,
     std::string type_str;
     std::string ranks_str;
     int max_rank = 0;
-    int cache = 0;
+    int use_cache = 0;
 
     option_t options[] =
     {
-      { "region",   OPT_STRING, &region   },
-      { "server",   OPT_STRING, &server   },
-      { "class",    OPT_STRING, &type_str },
-      { "max_rank", OPT_INT,    &max_rank },
-      { "ranks",    OPT_STRING, &ranks_str},
-      { "cache",    OPT_BOOL,   &cache    },
+      { "region",   OPT_STRING, &region    },
+      { "server",   OPT_STRING, &server    },
+      { "class",    OPT_STRING, &type_str  },
+      { "max_rank", OPT_INT,    &max_rank  },
+      { "ranks",    OPT_STRING, &ranks_str },
+      { "cache",    OPT_BOOL,   &use_cache },
       { NULL, OPT_UNKNOWN, NULL }
     };
 
@@ -384,16 +400,18 @@ static bool parse_armory( sim_t*             sim,
     int player_type = PLAYER_NONE;
     if ( ! type_str.empty() ) player_type = util_t::parse_player_type( type_str );
 
+    cache::behavior_t caching = use_cache ? cache::ANY : cache::behavior();
+
     if ( true )
-      return bcp_api::download_guild( sim, region, server, guild_name, ranks_list, player_type, max_rank, cache != 0 );
+      return bcp_api::download_guild( sim, region, server, guild_name, ranks_list, player_type, max_rank, caching );
 
     if ( region == "cn" )
     {
-      return armory_t::download_guild( sim, region, server, guild_name, ranks_list, player_type, max_rank, cache );
+      return armory_t::download_guild( sim, region, server, guild_name, ranks_list, player_type, max_rank, caching );
     }
     else
     {
-      return battle_net_t::download_guild( sim, region, server, guild_name, ranks_list, player_type, max_rank, cache );
+      return battle_net_t::download_guild( sim, region, server, guild_name, ranks_list, player_type, max_rank, caching );
     }
   }
 
@@ -414,11 +432,11 @@ static bool parse_wowhead( sim_t*             sim,
     if ( num_splits == 1 )
     {
       std::string player_id = splits[ 0 ];
-      int active = 1;
+      bool active = true;
       if ( player_id[ 0 ] == '!' )
       {
         player_id.erase( 0, 1 );
-        active = 0;
+        active = false;
       }
       sim -> active_player = wowhead_t::download_player( sim, player_id, active );
     }
@@ -430,11 +448,11 @@ static bool parse_wowhead( sim_t*             sim,
       for ( int i=2; i < num_splits; i++ )
       {
         std::string player_name = splits[ i ];
-        int active = 1;
+        bool active = true;
         if ( player_name[ 0 ] == '!' )
         {
           player_name.erase( 0, 1 );
-          active = 0;
+          active = false;
         }
         sim -> active_player = wowhead_t::download_player( sim, region, server, player_name, active );
         if ( ! sim -> active_player ) return false;
@@ -515,9 +533,8 @@ static bool parse_bcp_api( sim_t*             sim,
     std::string::size_type pos = splits[ i ].find('|');
     if ( pos != std::string::npos )
     {
-      std::string::size_type n = splits[ i ].length() - pos - 1;
-      talents.assign( splits[ i ], pos + 1, n );
-      splits[ i ].erase( pos, n + 1 );
+      talents.assign( splits[ i ], pos + 1, std::string::npos );
+      splits[ i ].erase( pos );
     }
 
     sim -> active_player = bcp_api::download_player( sim, region, server, splits[ i ], talents );
@@ -570,7 +587,7 @@ static bool parse_fight_style( sim_t*             sim,
 // parse_spell_query ========================================================
 
 static bool parse_spell_query( sim_t*             sim,
-                               const std::string& name,
+                               const std::string& /* name */,
                                const std::string& value )
 {
   sim -> spell_query = spell_data_expr_t::parse( sim, value );
@@ -580,7 +597,7 @@ static bool parse_spell_query( sim_t*             sim,
 // parse_item_sources =======================================================
 
 static bool parse_item_sources( sim_t*             sim,
-                                const std::string& name,
+                                const std::string& /* name */,
                                 const std::string& value )
 {
   std::vector<std::string> sources;
@@ -623,7 +640,7 @@ static bool parse_item_sources( sim_t*             sim,
 
 sim_t::sim_t( sim_t* p, int index ) :
   parent( p ),
-  free_list( 0 ), target_list( 0 ), player_list( 0 ), active_player( 0 ), num_players( 0 ), num_enemies( 0 ), max_player_level( -1 ), canceled( 0 ),
+  target_list( 0 ), player_list( 0 ), active_player( 0 ), num_players( 0 ), num_enemies( 0 ), max_player_level( -1 ), canceled( 0 ),
   queue_lag( 0.037 ), queue_lag_stddev( 0 ),
   gcd_lag( 0.150 ), gcd_lag_stddev( 0 ),
   channel_lag( 0.250 ), channel_lag_stddev( 0 ),
@@ -657,7 +674,7 @@ sim_t::sim_t( sim_t* p, int index ) :
   // Report
   report_precision( 4 ),report_pets_separately( 0 ), report_targets( 1 ), report_details( 1 ), report_rng( 0 ), hosted_html( 0 ), print_styles( false ),
   // Multi-Threading
-  threads( 0 ), thread_handle( 0 ), thread_index( index ),
+  threads( 0 ), thread_index( index ),
   spell_query( 0 )
 {
   path_str += "|profiles";
@@ -719,12 +736,6 @@ sim_t::~sim_t()
     delete p;
   }
 
-  while ( event_t* e = free_list )
-  {
-    free_list = e -> next;
-    event_t::deallocate( e );
-  }
-
   while ( rng_t* r = rng_list )
   {
     rng_list = r -> next;
@@ -743,11 +754,11 @@ sim_t::~sim_t()
     delete d;
   }
 
-  if ( rng     )           delete rng;
-  if ( deterministic_rng ) delete deterministic_rng;
-  if ( scaling )           delete scaling;
-  if ( plot    )           delete plot;
-  if ( reforge_plot )      delete reforge_plot;
+  delete rng;
+  delete deterministic_rng;
+  delete scaling;
+  delete plot;
+  delete reforge_plot;
 
   int num_events = ( int ) raid_events.size();
   for ( int i=0; i < num_events; i++ )
@@ -760,9 +771,9 @@ sim_t::~sim_t()
   {
     delete children[ i ];
   }
-  if ( timing_wheel ) delete[] timing_wheel;
 
-  if ( spell_query ) delete spell_query;
+  delete[] timing_wheel;
+  delete spell_query;
 }
 
 // sim_t::add_event ==========================================================
@@ -1339,22 +1350,16 @@ void sim_t::analyze_player( player_t* p )
     max_buckets = ( int ) o -> total_seconds;
   }
 
-  int num_buckets = ( int ) p -> timeline_resource.size();
-
-  if ( num_buckets > max_buckets ) p -> timeline_resource.resize( max_buckets );
-
-  for ( int i=0; i < max_buckets; i++ )
+  for ( int i = RESOURCE_NONE; i < RESOURCE_MAX; i++ )
   {
-    p -> timeline_resource[ i ] /= divisor_timeline[ i ];
-  }
+    int num_buckets = ( int ) p -> timeline_resource[i].size();
 
-  num_buckets = ( int ) p -> timeline_health.size();
+    if ( num_buckets > max_buckets ) p -> timeline_resource[i].resize( max_buckets );
 
-  if ( num_buckets > max_buckets ) p -> timeline_health.resize( max_buckets );
-
-  for ( int i=0; i < max_buckets; i++ )
-  {
-    p -> timeline_health[ i ] /= divisor_timeline[ i ];
+    for ( int j=0; j < max_buckets; j++ )
+    {
+      p -> timeline_resource[i][ j ] /= divisor_timeline[ j ];
+    }
   }
 
   for ( int i=0; i < RESOURCE_MAX; i++ )
@@ -1411,7 +1416,7 @@ void sim_t::analyze_player( player_t* p )
     p -> timeline_dps[ i ] = window_dmg / window_size;
   }
 
-  assert( p -> iteration_dps.size() >= ( size_t ) iterations );
+  assert( p -> iteration_dps.size() >= ( std::size_t ) iterations );
 
   p -> dps_min = +1.0E+50;
   p -> dps_max = -1.0E+50;
@@ -1603,8 +1608,10 @@ void sim_t::analyze()
     {
       chart_t::action_dpet        ( pet -> action_dpet_chart,               pet );
       chart_t::action_dmg         ( pet -> action_dmg_chart,                pet );
-      chart_t::timeline_resource  ( pet -> timeline_resource_chart,         pet );
-      chart_t::timeline_health    ( pet -> timeline_resource_health_chart,  pet );
+      for ( int i = RESOURCE_NONE; i < RESOURCE_MAX; i++ )
+      {
+      chart_t::timeline_resource  ( pet -> timeline_resource_chart[i],         pet, i );
+      }
       chart_t::timeline_dps       ( pet -> timeline_dps_chart,              pet );
       chart_t::timeline_dps_error ( pet -> timeline_dps_error_chart,        pet );
       chart_t::dps_error          ( pet -> dps_error_chart,                 pet );
@@ -1614,8 +1621,10 @@ void sim_t::analyze()
 
     chart_t::action_dpet        ( p -> action_dpet_chart,               p );
     chart_t::action_dmg         ( p -> action_dmg_chart,                p );
-    chart_t::timeline_resource  ( p -> timeline_resource_chart,         p );
-    chart_t::timeline_health    ( p -> timeline_resource_health_chart,  p );
+    for ( int i = RESOURCE_NONE; i < RESOURCE_MAX; i++ )
+    {
+    chart_t::timeline_resource  ( p -> timeline_resource_chart[i],         p, i );
+    }
     chart_t::timeline_dps       ( p -> timeline_dps_chart,              p );
     chart_t::timeline_dps_error ( p -> timeline_dps_error_chart,        p );
     chart_t::dps_error          ( p -> dps_error_chart,                 p );
@@ -1689,21 +1698,17 @@ void sim_t::merge( sim_t& other_sim )
       p -> iteration_dps.push_back( other_p -> iteration_dps[ i ] );
     }
 
-    int num_buckets = ( int ) std::min(       p -> timeline_resource.size(),
-                                        other_p -> timeline_resource.size() );
-
-    for ( int i=0; i < num_buckets; i++ )
+    for ( int i = RESOURCE_NONE; i < RESOURCE_MAX; i++ )
     {
-      p -> timeline_resource[ i ] += other_p -> timeline_resource[ i ];
+      int num_buckets = ( int ) std::min(       p -> timeline_resource[i].size(),
+                                          other_p -> timeline_resource[i].size() );
+
+      for ( int j=0; j < num_buckets; j++ )
+      {
+        p -> timeline_resource[i][ j ] += other_p -> timeline_resource[i][ j ];
+      }
     }
 
-    num_buckets = ( int ) std::min(       p -> timeline_health.size(),
-                                    other_p -> timeline_health.size() );
-
-    for ( int i=0; i < num_buckets; i++ )
-    {
-      p -> timeline_health[ i ] += other_p -> timeline_health[ i ];
-    }
 
     for ( int i=0; i < RESOURCE_MAX; i++ )
     {
@@ -1760,7 +1765,7 @@ void sim_t::merge()
   for ( int i=0; i < num_children; i++ )
   {
     sim_t* child = children[ i ];
-    thread_t::wait( child );
+    child -> wait();
     merge( *child );
     delete child;
   }
@@ -1793,9 +1798,7 @@ void sim_t::partition()
   }
 
   for ( int i=0; i < num_children; i++ )
-  {
-    thread_t::launch( children[ i ] );
-  }
+    children[ i ] -> launch();
 }
 
 // sim_t::execute ===========================================================
@@ -1938,14 +1941,14 @@ void sim_t::use_optimal_buffs_and_debuffs( int value )
 
 // sim_t::aura_gain =========================================================
 
-void sim_t::aura_gain( const char* aura_name , int aura_id )
+void sim_t::aura_gain( const char* aura_name , int /* aura_id */ )
 {
   if( log ) log_t::output( this, "Raid gains %s", aura_name );
 }
 
 // sim_t::aura_loss =========================================================
 
-void sim_t::aura_loss( const char* aura_name , int aura_id )
+void sim_t::aura_loss( const char* aura_name , int /* aura_id */ )
 {
   if( log ) log_t::output( this, "Raid loses %s", aura_name );
 }
@@ -2124,6 +2127,7 @@ void sim_t::create_options()
     { "optimal_raid",                     OPT_FUNC,   ( void* ) ::parse_optimal_raid                },
     { "ptr",                              OPT_FUNC,   ( void* ) ::parse_ptr                         },
     { "threads",                          OPT_INT,    &( threads                                  ) },
+
     { "spell_query",                      OPT_FUNC,   ( void* ) ::parse_spell_query                 },
     { "item_db_source",                   OPT_FUNC,   ( void* ) ::parse_item_sources                },
     { "proxy",                            OPT_FUNC,   ( void* ) ::parse_proxy                       },
@@ -2183,7 +2187,7 @@ void sim_t::create_options()
     { "override.ebon_plaguebringer",      OPT_BOOL,   &( overrides.ebon_plaguebringer             ) },
     { "override.elemental_oath",          OPT_BOOL,   &( overrides.elemental_oath                 ) },
     { "override.essence_of_the_red",      OPT_BOOL,   &( overrides.essence_of_the_red             ) },
-    { "override.expode_armor",            OPT_BOOL,   &( overrides.expose_armor                   ) },
+    { "override.expose_armor",            OPT_BOOL,   &( overrides.expose_armor                   ) },
     { "override.faerie_fire",             OPT_BOOL,   &( overrides.faerie_fire                    ) },
     { "override.ferocious_inspiration",   OPT_BOOL,   &( overrides.ferocious_inspiration          ) },
     { "override.flametongue_totem",       OPT_BOOL,   &( overrides.flametongue_totem              ) },
@@ -2278,6 +2282,7 @@ void sim_t::create_options()
     { "rawr",                             OPT_FUNC,   ( void* ) ::parse_rawr                        },
     { "bcp",                              OPT_FUNC,   ( void* ) ::parse_bcp_api                     },
     { "http_clear_cache",                 OPT_FUNC,   ( void* ) ::http_t::clear_cache               },
+    { "cache",                            OPT_FUNC,   ( void* ) ::parse_cache                       },
     { "default_region",                   OPT_STRING, &( default_region_str                       ) },
     { "default_server",                   OPT_STRING, &( default_server_str                       ) },
     { "save_prefix",                      OPT_STRING, &( save_prefix_str                          ) },
@@ -2344,6 +2349,9 @@ bool sim_t::parse_options( int    _argc,
   argv = _argv;
 
   if ( argc <= 1 ) return false;
+
+  if ( ! parent )
+    cache::advance_era();
 
   for ( int i=1; i < argc; i++ )
   {
@@ -2532,34 +2540,25 @@ int sim_t::main( int argc, char** argv )
 
 int sim_t::errorf( const char* format, ... )
 {
-  char buffer_printf[ 1024 ];
+  char *p_locale = strdup( setlocale( LC_CTYPE, NULL ) );
+  setlocale( LC_CTYPE, "" );
 
   va_list fmtargs;
   va_start( fmtargs, format );
-  int retcode = vsnprintf( buffer_printf, sizeof( buffer_printf ), format, fmtargs );
+
+  char buffer[ 1024 ];
+  int retcode = vsnprintf( buffer, sizeof( buffer ), format, fmtargs );
+
   va_end( fmtargs );
   assert( retcode >= 0 );
 
-  char buffer_locale[ 1024 ];
-  char *p_locale = setlocale( LC_CTYPE, NULL );
-  if ( p_locale != NULL )
-  {
-    strncpy( buffer_locale, p_locale, sizeof( buffer_locale ) - 1 );
-    buffer_locale[ sizeof( buffer_locale ) - 1 ] = '\0';
-  }
-  else
-  {
-    buffer_locale[ 0 ] = '\0';
-  }
-
-  setlocale( LC_CTYPE, "" );
-
-  fprintf( output_file, "%s", buffer_printf );
-  fprintf( output_file, "\n" );
-  error_list.push_back( buffer_printf );
+  fputs( buffer, output_file );
+  fputc( '\n', output_file );
 
   setlocale( LC_CTYPE, p_locale );
+  free( p_locale );
 
+  error_list.push_back( buffer );
   return retcode;
 }
 
@@ -2568,7 +2567,7 @@ int sim_t::errorf( const char* format, ... )
 // ==========================================================================
 
 #if 0
-void* operator new ( size_t size )
+void* operator new ( std::size_t size )
 {
   if ( iterating ) assert( 0 );
   return malloc( size );

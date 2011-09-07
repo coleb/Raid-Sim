@@ -37,7 +37,7 @@ static std::string encode_stats( const std::vector<std::string>& stats )
   return s.str();
 }
 
-static size_t encode_item_enchant_stats( const item_enchantment_data_t& enchantment, std::vector<std::string>& stats )
+static std::size_t encode_item_enchant_stats( const item_enchantment_data_t& enchantment, std::vector<std::string>& stats )
 {
   assert( enchantment.id );
 
@@ -53,7 +53,7 @@ static size_t encode_item_enchant_stats( const item_enchantment_data_t& enchantm
   return stats.size();
 }
 
-static size_t encode_item_stats( const item_data_t* item, std::vector<std::string>& stats )
+static std::size_t encode_item_stats( const item_data_t* item, std::vector<std::string>& stats )
 {
   assert( item );
 
@@ -76,7 +76,7 @@ static bool parse_item_quality( item_t& item, const item_data_t* item_data )
   item.armory_quality_str.clear();
 
   if ( item_data -> quality == 5 )
-    item.armory_quality_str = "artifact";
+    item.armory_quality_str = "legendary";
   else if ( item_data -> quality == 4 )
     item.armory_quality_str = "epic";
   else if ( item_data -> quality == 3 )
@@ -203,7 +203,7 @@ static bool parse_gems( item_t&            item,
 
   for ( unsigned i = 0; i < 3; i++ )
   {
-    if ( gem_ids[ i ].empty() || gem_ids[ i ] == "" )
+    if ( gem_ids[ i ].empty() )
     {
       /// Check if there's a gem slot, if so, this is ungemmed item.
       if ( item_data -> socket_color[ i ] )
@@ -243,7 +243,6 @@ static bool parse_gems( item_t&            item,
 }
 
 static bool parse_enchant( item_t&            item,
-                           const item_data_t* item_data,
                            const std::string& enchant_id )
 {
   if ( enchant_id.empty() || enchant_id == "none" || enchant_id == "0" ) return true;
@@ -255,7 +254,7 @@ static bool parse_enchant( item_t&            item,
   const item_enchantment_data_t& item_enchant = item.player -> dbc.item_enchantment( eid );
   if ( ! item_enchant.id )
   {
-    item.player -> sim -> errorf( "Unable to find enchant id %u from item enchantment database", eid );
+    item.player -> sim -> errorf( "Unable to find enchant id %lu from item enchantment database", eid );
     return true;
   }
 
@@ -323,6 +322,62 @@ bool item_database_t::initialize_item_sources( const item_t& item, std::vector<s
 }
 
 // item_database_t::random_suffix_type ===========================================
+
+int item_database_t::random_suffix_type( const item_data_t* item )
+{
+  switch ( item -> item_class )
+  {
+    case ITEM_CLASS_WEAPON:
+      switch ( item -> item_subclass )
+      {
+        case ITEM_SUBCLASS_WEAPON_AXE2:
+        case ITEM_SUBCLASS_WEAPON_MACE2:
+        case ITEM_SUBCLASS_WEAPON_POLEARM:
+        case ITEM_SUBCLASS_WEAPON_SWORD2:
+        case ITEM_SUBCLASS_WEAPON_STAFF:
+          return 0;
+
+        case ITEM_SUBCLASS_WEAPON_BOW:
+        case ITEM_SUBCLASS_WEAPON_GUN:
+        case ITEM_SUBCLASS_WEAPON_THROWN:
+        case ITEM_SUBCLASS_WEAPON_CROSSBOW:
+        case ITEM_SUBCLASS_WEAPON_WAND:
+          return 4;
+        default:
+          return 3;
+      }
+    case ITEM_CLASS_ARMOR:
+      switch ( item -> inventory_type )
+      {
+        case INVTYPE_HEAD:
+        case INVTYPE_CHEST:
+        case INVTYPE_LEGS:
+        case INVTYPE_ROBE:
+          return 0;
+        
+        case INVTYPE_SHOULDERS:
+        case INVTYPE_WAIST:
+        case INVTYPE_FEET:
+        case INVTYPE_HANDS:
+        case INVTYPE_TRINKET:
+          return 1;
+        
+        case INVTYPE_NECK:
+        case INVTYPE_WEAPONOFFHAND:
+        case INVTYPE_HOLDABLE:
+        case INVTYPE_FINGER:
+        case INVTYPE_CLOAK:
+          return 2;
+        
+        default:
+          return -1;
+      }
+    default:
+      return -1;
+  }
+  
+  return -1;
+}
 
 int item_database_t::random_suffix_type( const item_t& item )
 {
@@ -411,17 +466,17 @@ uint32_t item_database_t::armor_value( const item_data_t* item, const dbc_t& dbc
 {
   if ( ! item || item -> quality > 5 )
     return 0;
-  
+
   // Shield have separate armor table, bypass normal calculation
   if ( item -> item_class == ITEM_CLASS_ARMOR && item -> item_subclass == ITEM_SUBCLASS_ARMOR_SHIELD )
     return ( uint32_t ) floor( dbc.item_armor_shield( item -> level ).values[ item -> quality ] + 0.5 );
-  
+
   // Only Cloth, Leather, Mail and Plate armor has innate armor values
   if ( item -> item_subclass != ITEM_SUBCLASS_ARMOR_MISC && item -> item_subclass > ITEM_SUBCLASS_ARMOR_PLATE )
     return 0;
-  
+
   double m_invtype = 0, m_quality = 0, total_armor = 0;
-  
+
   switch ( item -> inventory_type )
   {
     case INVTYPE_HEAD:
@@ -445,7 +500,7 @@ uint32_t item_database_t::armor_value( const item_data_t* item, const dbc_t& dbc
     }
     default: return 0;
   }
-  
+
   return ( uint32_t ) floor( total_armor * m_quality * m_invtype + 0.5 );
 }
 
@@ -554,7 +609,7 @@ bool item_database_t::download_slot( item_t&            item,
   parse_weapon_type( item, item_data );
   parse_gems( item, item_data, gem_ids );
 
-  if ( ! parse_enchant( item, item_data, enchant_id ) )
+  if ( ! parse_enchant( item, enchant_id ) )
   {
     item.sim -> errorf( "Player %s unable to parse enchant id %s for item \"%s\" at slot %s.\n", p -> name(), enchant_id.c_str(), item.name(), item.slot_name() );
   }
@@ -665,7 +720,7 @@ int item_database_t::parse_gem( item_t& item, const std::string& gem_id )
   if ( gem_prop.color == 1 )
   {
     std::string gem_name = gem -> name;
-    size_t cut_pt = gem_name.rfind( " Diamond" );
+    std::size_t cut_pt = gem_name.rfind( " Diamond" );
     if ( cut_pt != gem_name.npos )
     {
       gem_name = gem_name.substr( 0, cut_pt );

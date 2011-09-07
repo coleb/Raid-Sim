@@ -41,7 +41,7 @@ struct stat_proc_callback_t : public action_callback_t
     buff -> expire();
   }
 
-  virtual void trigger( action_t* a, void* call_data )
+  virtual void trigger( action_t* a, void* /* call_data */ )
   {
     if ( buff -> trigger( a ) )
     {
@@ -108,12 +108,11 @@ struct cost_reduction_proc_callback_t : public action_callback_t
     buff -> expire();
   }
 
-  virtual void trigger( action_t* a, void* call_data )
+  virtual void trigger( action_t* a, void* /* call_data */ )
   {
     buff -> trigger( a );
   }
 };
-
 
 // discharge_proc_callback ==================================================
 
@@ -196,7 +195,7 @@ struct discharge_proc_callback_t : public action_callback_t
 
   virtual void deactivate() { action_callback_t::deactivate(); stacks=0; }
 
-  virtual void trigger( action_t* a, void* call_data )
+  virtual void trigger( action_t* a, void* /* call_data */ )
   {
     if ( cooldown -> remains() > 0 )
       return;
@@ -318,7 +317,7 @@ struct chance_discharge_proc_callback_t : public action_callback_t
 
   virtual void deactivate() { action_callback_t::deactivate(); stacks=0; }
 
-  virtual void trigger( action_t* a, void* call_data )
+  virtual void trigger( action_t* a, void* /* call_data */ )
   {
     /* Always adds a stack if not on cooldown. The proc chance is the chance to discharge */
     if ( cooldown -> remains() > 0 )
@@ -438,7 +437,7 @@ struct stat_discharge_proc_callback_t : public action_callback_t
     buff -> expire();
   }
 
-  virtual void trigger( action_t* a, void* call_data )
+  virtual void trigger( action_t* a, void* /* call_data */ )
   {
     if ( buff -> trigger( a ) )
     {
@@ -482,7 +481,7 @@ static void register_apparatus_of_khazgoroth( item_t* item )
       proc_apparatus_of_khazgoroth_mastery = p -> get_proc( "apparatus_of_khazgoroth_mastery" );
     }
 
-    virtual void trigger( action_t* a, void* call_data )
+    virtual void trigger( action_t* a, void* /* call_data */ )
     {
       if( ! a -> weapon ) return;
       if( a -> proc ) return;
@@ -560,7 +559,7 @@ static void register_black_bruise( item_t* item )
   {
     buff_t* buff;
     black_bruise_trigger_t( player_t* p, buff_t* b ) : action_callback_t( p -> sim, p ), buff( b ) {}
-    virtual void trigger( action_t* a, void* call_data )
+    virtual void trigger( action_t* a, void* /* call_data */ )
     {
       // FIXME! Can specials trigger the proc?
       // FIXME! Apparently both hands proc the buff even though only equipped in main hand
@@ -576,7 +575,7 @@ static void register_black_bruise( item_t* item )
     buff_t* buff;
     spell_t* spell;
     black_bruise_damage_t( player_t* p, buff_t* b, spell_t* s ) : action_callback_t( p -> sim, p ), buff( b ), spell( s ) {}
-    virtual void trigger( action_t* a, void* call_data )
+    virtual void trigger( action_t* a, void* /* call_data */ )
     {
       // FIXME! Can specials trigger the damage?
       // FIXME! What about melee attacks that do no weapon damage?
@@ -748,7 +747,7 @@ static void register_empowered_deathbringer( item_t* item )
       rng  = p -> get_rng ( "empowered_deathbringer", RNG_DEFAULT );
     }
 
-    virtual void trigger( action_t* a, void* call_data )
+    virtual void trigger( action_t* /* a */, void* /* call_data */ )
     {
       if ( rng -> roll( 0.08 ) ) // FIXME!! Using 8% of -hits-
       {
@@ -800,7 +799,7 @@ static void register_raging_deathbringer( item_t* item )
       rng  = p -> get_rng ( "raging_deathbringer", RNG_DEFAULT );
     }
 
-    virtual void trigger( action_t* a, void* call_data )
+    virtual void trigger( action_t* /* a */, void* /* call_data */ )
     {
       if ( rng -> roll( 0.08 ) ) // FIXME!! Using 8% of -hits-
       {
@@ -833,7 +832,7 @@ static void register_fury_of_angerforge( item_t* item )
       blackwing_dragonkin = new stat_buff_t( p, "blackwing_dragonkin", STAT_STRENGTH, 1926, 1, 20.0, 120.0 );
     }
 
-    virtual void trigger( action_t* a, void* call_data )
+    virtual void trigger( action_t* a, void* /* call_data */ )
     {
       if( ! a -> weapon ) return;
       if( a -> proc ) return;
@@ -874,7 +873,7 @@ static void register_heart_of_ignacious( item_t* item )
       haste_buff = new stat_buff_t( p, "hearts_judgement", STAT_HASTE_RATING, heroic ? 363 : 321, 5, 20.0, 120.0 );
     }
 
-    virtual void trigger( action_t* a, void* call_data )
+    virtual void trigger( action_t* /* a */, void* /* call_data */ )
     {
       buff -> trigger();
       if( buff -> stack() == buff -> max_stack )
@@ -1008,7 +1007,7 @@ static void register_nibelung( item_t* item )
       rng  = p -> get_rng ( "nibelung" );
     }
 
-    virtual void trigger( action_t* a, void* call_data )
+    virtual void trigger( action_t* a, void* /* call_data */ )
     {
       if (   a -> aoe      ||
              a -> proc     ||
@@ -1068,7 +1067,7 @@ static void register_shadowmourne( item_t* item )
     shadowmourne_trigger_t( player_t* p, buff_t* b1, buff_t* b2, spell_t* sp, int s ) :
       action_callback_t( p -> sim, p ), buff_stacks( b1 ), buff_final( b2 ), spell( sp ), slot( s ) {}
 
-    virtual void trigger( action_t* a, void* call_data )
+    virtual void trigger( action_t* a, void* /* call_data */ )
     {
       // FIXME! Can specials trigger the proc?
       if ( ! a -> weapon ) return;
@@ -1174,7 +1173,7 @@ static void register_tiny_abom( item_t* item )
     {
       first_stack_attack = NULL;
     }
-    virtual void trigger( action_t* a, void* call_data )
+    virtual void trigger( action_t* a, void* /* call_data */ )
     {
       if ( manifesting_anger ) return;
       if ( ! a -> weapon ) return;
@@ -1339,9 +1338,9 @@ static void register_dragonwrath_tarecgosas_rest( item_t* item )
     }
   };
 
-  double chance = 0.01;
+  double chance = 0.10;
 
-  if ( p -> sim-> dtr_proc_chance >= 0.0 )
+  if ( p -> sim -> dtr_proc_chance >= 0.0 )
   {
     chance = p -> sim-> dtr_proc_chance;
   }
@@ -1431,7 +1430,7 @@ static void register_blazing_power( item_t* item )
         cd -> duration = 45.0;
       }
 
-      virtual void trigger( action_t* a, void* call_data )
+      virtual void trigger( action_t* a, void* /* call_data */ )
       {
         if (   a -> aoe      ||
                a -> proc     ||
@@ -1463,7 +1462,6 @@ static void register_valanyr( item_t* item )
 
     item -> unique = true;
 
-
     struct valanyr_callback_t : public action_callback_t
     {
       proc_t* proc;
@@ -1479,7 +1477,7 @@ static void register_valanyr( item_t* item )
         cd -> duration = 45.0;
       }
 
-      virtual void trigger( action_t* a, void* call_data )
+      virtual void trigger( action_t* a, void* /* call_data */ )
       {
         if (   a -> aoe      ||
                a -> proc     ||
@@ -1558,9 +1556,7 @@ void unique_gear_t::init( player_t* p )
     if ( ! strcmp( item.name(), "tyrandes_favorite_doll"              ) ) register_tyrandes_favorite_doll            ( &item );
     if ( ! strcmp( item.name(), "dragonwrath_tarecgosas_rest"         ) ) register_dragonwrath_tarecgosas_rest       ( &item );
     if ( ! strcmp( item.name(), "eye_of_blazing_power"                ) ) register_blazing_power                     ( &item );
-    if ( ! strcmp( item.name(), "valanyr_hammer_of_ancient_kings"     ) ) register_valanyr                     ( &item );
-
-
+    if ( ! strcmp( item.name(), "valanyr_hammer_of_ancient_kings"     ) ) register_valanyr                           ( &item );
   }
 }
 
@@ -1971,8 +1967,8 @@ action_callback_t* unique_gear_t::register_stat_discharge_proc( item_t& i,
 bool unique_gear_t::get_equip_encoding( std::string&       encoding,
                                         const std::string& name,
                                         const bool         heroic,
-                                        const bool         ptr,
-                                        const std::string& id )
+                                        const bool         /* ptr */,
+                                        const std::string& /* id */ )
 {
   std::string e;
 
@@ -2045,7 +2041,7 @@ bool unique_gear_t::get_equip_encoding( std::string&       encoding,
   else if ( name == "talisman_of_sinister_order"          ) e = "OnSpellCast_918Mastery_10%_20Dur_95Cd"; // TO-DO: Confirm ICD.
   else if ( name == "tendrils_of_burrowing_dark"          ) e = ( heroic ? "OnSpellCast_1710SP_10%_15Dur_75Cd" : "OnSpellCast_1290SP_10%_15Dur_75Cd" ); // TO-DO: Confirm ICD
   else if ( name == "the_hungerer"                        ) e = ( heroic ? "OnAttackHit_1730Haste_100%_15Dur_60Cd" : "OnAttackHit_1532Haste_100%_15Dur_60Cd" );
-  else if ( name == "theralions_mirror"                   ) e = ( heroic ? "OnSpellCast_2178Mastery_10%_20Dur_100Cd" : "OnSpellCast_1926Mastery_10%_20Dur_100Cd" ); // TO-DO: Confirm ICD
+  else if ( name == "theralions_mirror"                   ) e = ( heroic ? "OnHarmfulSpellCast_2178Mastery_10%_20Dur_100Cd" : "OnHarmfulSpellCast_1926Mastery_10%_20Dur_100Cd" );
   else if ( name == "tias_grace"                          ) e = ( heroic ? "OnAttackHit_34Agi_10Stack_15Dur" : "OnAttackHit_34Agi_10Stack_15Dur" );
   else if ( name == "unheeded_warning"                    ) e = "OnAttackHit_1926AP_10%_10Dur_50Cd";
   else if ( name == "vessel_of_acceleration"              ) e = ( heroic ? "OnAttackCrit_93Crit_5Stack_20Dur" : "OnAttackCrit_82Crit_5Stack_20Dur" );
@@ -2114,8 +2110,8 @@ bool unique_gear_t::get_equip_encoding( std::string&       encoding,
 bool unique_gear_t::get_use_encoding( std::string&       encoding,
                                       const std::string& name,
                                       const bool         heroic,
-                                      const bool         ptr,
-                                      const std::string& id )
+                                      const bool         /* ptr */,
+                                      const std::string& /* id */ )
 {
   std::string e;
 

@@ -42,6 +42,7 @@ struct mage_t : public player_t
   buff_t* buffs_mage_armor;
   buff_t* buffs_missile_barrage;
   buff_t* buffs_molten_armor;
+  buff_t* buffs_presence_of_mind;
 
   // Cooldowns
   cooldown_t* cooldowns_deep_freeze;
@@ -277,6 +278,7 @@ struct mage_t : public player_t
   virtual void      init_spells();
   virtual void      init_base();
   virtual void      init_scaling();
+  virtual void      init_values();
   virtual void      init_buffs();
   virtual void      init_gains();
   virtual void      init_procs();
@@ -365,6 +367,7 @@ struct mage_spell_t : public spell_t
   virtual double cost() SC_CONST;
   virtual double haste() SC_CONST;
   virtual void   execute();
+  virtual double execute_time() SC_CONST;
   virtual void   travel( player_t* t, int travel_result, double travel_dmg );
   virtual void   consume_resource();
   virtual void   player_buff();
@@ -1140,6 +1143,8 @@ void mage_spell_t::execute()
   if ( consumes_arcane_blast ) p -> buffs_arcane_blast -> expire();
 
   p -> buffs_arcane_potency -> decrement();
+  if ( ! channeled && spell_t::execute_time() > 0 )
+    p -> buffs_presence_of_mind -> expire();
 
   if ( fof_frozen )
   {
@@ -1157,7 +1162,8 @@ void mage_spell_t::execute()
     {
       p -> cooldowns_fire_blast -> reset();
     }
-    if ( p -> buffs_clearcasting -> trigger() && p -> talents.arcane_potency -> rank() )
+
+    if ( p -> buffs_clearcasting -> trigger() )
     {
       p -> buffs_arcane_potency -> trigger( 2 );
     }
@@ -1170,6 +1176,20 @@ void mage_spell_t::execute()
   {
     p -> buffs_arcane_missiles -> trigger();
   }
+}
+
+// mage_spell_t::execute_time ===============================================
+
+double mage_spell_t::execute_time() SC_CONST
+{
+  mage_t* p = player -> cast_mage();
+
+  double t = spell_t::execute_time();
+
+  if ( ! channeled && t > 0 && p -> buffs_presence_of_mind -> up() )
+    return 0;
+
+  return t;
 }
 
 // mage_spell_t::travel =====================================================
@@ -1328,6 +1348,8 @@ struct arcane_blast_t : public mage_spell_t
     parse_options( NULL, options_str );
 
     if ( p -> set_bonus.tier11_4pc_caster() ) base_execute_time *= 0.9;
+    if ( p -> set_bonus.pvp_4pc_caster() )
+      base_multiplier *= 1.05;
   }
 
   virtual double cost() SC_CONST
@@ -1420,8 +1442,11 @@ struct arcane_brilliance_t : public mage_spell_t
   arcane_brilliance_t( mage_t* p, const std::string& options_str ) :
       mage_spell_t( "arcane_brilliance", 1459, p ), bonus( 0 )
   {
+    parse_options( NULL, options_str );
+
     bonus      = p -> dbc.effect_average( p -> dbc.spell( 79058 ) -> effect1().id(), p -> level );
     base_cost *= 1.0 + p -> glyphs.arcane_brilliance -> effect1().percent();
+    harmful = false;
   }
 
   virtual void execute()
@@ -1439,7 +1464,7 @@ struct arcane_brilliance_t : public mage_spell_t
 
   virtual bool ready()
   {
-    return( player -> buffs.arcane_brilliance -> current_value < bonus );
+    return ( player -> buffs.arcane_brilliance -> current_value < bonus ) && mage_spell_t::ready();
   }
 };
 
@@ -1526,7 +1551,7 @@ struct arcane_missiles_t : public mage_spell_t
   virtual bool ready()
   {
     mage_t* p = player -> cast_mage();
-    if ( ! p -> buffs_arcane_missiles -> may_react() )
+    if ( ! p -> buffs_arcane_missiles -> up() )
       return false;
     return mage_spell_t::ready();
   }
@@ -1551,6 +1576,17 @@ struct arcane_power_t : public mage_spell_t
     mage_spell_t::execute();
     p -> buffs_arcane_power -> trigger( 1, effect1().percent() );
   }
+
+  virtual bool ready()
+  {
+    mage_t* p = player -> cast_mage();
+
+    // Can't trigger AP if PoM is up
+    if ( p -> buffs_presence_of_mind -> check() )
+      return false;
+
+    return mage_spell_t::ready();
+  }
 };
 
 // Blast Wave Spell =========================================================
@@ -1572,6 +1608,7 @@ struct blink_t : public mage_spell_t
   blink_t( mage_t* p, const std::string& options_str ) :
       mage_spell_t( "blink", 1953, p )
   {
+    parse_options( NULL, options_str );
     harmful = false;
   }
 
@@ -1750,7 +1787,7 @@ struct deep_freeze_t : public mage_spell_t
   virtual bool ready()
   {
     mage_t* p = player -> cast_mage();
-    if ( ! p -> buffs_fingers_of_frost -> may_react() )
+    if ( ! p -> buffs_fingers_of_frost -> up() )
       return false;
     return mage_spell_t::ready();
   }
@@ -1829,7 +1866,9 @@ struct fireball_t : public mage_spell_t
     parse_options( NULL, options_str );
     base_crit += p -> glyphs.fireball -> effect1().percent();
     may_hot_streak = true;
-    if( p -> set_bonus.tier11_4pc_caster() ) base_execute_time *= 0.9;
+    if ( p -> set_bonus.tier11_4pc_caster() ) base_execute_time *= 0.9;
+    if ( p -> set_bonus.pvp_4pc_caster() )
+      base_multiplier *= 1.05;
   }
 
   virtual double cost() SC_CONST
@@ -1975,7 +2014,7 @@ struct focus_magic_t : public mage_spell_t
     {
       focus_magic_feedback_callback_t( player_t* p ) : action_callback_t( p -> sim, p, true ) {}
 
-      virtual void trigger( action_t* a, void* call_data )
+      virtual void trigger( action_t* /* a */, void* /* call_data */ )
       {
         listener -> cast_mage() -> buffs_focus_magic_feedback -> trigger();
       }
@@ -2066,6 +2105,8 @@ struct frostbolt_t : public mage_spell_t
     may_brain_freeze = true;
     if( p -> set_bonus.tier11_4pc_caster() ) base_execute_time *= 0.9;
     base_multiplier *= 1.0 + p -> specializations.frost3;
+    if ( p -> set_bonus.pvp_4pc_caster() )
+      base_multiplier *= 1.05;
   }
 
   virtual void schedule_execute()
@@ -2148,7 +2189,9 @@ struct frostfire_bolt_t : public mage_spell_t
       base_tick_time = 3.0;
       dot_behavior = DOT_REFRESH;
     }
-    if( p -> set_bonus.tier11_4pc_caster() ) base_execute_time *= 0.9;
+    if ( p -> set_bonus.tier11_4pc_caster() ) base_execute_time *= 0.9;
+    if ( p -> set_bonus.pvp_4pc_caster() ) 
+      base_multiplier *= 1.05;
   }
 
   virtual void reset()
@@ -2204,6 +2247,14 @@ struct frostfire_bolt_t : public mage_spell_t
   }
 
   virtual double total_td_multiplier() SC_CONST { return 1.0; } // No double-dipping!
+
+  virtual void tick()
+  {
+    // Ticks don't benefit from Shatter, which checks for fof_frozen
+    // So disable it for the ticks, assuming it was set to true in execute
+    fof_frozen = false;
+    mage_spell_t::tick();
+  }
 };
 
 // Frostfire Orb Spell ==========================================================
@@ -2574,49 +2625,23 @@ struct molten_armor_t : public mage_spell_t
 
 struct presence_of_mind_t : public mage_spell_t
 {
-  action_t* fast_action;
-
   presence_of_mind_t( mage_t* p, const std::string& options_str ) :
       mage_spell_t( "presence_of_mind", 12043, p )
   {
     check_talent( p -> talents.presence_of_mind -> rank() );
 
+    parse_options( NULL, options_str );
     harmful = false;
 
     cooldown -> duration *= 1.0 + p -> talents.arcane_flows -> effect1().percent();
-
-    if ( options_str.empty() )
-    {
-      sim -> errorf( "Player %s: The presence_of_mind action must be coupled with a second action.", p -> name() );
-      sim -> cancel();
-    }
-
-    std::string spell_name    = options_str;
-    std::string spell_options = "";
-
-    std::string::size_type cut_pt = spell_name.find_first_of( "," );
-
-    if ( cut_pt != spell_name.npos )
-    {
-      spell_options = spell_name.substr( cut_pt + 1 );
-      spell_name    = spell_name.substr( 0, cut_pt );
-    }
-
-    fast_action = p -> create_action( spell_name.c_str(), spell_options.c_str() );
-    fast_action -> base_execute_time = 0;
-    fast_action -> background = true;
   }
 
   virtual void execute()
   {
     mage_spell_t::execute();
     mage_t* p = player -> cast_mage();
-    p -> aura_gain( "Presence of Mind" );
-    p -> last_foreground_action = fast_action;
+    p -> buffs_presence_of_mind -> trigger();
     p -> buffs_arcane_potency -> trigger( 2 );
-    fast_action -> execute();
-    p -> aura_loss( "Presence of Mind" );
-    update_ready();
   }
 
   virtual bool ready()
@@ -2627,7 +2652,7 @@ struct presence_of_mind_t : public mage_spell_t
     if ( p -> buffs_arcane_power -> check() )
       return false;
 
-    return( mage_spell_t::ready() && fast_action -> ready() );
+    return mage_spell_t::ready();
   }
 };
 
@@ -2727,6 +2752,8 @@ struct scorch_t : public mage_spell_t
     if ( debuff )
       check_talent( p -> talents.critical_mass -> rank() );
 
+    if ( p -> set_bonus.pvp_4pc_caster() )
+      base_multiplier *= 1.05;
   }
 
   virtual bool usable_moving()
@@ -3020,7 +3047,7 @@ action_t* mage_t::create_action( const std::string& name,
 // mage_t::create_pet =======================================================
 
 pet_t* mage_t::create_pet( const std::string& pet_name,
-                           const std::string& pet_type )
+                           const std::string& /* pet_type */ )
 {
   pet_t* p = find_pet( pet_name );
 
@@ -3196,6 +3223,8 @@ void mage_t::init_base()
   diminished_kfactor    = 0.009830;
   diminished_dodge_capi = 0.006650;
   diminished_parry_capi = 0.006650;
+
+
 }
 
 // mage_t::init_scaling ========================================================
@@ -3204,6 +3233,19 @@ void mage_t::init_scaling()
 {
   player_t::init_scaling();
   scales_with[ STAT_SPIRIT ] = 0;
+}
+
+// mage_t::init_values ========================================================
+
+void mage_t::init_values()
+{
+  player_t::init_values();
+
+  if ( set_bonus.pvp_2pc_caster() )
+      attribute_initial[ ATTR_INTELLECT ] += 70;
+
+  if ( set_bonus.pvp_4pc_caster() )
+      attribute_initial[ ATTR_INTELLECT ] += 90;
 }
 
 // mage_t::init_buffs =======================================================
@@ -3228,9 +3270,10 @@ void mage_t::init_buffs()
   buffs_mage_armor           = new mage_armor_buff_t( this );
   buffs_molten_armor         = new buff_t( this, spells.molten_armor,          NULL );
 
-  buffs_arcane_potency       = new buff_t( this, "arcane_potency",       2 );
+  buffs_arcane_potency       = new buff_t( this, "arcane_potency",       2,    0, 0, talents.arcane_potency ->rank() );
   buffs_focus_magic_feedback = new buff_t( this, "focus_magic_feedback", 1, 10.0 );
   buffs_hot_streak_crits     = new buff_t( this, "hot_streak_crits",     2,    0, 0, 1.0, true );
+  buffs_presence_of_mind     = new buff_t( this, "presence_of_mind",     1 );
 }
 
 // mage_t::init_gains =======================================================
@@ -3300,7 +3343,6 @@ void mage_t::init_rng()
 
 // mage_t::init_actions =====================================================
 
-
 void mage_t::init_actions()
 {
   if ( action_list_str.empty() )
@@ -3319,9 +3361,9 @@ void mage_t::init_actions()
 
     // Flask
     if ( level >= 80 )
-      action_list_str += "/flask,type=draconic_mind";
+      action_list_str = "flask,type=draconic_mind";
     else if ( level >= 75 )
-      action_list_str += "/flask,type=frost_wyrm";
+      action_list_str = "flask,type=frost_wyrm";
 
     // Food
     if ( level >= 80 ) action_list_str += "/food,type=seafood_magnifique_feast";
@@ -3330,7 +3372,7 @@ void mage_t::init_actions()
     // Focus Magic
     if ( talents.focus_magic -> rank() ) action_list_str += "/focus_magic";
     // Arcane Brilliance
-    action_list_str += "/arcane_brilliance";
+    if ( level >= 58 ) action_list_str += "/arcane_brilliance";
 
     // Armor
     if ( primary_tree() == TREE_ARCANE )
@@ -3355,7 +3397,7 @@ void mage_t::init_actions()
     // Counterspell
     action_list_str += "/counterspell";
     // Refresh Gem during invuln phases
-    action_list_str += "/conjure_mana_gem,invulnerable=1,if=mana_gem_charges<3";
+    if ( level >= 48 ) action_list_str += "/conjure_mana_gem,invulnerable=1,if=mana_gem_charges<3";
     // Usable Items
     int num_items = ( int ) items.size();
     for ( int i=0; i < num_items; i++ )
@@ -3369,9 +3411,7 @@ void mage_t::init_actions()
           action_list_str += ",if=buff.improved_mana_gem.up|cooldown.evocation.remains>90|target.time_to_die<=50";
       }
     }
-    // Lifeblood
-    if ( profession[ PROF_HERBALISM ] >= 450 )
-      action_list_str += "/lifeblood";
+    init_use_profession_actions();
     //Potions
     if ( level > 80 )
     {
@@ -3442,7 +3482,7 @@ void mage_t::init_actions()
 
       if ( talents.presence_of_mind -> rank() )
       {
-        action_list_str += "/presence_of_mind,arcane_blast";
+        action_list_str += "/presence_of_mind";
       }
 
       if ( has_shard )
@@ -3455,7 +3495,7 @@ void mage_t::init_actions()
         action_list_str += "/arcane_blast,if=target.time_to_die<35|cooldown.evocation.remains<=35";
         action_list_str += "/sequence,name=conserve:arcane_blast:arcane_blast:arcane_blast";
       }
-      action_list_str += "/arcane_missiles";
+      action_list_str += "/arcane_missiles,if=buff.arcane_missiles.react";
       action_list_str += "/arcane_barrage,if=buff.arcane_blast.stack>0"; // when AM hasn't procced
       action_list_str += "/arcane_barrage,moving=1"; // when moving
       action_list_str += "/fire_blast,moving=1"; // when moving
@@ -3496,29 +3536,24 @@ void mage_t::init_actions()
       {
         action_list_str += "/frostfire_orb,if=target.time_to_die>=12&!ticking";
       }
-      action_list_str += "/mirror_image,if=target.time_to_die>=25";
+      if ( level >= 50) action_list_str += "/mirror_image,if=target.time_to_die>=25";
       if ( race == RACE_TROLL )
       {
         action_list_str += "/berserking,if=buff.icy_veins.down&buff.bloodlust.down";
       }
       if ( talents.icy_veins -> rank() ) action_list_str += "/icy_veins,if=buff.icy_veins.down&buff.bloodlust.down";
-      if ( talents.deep_freeze -> rank() ) action_list_str += "/deep_freeze";
-      if ( talents.brain_freeze -> rank() )
+      if ( talents.deep_freeze -> rank() ) action_list_str += "/deep_freeze,if=buff.fingers_of_frost.react";
+      if ( talents.brain_freeze -> rank())
       {
-        action_list_str += "/frostfire_bolt,if=buff.brain_freeze.react";
+        if ( level >= 56)
+        {
+          action_list_str += "/frostfire_bolt,if=buff.brain_freeze.react";
+        }
+        else
+          action_list_str += "/fireball,if=buff.brain_freeze.react";
       }
       action_list_str += "/ice_lance,if=buff.fingers_of_frost.stack>1";
       action_list_str += "/ice_lance,if=buff.fingers_of_frost.react&pet.water_elemental.cooldown.freeze.remains<gcd";
-/*
-      if ( glyphs.frostbolt -> ok() )
-      {
-        if ( level >= 68 ) action_list_str += "/mage_armor,if=(mana_pct*12)<target.time_to_die";
-      }
-      else
-      {
-        if ( level >= 68 ) action_list_str += "/mage_armor,if=(mana_pct*15)<target.time_to_die";
-      }
-*/
       if ( glyphs.frostbolt -> ok() )
       {
         action_list_str += "/frostbolt";
@@ -3819,8 +3854,12 @@ int mage_t::decode_set( item_t& item )
 
   const char* s = item.name();
 
-  if ( strstr( s, "firelord"    ) ) return SET_T11_CASTER;
-  if ( strstr( s, "firehawk"    ) ) return SET_T12_CASTER;
+  if ( strstr( s, "firelord"            ) ) return SET_T11_CASTER;
+  if ( strstr( s, "firehawk"            ) ) return SET_T12_CASTER;
+
+  // PVP Season 9-10
+  if ( strstr( s, "vicious_gladiators"  ) ) return SET_PVP_CASTER;
+  if ( strstr( s, "ruthless_gladiators" ) ) return SET_PVP_CASTER;
 
   return SET_NONE;
 }
