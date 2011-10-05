@@ -3,7 +3,7 @@
 # Send questions to natehieter@gmail.com
 # ==========================================================================
 
-# To build on Unix/Mac: make 
+# To build on Unix/Mac: make
 # To build on Windows with MinGW: c:\mingw\bin\mingw32-make OS=WINDOWS
 
 # To build debuggable executable, add OPTS=-g to cmd-line invocation
@@ -12,7 +12,7 @@
 # Override OBJ_DIR if you want your object files built somewhere other than the local directory
 
 OS         = UNIX
-OPENSSL_PATH = 
+OPENSSL_PATH =
 
 CXX        = g++
 CPP_FLAGS  = -Wall -Woverloaded-virtual -W -Wswitch
@@ -26,7 +26,6 @@ endif
 
 # Any UNIX platform
 ifeq (UNIX,${OS})
-MODULE     = simc
 CPP_FLAGS += -D_stricmp=strcasecmp
 LINK_LIBS += -lpthread
 OPTS      += -ffast-math
@@ -46,8 +45,8 @@ endif
 
 # Windows platform with MinGW32
 ifeq (WINDOWS,${OS})
-MODULE     = simc.exe
-CPP_FLAGS += -malign-double
+MODULE_EXT = .exe
+CPP_FLAGS += -malign-double -DUNICODE
 LINK_LIBS  = -lws2_32 -lwininet
 COPY       = copy
 REMOVE     = del /f
@@ -58,6 +57,8 @@ ifeq (64,${BITS})
 LINK_FLAGS = -static
 endif
 endif
+
+MODULE     = simc$(MODULE_EXT)
 
 ifneq ($(OPENSSL_PATH),)
 CPP_FLAGS += -DUSE_OPENSSL -I$(OPENSSL_PATH)/include
@@ -81,6 +82,7 @@ SRC = \
 	sc_consumable.cpp \
 	sc_data.cpp \
 	sc_death_knight.cpp \
+	sc_dot.cpp \
 	sc_druid.cpp \
 	sc_enchant.cpp \
 	sc_expressions.cpp \
@@ -146,9 +148,18 @@ $(MODULE): $(SRC_OBJ)
 	-@echo [$(MODULE)] Linking $@
 	@$(CXX) $(OPTS) $(LINK_FLAGS) $^ $(LINK_LIBS) -o $@
 
+sc_http$(MODULE_EXT): sc_http.cpp sc_util.cpp
+	-@echo [$@] Linking
+	@$(CXX) $(CPPFLAGS) -DUNIT_TEST $(OPTS) $(LINK_FLAGS) $^ $(LINK_LIBS) -o $@
+
 $(OBJ_DIR)$(PATHSEP)%.$(OBJ_EXT): %.cpp $(SRC_H)
 	-@echo [$(MODULE)] Compiling $(notdir $<)
 	@$(CXX) $(CPP_FLAGS) $(OPTS) -c $< -o $@
+
+%.s: %.cpp $(SRC_H)
+	-@echo [$(MODULE)] Compiling $(notdir $<)
+	@$(CXX) $(CPP_FLAGS) $(OPTS) -S $< -o $@
+
 
 mostlyclean:
 	-@echo [$(MODULE)] Cleaning intermediate files
@@ -156,7 +167,7 @@ mostlyclean:
 
 clean: mostlyclean
 	-@echo [$(MODULE)] Cleaning target files
-	@$(REMOVE) $(MODULE)
+	@$(REMOVE) $(MODULE) sc_http$(MODULE_EXT)
 
 # Deprecated targets
 

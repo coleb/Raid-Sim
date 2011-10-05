@@ -88,7 +88,7 @@ attack_t::attack_t( const char* name, const uint32_t id, player_t* p, int t, boo
   init_attack_t_();
 }
 
-// attack_t::swing_haste =====================================================
+// attack_t::swing_haste ====================================================
 
 double attack_t::swing_haste() SC_CONST
 {
@@ -276,7 +276,7 @@ double attack_t::block_chance( int /* delta_level */ ) SC_CONST
   return 0;
 }
 
-// attack_t::crit_block_chance ===================================================
+// attack_t::crit_block_chance ==============================================
 
 double attack_t::crit_block_chance( int /* delta_level */ ) SC_CONST
 {
@@ -346,7 +346,7 @@ int attack_t::build_table( double* chances,
   if ( sim -> debug ) log_t::output( sim, "attack_t::build_table: %s miss=%.3f dodge=%.3f parry=%.3f glance=%.3f block=%.3f crit_block=%.3f crit=%.3f",
                                      name(), miss, dodge, parry, glance, block, crit_block, crit );
 
-  double limit = special ? 1.0 : 1.0;
+  double limit = 1.0;
   double total = 0;
   int num_results = 0;
 
@@ -493,7 +493,7 @@ void attack_t::calculate_result()
   if ( sim -> debug ) log_t::output( sim, "%s result for %s is %s", player -> name(), name(), util_t::result_type_string( result ) );
 }
 
-// attack_t::execute =======================================================
+// attack_t::execute ========================================================
 
 void attack_t::execute()
 {

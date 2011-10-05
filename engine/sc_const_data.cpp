@@ -35,19 +35,21 @@ static unsigned             idx_td_size[2]     = { 0, 0 };
 
 const char* dbc_t::build_level( bool ptr )
 {
+  ( void )ptr;
 #if SC_USE_PTR
-  return ptr ? "14492" : "14480";
+  return ptr ? "14545" : "14545";
 #else
-  return "14480";
+  return "14545";
 #endif
 }
 
 const char* dbc_t::wow_version( bool ptr )
 {
+  ( void )ptr;
 #if SC_USE_PTR
-  return ptr ? "4.2.2" : "4.2.0";
+  return ptr ? "4.2.2" : "4.2.2";
 #else
-  return "4.2.0";
+  return "4.2.2";
 #endif
 }
 
@@ -100,6 +102,8 @@ void dbc_t::de_init()
 
 int dbc_t::glyphs( std::vector<unsigned>& glyph_ids, int cid, bool ptr )
 {
+  ( void )ptr;
+
   for( int i=0; i < GLYPH_MAX; i++ )
   {
     for( int j=0; j < GLYPH_ABILITIES_SIZE; j++ )
@@ -113,6 +117,7 @@ int dbc_t::glyphs( std::vector<unsigned>& glyph_ids, int cid, bool ptr )
       glyph_ids.push_back( id );
     }
   }
+
   return glyph_ids.size();
 }
 
@@ -798,6 +803,8 @@ const spelleffect_data_t* dbc_t::effect( unsigned effect_id ) SC_CONST
 
 const item_data_t* dbc_t::item( unsigned item_id ) SC_CONST
 {
+  ( void )ptr;
+
 #if SC_USE_PTR
   assert( item_id <= ( ptr ? __ptr_item_data[ PTR_ITEM_SIZE - 1 ].id : __item_data[ ITEM_SIZE - 1 ].id ) );
   const item_data_t* item_data = ( ptr ? __ptr_item_data : __item_data );
@@ -817,6 +824,8 @@ const item_data_t* dbc_t::item( unsigned item_id ) SC_CONST
 
 const item_data_t* dbc_t::items( bool ptr )
 {
+  ( void )ptr;
+
 #if SC_USE_PTR
   return ptr ? &( __ptr_item_data[ 0 ] ) : &( __item_data[ 0 ] ) ;
 #else
@@ -827,6 +836,8 @@ const item_data_t* dbc_t::items( bool ptr )
 
 size_t dbc_t::n_items( bool ptr )
 {
+  ( void )ptr;
+
 #if SC_USE_PTR
   return ptr ? PTR_ITEM_SIZE : ITEM_SIZE;
 #else
@@ -849,6 +860,8 @@ const talent_data_t* dbc_t::talent( unsigned talent_id ) SC_CONST
 
 const gem_property_data_t& dbc_t::gem_property( unsigned gem_id ) SC_CONST
 {
+  ( void )ptr;
+
 #if SC_USE_PTR
   const gem_property_data_t* p = ptr ? __ptr_gem_property_data : __gem_property_data;
 #else
@@ -867,6 +880,8 @@ const gem_property_data_t& dbc_t::gem_property( unsigned gem_id ) SC_CONST
 
 spell_data_t* spell_data_t::list( bool ptr )
 {
+  ( void )ptr;
+
 #if SC_USE_PTR
   return ptr ? __ptr_spell_data : __spell_data;
 #else
@@ -876,6 +891,8 @@ spell_data_t* spell_data_t::list( bool ptr )
 
 spelleffect_data_t* spelleffect_data_t::list( bool ptr )
 {
+  ( void )ptr;
+
 #if SC_USE_PTR
   return ptr ? __ptr_spelleffect_data : __spelleffect_data;
 #else
@@ -885,6 +902,8 @@ spelleffect_data_t* spelleffect_data_t::list( bool ptr )
 
 talent_data_t* talent_data_t::list( bool ptr )
 {
+  ( void )ptr;
+
 #if SC_USE_PTR
   return ptr ? __ptr_talent_data : __talent_data;
 #else
@@ -907,7 +926,7 @@ talent_data_t* talent_data_t::nil()
   return &nil_td;
 }
 
-spell_data_t* spell_data_t::find( unsigned spell_id, const std::string& confirmation, bool ptr )
+spell_data_t* spell_data_t::find( unsigned spell_id, bool ptr )
 {
   if ( spell_id == 0 ) return spell_data_t::nil();
 
@@ -917,7 +936,6 @@ spell_data_t* spell_data_t::find( unsigned spell_id, const std::string& confirma
   {
     if( spell_data[ i ].id() == spell_id )
     {
-      if( ! confirmation.empty() ) assert( confirmation == spell_data[ i ].name_cstr() );
       return spell_data + i;
     }
   }
@@ -934,6 +952,14 @@ spelleffect_data_t* spelleffect_data_t::find( unsigned id, bool ptr )
       return spelleffect_data + i;
 
   return 0;
+}
+
+spell_data_t* spell_data_t::find( unsigned spell_id, const char* confirmation, bool ptr )
+{
+  if ( spell_id == 0 ) return spell_data_t::nil();
+  spell_data_t* sd = find( spell_id, ptr );
+  if ( sd ) assert( ! strcmp( confirmation, sd -> name_cstr() ) );
+  return sd;
 }
 
 talent_data_t* talent_data_t::find( unsigned id, const std::string& confirmation, bool ptr )

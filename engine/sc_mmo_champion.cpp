@@ -23,7 +23,7 @@ static xml_node_t* download_id( sim_t*             sim,
   if ( id_str.empty() || id_str == "0" ) return 0;
   std::string url = "http://db.mmo-champion.com/i/" + id_str + '/';
 
-  xml_node_t* node = xml_t::get( sim, url, "<h4>Item #", caching );
+  xml_node_t* node = xml_t::get( sim, url, caching, "<h4>Item #" );
 
   if ( sim -> debug ) xml_t::print( node );
   return node;
@@ -79,7 +79,7 @@ static int get_tti_nodes( std::vector<xml_node_t*>& nodes,
   return ( int ) nodes.size();
 }
 
-// get_tti_value ===========================================================
+// get_tti_value ============================================================
 
 static bool get_tti_value( std::string&       value,
                            xml_node_t*        root,
@@ -350,7 +350,7 @@ static bool parse_item_name( item_t&            item,
   return true;
 }
 
-// parse_item_heroic =========================================================
+// parse_item_heroic ========================================================
 
 static bool parse_item_heroic( item_t&     item,
                                xml_node_t* node )
@@ -369,7 +369,7 @@ static bool parse_item_heroic( item_t&     item,
   return true;
 }
 
-// parse_item_armor_type =========================================================
+// parse_item_armor_type ====================================================
 
 static bool parse_item_armor_type( item_t&     item,
                                    xml_node_t* node )
@@ -427,7 +427,7 @@ static bool parse_quality( item_t&     item,
 } // ANONYMOUS NAMESPACE ====================================================
 
 
-// mmo_champion_t::parse_gem ================================================================
+// mmo_champion_t::parse_gem ================================================
 
 int mmo_champion_t::parse_gem( item_t&            item,
                                const std::string& gem_id,

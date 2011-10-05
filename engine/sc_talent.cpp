@@ -12,14 +12,15 @@
 // talent_t::talent_t =======================================================
 
 talent_t::talent_t( player_t* player, talent_data_t* _td ) :
-  spell_id_t( player, _td->name_cstr() ), t_data( 0 ), t_rank( 0 ), t_overridden( false ),
+  spell_id_t( player, _td -> name_cstr() ), t_data( 0 ), t_rank( 0 ), t_overridden( false ),
+  t_default_rank( 0 ),
   // Future trimmed down access
   td( _td ), sd( spell_data_t::nil() ), trigger( 0 )
 {
-  t_default_rank = new spell_id_t();
-  const_cast< spell_id_t* >( t_default_rank ) -> s_enabled = false;
-  for ( int i = 0; i < MAX_RANK; i++ )
-    t_rank_spells[ i ] = t_default_rank;
+  spell_id_t* default_rank = new spell_id_t;
+  t_default_rank = default_rank;
+  default_rank -> s_enabled = false;
+  std::fill_n( t_rank_spells, sizeof_array( t_rank_spells ), default_rank );
 
   t_data = player -> dbc.talent( td -> id() );
   t_enabled = t_data -> is_enabled();
@@ -30,7 +31,7 @@ talent_t::~talent_t()
 {
   for ( int i = 0; i < MAX_RANK; i++ )
   {
-    if ( t_rank_spells[ i ] && t_rank_spells[ i ] != this && t_rank_spells[ i ] != t_default_rank )
+    if ( t_rank_spells[ i ] != this && t_rank_spells[ i ] != t_default_rank )
       delete t_rank_spells[ i ];
   }
 
@@ -175,7 +176,7 @@ uint32_t talent_t::rank() SC_CONST
 // Spell ID
 // ==========================================================================
 
-// spell_id_t::spell_id_t =======================================================
+// spell_id_t::spell_id_t ===================================================
 
 spell_id_t::spell_id_t( player_t* player, const char* t_name ) :
   s_type( T_SPELL ), s_id( 0 ), s_data( 0 ), s_enabled( false ), s_player( player ),
@@ -1046,11 +1047,11 @@ passive_spell_t::passive_spell_t( player_t* player, const char* t_name, const ch
 // Glyph basic object
 
 glyph_t::glyph_t( player_t* player, spell_data_t* _sd ) :
-  spell_id_t( player, _sd->name_cstr() ),
+  spell_id_t( player, _sd -> name_cstr() ),
   // Future trimmed down access
   sd( _sd ), sd_enabled( spell_data_t::nil() )
 {
-  initialize( sd->name_cstr() );
+  initialize( sd -> name_cstr() );
   if( s_token.substr( 0, 9 ) == "glyph_of_" ) s_token.erase( 0, 9 );
   if( s_token.substr( 0, 7 ) == "glyph__"   ) s_token.erase( 0, 7 );
   s_enabled = false;
@@ -1100,8 +1101,7 @@ std::string mastery_t::to_str() SC_CONST
 {
   std::ostringstream s;
 
-  s << spell_id_t::to_str();
-  s << " mastery_tree=" << m_tree;
+  s << spell_id_t::to_str() << " mastery_tree=" << m_tree;
 
   return s.str();
 }

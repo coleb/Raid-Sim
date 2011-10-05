@@ -12,6 +12,9 @@
 #  define VC_EXTRALEAN
 #  define _CRT_SECURE_NO_WARNINGS
 #  define DIRECTORY_DELIMITER "\\"
+#  ifndef UNICODE
+#    define UNICODE
+#  endif
 #  define SIGACTION 0
 #else
 #  define DIRECTORY_DELIMITER "/"
@@ -26,8 +29,6 @@
 
 #if defined( _MSC_VER )
 #  include "../vs/stdint.h"
-#  define snprintf _snprintf
-#  define strdup _strdup
 #else
 #  include <stdint.h>
 #endif
@@ -42,26 +43,27 @@
 #  define PRINTF_ATTRIBUTE(a,b)
 #endif
 
-#include <typeinfo>
-#include <cstdarg>
-#include <cfloat>
-#include <ctime>
-#include <string>
-#include <queue>
-#include <vector>
-#include <list>
-#include <map>
-#include <limits>
 #include <algorithm>
 #include <cassert>
 #include <cctype>
+#include <cfloat>
+#include <cmath>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <cmath>
-#include <sstream>
-#include <cctype>
+#include <ctime>
+#include <iterator>
+#include <limits>
+#include <list>
+#include <map>
 #include <memory>
+#include <numeric>
+#include <queue>
+#include <string>
+#include <vector>
+#include <sstream>
+#include <typeinfo>
 
 #include "data_enums.hh"
 
@@ -76,18 +78,36 @@
 #include <signal.h>
 #endif
 
+#if defined( NO_THREADS )
+#elif defined( __MINGW32__ ) || defined( _MSC_VER )
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else // POSIX
+#include <pthread.h>
+#include <unistd.h>
+#endif
+
 #include "data_definitions.hh"
 
-#define SC_MAJOR_VERSION "420"
-#define SC_MINOR_VERSION "7"
-#define SC_USE_PTR ( 1 )
+#define SC_MAJOR_VERSION "422"
+#define SC_MINOR_VERSION "1"
+#define SC_USE_PTR ( 0 )
 #define SC_BETA ( 0 )
+#define DTR_DD_ENABLED ( 0 )
 
-// Forward Declarations ======================================================
+#define SC_EPSILON ( 0.000001 )
+#ifndef M_PI
+#define M_PI ( 3.14159265358979323846 )
+#endif
+
+// Forward Declarations =====================================================
 
 struct action_t;
 struct action_callback_t;
 struct action_expr_t;
+struct action_priority_list_t;
 struct alias_t;
 struct attack_t;
 struct base_stats_t;
@@ -142,7 +162,7 @@ struct warrior_t;
 struct weapon_t;
 struct xml_node_t;
 
-// Enumerations ==============================================================
+// Enumerations =============================================================
 
 enum race_type
 {
@@ -699,7 +719,7 @@ enum format_type
 #define FORMAT_DEFAULT         ( FORMAT_ASCII_MASK )
 #define FORMAT_ALL_MASK        -1
 
-// Data Access ====================================================
+// Data Access ==============================================================
 #ifndef MAX_LEVEL
 #define MAX_LEVEL (85)
 #endif
@@ -763,7 +783,51 @@ enum rating_type {
   RATING_MAX
 };
 
-// Cache Control =============================================================
+// Type utilities and simple meta-programming tools =========================
+template <typename T, std::size_t N>
+inline std::size_t sizeof_array( T (&)[N] )
+{ return N; }
+
+template <typename T>
+inline void zerofill( T* t, std::size_t n )
+{
+  // static_assert( std::is_pod<T>::value, "You cannot use zerofill on a non-pod type." );
+  memset( t, 0, n * sizeof( *t ) );
+}
+
+template <typename T>
+inline void zerofill( T& t )
+{
+  // static_assert( std::is_pod<T>::value, "You cannot use zerofill on a non-pod type." );
+  memset( &t, 0, sizeof( t ) );
+}
+
+template <typename T, std::size_t N>
+inline void zerofill( T (&t)[N] )
+{
+  // static_assert( std::is_pod<T>::value, "You cannot use zerofill on a non-pod type." );
+  memset( &t, 0, sizeof( t ) );
+}
+
+class noncopyable
+{
+public:
+  noncopyable() {} // = default
+  // noncopyable( noncopyable&& ) = default;
+  // noncopyable& operator = ( noncopyable&& ) = default;
+private:
+  noncopyable( const noncopyable& ); // = delete
+  noncopyable& operator = ( const noncopyable& ); // = delete
+};
+
+class nonmoveable : public noncopyable
+{
+private:
+  // nonmoveable( nonmoveable&& ) = delete;
+  // nonmoveable& operator = ( nonmoveable&& ) = delete;
+};
+
+// Cache Control ============================================================
 
 namespace cache {
 
@@ -783,18 +847,24 @@ class cache_control_t
 {
 private:
   era_t current_era;
-  behavior_t default_cache_behavior;
+  behavior_t player_cache_behavior;
+  behavior_t item_cache_behavior;
 
 public:
   cache_control_t() :
-    current_era( IN_THE_BEGINNING ), default_cache_behavior( CURRENT )
+    current_era( IN_THE_BEGINNING ),
+    player_cache_behavior( CURRENT ),
+    item_cache_behavior( ANY )
   {}
 
   era_t era() const { return current_era; }
   void advance_era() { ++current_era; }
 
-  behavior_t default_behavior() const { return default_cache_behavior; }
-  void default_behavior( behavior_t b ) { default_cache_behavior = b; }
+  behavior_t cache_players() const { return player_cache_behavior; }
+  void cache_players( behavior_t b ) { player_cache_behavior = b; }
+
+  behavior_t cache_items() const { return item_cache_behavior; }
+  void cache_items( behavior_t b ) { item_cache_behavior = b; }
 
   static cache_control_t singleton;
 };
@@ -807,11 +877,16 @@ inline era_t era()
 inline void advance_era()
 { cache_control_t::singleton.advance_era(); }
 
-// Get/Set default cache behavior.
-inline behavior_t behavior()
-{ return cache_control_t::singleton.default_behavior(); }
-inline void behavior( behavior_t b )
-{ cache_control_t::singleton.default_behavior( b ); }
+// Get/Set default cache behaviors.
+inline behavior_t players()
+{ return cache_control_t::singleton.cache_players(); }
+inline void players( behavior_t b )
+{ cache_control_t::singleton.cache_players( b ); }
+
+inline behavior_t items()
+{ return cache_control_t::singleton.cache_items(); }
+inline void items( behavior_t b )
+{ cache_control_t::singleton.cache_items( b ); }
 
 }
 
@@ -1160,7 +1235,7 @@ enum spell_attribute_t {
  SPELL_ATTR_EX9_UNK31, // 31
 };
 
-// DBC related classes ========================================================
+// DBC related classes ======================================================
 
 struct spell_data_t {
   const char * _name;               // Spell name from Spell.dbc stringblock (enGB)
@@ -1226,8 +1301,9 @@ struct spell_data_t {
   const spelleffect_data_t& effect3() const { return *_effect3; }
 
   static spell_data_t* nil();
-  static spell_data_t* find( unsigned, const std::string& confirmation = std::string(), bool ptr = false );
   static spell_data_t* find( const std::string& name, bool ptr = false );
+  static spell_data_t* find( unsigned id, bool ptr = false );
+  static spell_data_t* find( unsigned id, const char* confirmation, bool ptr = false );
   static spell_data_t* list( bool ptr = false );
   static void          link( bool ptr = false );
 
@@ -1314,15 +1390,15 @@ struct spelleffect_data_t {
   void                       set_used( bool value );
   void                       set_enabled( bool value );
 
-  inline unsigned            id() SC_CONST { return _id; }
+  unsigned                   id() SC_CONST { return _id; }
   unsigned                   index() SC_CONST;
   uint32_t                   spell_id() SC_CONST;
   uint32_t                   spell_effect_num() SC_CONST;
   effect_type_t              type() SC_CONST;
   effect_subtype_t           subtype() SC_CONST;
-  inline int32_t             base_value() SC_CONST { return _base_value; }
-  inline int32_t             misc_value1() SC_CONST { return _misc_value; }
-  inline int32_t             misc_value2() SC_CONST { return _misc_value_2; }
+  int32_t                    base_value() SC_CONST { return _base_value; }
+  int32_t                    misc_value1() SC_CONST { return _misc_value; }
+  int32_t                    misc_value2() SC_CONST { return _misc_value_2; }
   uint32_t                   trigger_spell_id() SC_CONST;
   double                     chain_multiplier() SC_CONST;
 
@@ -1350,7 +1426,11 @@ struct spelleffect_data_t {
   }
 };
 
-struct talent_data_t {
+struct talent_data_t
+{
+  static const unsigned FLAG_USED = 0x01;
+  static const unsigned FLAG_DISABLED = 0x02;
+
   const char * _name;        // Talent name
   unsigned     _id;          // Talent id
   unsigned     _flags;       // Unused for now, 0x00 for all
@@ -1361,7 +1441,7 @@ struct talent_data_t {
   unsigned     _depend_rank; // Requires this rank of depended talent
   unsigned     _col;         // Talent column
   unsigned     _row;         // Talent row
-  unsigned     _rank_id[3];  // Talent spell rank identifiers for ranks 1..3
+  unsigned     _rank_id[MAX_RANK]; // Talent spell rank identifiers for ranks 1..3
 
   // Pointers for runtime linking
   spell_data_t* spell1;
@@ -1374,34 +1454,41 @@ struct talent_data_t {
   static talent_data_t* list( bool ptr = false );
   static void           link( bool ptr = false );
 
-  bool                  is_used() SC_CONST;
-  bool                  is_enabled() SC_CONST;
+  bool                  is_used() const { return ( _flags & FLAG_USED ) != 0; }
+  bool                  is_enabled() const { return ( _flags & FLAG_DISABLED ) == 0; }
   void                  set_used( bool value );
   void                  set_enabled( bool value );
 
-  inline unsigned       id() SC_CONST { return _id; }
-  const char*           name_cstr() SC_CONST;
-  uint32_t              tab_page() SC_CONST;
+  inline unsigned       id() const { return _id; }
+  const char*           name_cstr() const { return _name; }
+  uint32_t              tab_page() const { return _tab_page; }
   bool                  is_class( player_type c ) SC_CONST;
   bool                  is_pet( pet_type_t p ) SC_CONST;
-  uint32_t              depends_id() SC_CONST;
-  uint32_t              depends_rank() SC_CONST;
-  uint32_t              col() SC_CONST;
-  uint32_t              row() SC_CONST;
+  uint32_t              depends_id() const { return _dependance; }
+  uint32_t              depends_rank() const { return _depend_rank + 1; }
+
+  uint32_t              col() const { return _col; }
+  uint32_t              row() const { return _row; }
   uint32_t              rank_spell_id( uint32_t rank ) SC_CONST;
-  unsigned              mask_class() SC_CONST;
-  unsigned              mask_pet() SC_CONST;
+  unsigned              mask_class() const { return _m_class; }
+  unsigned              mask_pet() const { return _m_pet; }
 
   uint32_t              max_rank() SC_CONST;
+
+  spell_data_t& spell( unsigned r )
+  {
+    if ( r == 0 ) return *spell1;
+    if ( r == 1 ) return *spell2;
+    if ( r == 2 ) return *spell3;
+    return *spell_data_t::nil();
+  }
 };
 
 struct dbc_t
 {
   bool ptr;
 
-  dbc_t() : ptr( false ) { }
-  dbc_t( bool ptr ) : ptr( ptr ) { }
-  dbc_t( const dbc_t& other ) : ptr( other.ptr ) { }
+  dbc_t( bool ptr=false ) : ptr( ptr ) { }
 
   // Static Initialization
   static void init();
@@ -1532,7 +1619,7 @@ struct dbc_t
   static double fmt_value( double v, effect_type_t type, effect_subtype_t sub_type );
 };
 
-// Options ====================================================================
+// Options ==================================================================
 
 enum option_type_t
 {
@@ -1564,16 +1651,16 @@ struct option_t
   bool parse( sim_t*, const std::string& name, const std::string& value );
 
   static void add( std::vector<option_t>&, const char* name, int type, void* address );
-  static void copy( std::vector<option_t>& opt_vector, option_t* opt_array );
+  static void copy( std::vector<option_t>& opt_vector, const option_t* opt_array );
   static bool parse( sim_t*, std::vector<option_t>&, const std::string& name, const std::string& value );
   static bool parse( sim_t*, const char* context, std::vector<option_t>&, const std::string& options_str );
-  static bool parse( sim_t*, const char* context, option_t*,              const std::string& options_str );
+  static bool parse( sim_t*, const char* context, const option_t*,        const std::string& options_str );
   static bool parse_file( sim_t*, FILE* file );
   static bool parse_line( sim_t*, char* line );
   static bool parse_token( sim_t*, std::string& token );
 };
 
-// Talent Translation =========================================================
+// Talent Translation =======================================================
 
 #define MAX_TALENT_POINTS 41
 #define MAX_TALENT_ROW ((MAX_TALENT_POINTS+4)/5)
@@ -1595,7 +1682,13 @@ struct talent_translation_t
   std::string name;
 };
 
-// Utilities =================================================================
+// Utilities ================================================================
+
+#ifdef _MSC_VER
+// C99-compliant snprintf - MSVC _snprintf is NOT the same.
+#undef snprintf
+int snprintf( char* buf, size_t size, const char* fmt, ... );
+#endif
 
 struct util_t
 {
@@ -1650,6 +1743,7 @@ public:
   static const char* weapon_class_string       ( int class_ );
   static const char* weapon_subclass_string    ( int subclass );
   static const char* set_item_type_string      ( int item_set );
+  static const char* item_quality_string       ( int item_quality );
 
   static int parse_attribute_type              ( const std::string& name );
   static int parse_dmg_type                    ( const std::string& name );
@@ -1673,6 +1767,7 @@ public:
   static stat_type parse_reforge_type          ( const std::string& name );
   static int parse_talent_tree                 ( const std::string& name );
   static int parse_weapon_type                 ( const std::string& name );
+  static int parse_item_quality                ( const std::string& quality );
 
   static bool parse_origin( std::string& region, std::string& server, std::string& name, const std::string& origin );
 
@@ -1847,6 +1942,11 @@ struct spell_id_t
   static uint32_t get_school_mask( const school_type s );
   static school_type get_school_type( const uint32_t mask );
   static bool is_school( const school_type s, const school_type s2 );
+
+  const spell_data_t& spell() const { return ( ok() ? *s_data : *spell_data_t::nil() ); }
+  const spelleffect_data_t& effect1() const { return ( ok() ? s_data -> effect1(): *spelleffect_data_t::nil() ); }
+  const spelleffect_data_t& effect2() const { return ( ok() ? s_data -> effect2(): *spelleffect_data_t::nil() ); }
+  const spelleffect_data_t& effect3() const { return ( ok() ? s_data -> effect3(): *spelleffect_data_t::nil() ); }
 private:
 };
 
@@ -1882,9 +1982,8 @@ struct talent_t : spell_id_t
   talent_data_t& data() { return *td; }
   spell_data_t& spell( unsigned r=0 )
   {
-    if ( r == 1 ) return *( td -> spell1 );
-    if ( r == 2 ) return *( td -> spell2 );
-    if ( r == 3 ) return *( td -> spell3 );
+    if ( r >= 1 && r - 1 < MAX_RANK )
+      return td -> spell( r - 1 );
     return *sd;
   }
   const spelleffect_data_t& effect1() const { return sd -> effect1(); }
@@ -1896,22 +1995,18 @@ struct talent_t : spell_id_t
 
 struct active_spell_t : public spell_id_t
 {
-  active_spell_t( const active_spell_t& copy ) : spell_id_t( copy ) { }
-  active_spell_t( player_t* player = 0, const char* t_name = 0 ) : spell_id_t( player, t_name ) { }
+  active_spell_t( player_t* player = 0, const char* t_name = 0 ) : spell_id_t( player, t_name ) {}
   active_spell_t( player_t* player, const char* t_name, const uint32_t id, talent_t* talent = 0 );
   active_spell_t( player_t* player, const char* t_name, const char* s_name, talent_t* talent = 0 );
-  virtual ~active_spell_t() {}
 };
 
 // Passive Spell ID class
 
 struct passive_spell_t : public spell_id_t
 {
-  passive_spell_t( const passive_spell_t& copy ) : spell_id_t( copy ) { }
-  passive_spell_t( player_t* player = 0, const char* t_name = 0 ) : spell_id_t( player, t_name ) { }
+  passive_spell_t( player_t* player = 0, const char* t_name = 0 ) : spell_id_t( player, t_name ) {}
   passive_spell_t( player_t* player, const char* t_name, const uint32_t id, talent_t* talent = 0 );
   passive_spell_t( player_t* player, const char* t_name, const char* s_name, talent_t* talent = 0 );
-  virtual ~passive_spell_t() {}
 };
 
 struct glyph_t : public spell_id_t
@@ -1919,14 +2014,13 @@ struct glyph_t : public spell_id_t
   // Future trimmed down access
   spell_data_t* sd;
   spell_data_t* sd_enabled;
-  int enabled() { return ( sd == sd_enabled ) ? 1 : 0; }
 
   glyph_t( player_t* p, spell_data_t* sd );
-  virtual ~glyph_t() {}
 
   virtual bool enable( bool override_value = true );
+  bool enabled() const { return ( sd == sd_enabled ); }
 
-  const spell_data_t& spell() { return *sd_enabled; }
+  const spell_data_t& spell() const { return *sd_enabled; }
   const spelleffect_data_t& effect1() const { return sd_enabled -> effect1(); }
   const spelleffect_data_t& effect2() const { return sd_enabled -> effect2(); }
   const spelleffect_data_t& effect3() const { return sd_enabled -> effect3(); }
@@ -1936,11 +2030,9 @@ struct mastery_t : public spell_id_t
 {
   int m_tree;
 
-  mastery_t( const mastery_t& copy ) : spell_id_t( copy ), m_tree( copy.m_tree ) { }
   mastery_t( player_t* player = 0, const char* t_name = 0 ) : spell_id_t( player, t_name ) { }
   mastery_t( player_t* player, const char* t_name, const uint32_t id, int tree );
   mastery_t( player_t* player, const char* t_name, const char* s_name, int tree );
-  virtual ~mastery_t() {}
 
   std::string to_str() SC_CONST;
 
@@ -1991,7 +2083,7 @@ struct raid_event_t
   static void combat_end( sim_t* ) {}
 };
 
-// Gear Stats ================================================================
+// Gear Stats ===============================================================
 
 struct gear_stats_t
 {
@@ -2026,13 +2118,14 @@ struct gear_stats_t
 };
 
 
-// Buffs ======================================================================
+// Buffs ====================================================================
 
 struct buff_t : public spell_id_t
 {
   sim_t* sim;
   player_t* player;
   player_t* source;
+  player_t* initial_source;
   std::string name_str;
   std::vector<std::string> aura_str;
   std::vector<double> stack_occurrence,stack_react_time;
@@ -2185,8 +2278,7 @@ struct debuff_t : public buff_t
 
 typedef struct buff_t aura_t;
 
-
-// Expressions =================================================================
+// Expressions ==============================================================
 
 enum token_type_t {
   TOK_UNKNOWN=0,
@@ -2316,41 +2408,91 @@ struct spell_data_expr_t
   static spell_data_expr_t* create_spell_expression( sim_t* sim, const std::string& name_str );
 };
 
+namespace thread_impl { // ===================================================
 
-// Thread Wrappers ===========================================================
+#if defined( NO_THREADS )
 
-class thread_t
+class mutex : public nonmoveable
+{
+public:
+  void lock() {}
+  void unlock() {}
+};
+
+class thread : public noncopyable
+{
+public:
+  virtual void run() = 0;
+
+  void launch() { run(); } // Run sequentially in foreground.
+  void wait() {}
+
+  static void sleep( int seconds );
+};
+
+#elif defined( __MINGW32__ ) || defined( _MSC_VER )
+
+class mutex : public nonmoveable
+{
+  CRITICAL_SECTION cs;
+public:
+  mutex() { InitializeCriticalSection( &cs ); }
+  ~mutex() { DeleteCriticalSection( &cs ); }
+  void lock() { EnterCriticalSection( &cs ); }
+  void unlock() { LeaveCriticalSection( &cs ); }
+};
+
+class thread : public noncopyable
 {
 private:
-  class impl_t;
-  std::auto_ptr<impl_t> impl;
+  HANDLE handle;
 public:
-  thread_t();
-  virtual ~thread_t();
+  virtual void run() = 0;
+
   void launch();
   void wait();
 
-  virtual void run() = 0;
-
-  static void sleep( int seconds );
-  static void init() {}
-  static void de_init() {}
+  static void sleep( int seconds ) { Sleep( seconds * 1000 ); }
 };
 
-class mutex_t
+#else // POSIX
+
+class mutex : public nonmoveable
 {
-private:
-  class impl_t;
-  std::auto_ptr<impl_t> impl;
-  void create();
-
-  static impl_t global_lock;
-
+  pthread_mutex_t m;
 public:
-  mutex_t();
-  ~mutex_t();
-  void lock();
-  void unlock();
+  mutex() { pthread_mutex_init( &m, NULL ); }
+  ~mutex() { pthread_mutex_destroy( &m ); }
+  void lock() { pthread_mutex_lock( &m ); }
+  void unlock() { pthread_mutex_unlock( &m ); }
+};
+
+class thread : public noncopyable
+{
+  pthread_t t;
+public:
+  virtual void run() = 0;
+
+  void launch();
+  void wait() { pthread_join( t, NULL ); }
+
+  static void sleep( int seconds ) { ::sleep( seconds ); }
+};
+
+#endif
+
+} // namespace thread_impl ===================================================
+
+typedef thread_impl::mutex mutex_t;
+
+class thread_t : public thread_impl::thread
+{
+protected:
+  thread_t() {}
+  virtual ~thread_t() {}
+public:
+  static void init() {}
+  static void de_init() {}
 };
 
 class auto_lock_t
@@ -2363,7 +2505,7 @@ public:
 };
 
 
-// Simple freelist allocator for events ======================================
+// Simple freelist allocator for events =====================================
 
 class event_freelist_t
 {
@@ -2380,7 +2522,7 @@ public:
 };
 
 
-// Simulation Engine =========================================================
+// Simulation Engine ========================================================
 
 struct sim_t : private thread_t
 {
@@ -2401,6 +2543,7 @@ struct sim_t : private thread_t
   double      channel_lag, channel_lag_stddev;
   double      queue_gcd_reduction;
   int         strict_gcd_queue;
+  double      confidence;
     // Latency
   double      world_lag, world_lag_stddev;
   double      travel_variance, default_skill, reaction_time, regen_periodicity;
@@ -2414,6 +2557,7 @@ struct sim_t : private thread_t
   int         save_profiles, default_actions;
   int         normalized_stat;
   std::string current_name, default_region_str, default_server_str, save_prefix_str,save_suffix_str;
+  int         save_talent_str;
   bool        input_is_utf8;
   std::vector<player_t*> actor_list;
   std::string main_target_str;
@@ -2538,7 +2682,6 @@ struct sim_t : private thread_t
   {
     aura_t* abominations_might;
     aura_t* arcane_tactics;
-    aura_t* battle_shout;
     aura_t* communion;
     aura_t* demonic_pact;
     aura_t* devotion_aura;
@@ -2585,7 +2728,7 @@ struct sim_t : private thread_t
   scaling_t* scaling;
   plot_t*    plot;
   reforge_plot_t* reforge_plot;
-  double     raid_dps, total_dmg, raid_hps, total_heal, total_seconds, elapsed_cpu_seconds;
+  double     raid_dps, total_dmg, raid_hps, total_heal, total_seconds, elapsed_cpu_seconds, max_fight_length;
   int        report_progress;
   int        bloodlust_percent, bloodlust_time;
   std::string reference_player_str;
@@ -2614,15 +2757,14 @@ struct sim_t : private thread_t
   int report_rng;
   int hosted_html;
   int print_styles;
+  int report_overheal;
 
-private:
   // Multi-Threading
   int threads;
   std::vector<sim_t*> children;
   int thread_index;
   virtual void run() { iterate(); }
 
-public:
   // Spell database access
   spell_data_expr_t* spell_query;
 
@@ -2671,7 +2813,7 @@ public:
   int       errorf( const char* format, ... ) PRINTF_ATTRIBUTE(2,3);
 };
 
-// Scaling ===================================================================
+// Scaling ==================================================================
 
 struct scaling_t
 {
@@ -2696,6 +2838,7 @@ struct scaling_t
   int    current_scaling_stat, num_scaling_stats, remaining_scaling_stats;
   double    scale_haste_iterations, scale_expertise_iterations, scale_crit_iterations, scale_hit_iterations, scale_mastery_iterations;
   std::string scale_over;
+  std::string scale_over_player;
 
   // Gear delta for determining scale factors
   gear_stats_t stats;
@@ -2716,7 +2859,7 @@ struct scaling_t
   double scale_over_function_error( sim_t* s, player_t* p );
 };
 
-// Plot ======================================================================
+// Plot =====================================================================
 
 struct plot_t
 {
@@ -2738,7 +2881,7 @@ struct plot_t
   void create_options();
 };
 
-// Reforge Plot ===============================================================
+// Reforge Plot =============================================================
 
 struct reforge_plot_t
 {
@@ -2766,17 +2909,15 @@ struct reforge_plot_t
   void create_options();
 };
 
-// Event =====================================================================
+// Event ====================================================================
 
-struct event_t
+struct event_t : public noncopyable
 {
 private:
   static void cancel_( event_t* e );
   static void early_( event_t* e );
 
   static void* operator new( std::size_t ) throw(); // DO NOT USE!
-  event_t( const event_t& other ); // = delete
-  event_t& operator = ( const event_t& other ); // = delete
 
 public:
   event_t*  next;
@@ -2827,7 +2968,7 @@ struct event_compare_t
   }
 };
 
-// Gear Rating Conversions ===================================================
+// Gear Rating Conversions ==================================================
 
 struct rating_t
 {
@@ -2843,7 +2984,7 @@ struct rating_t
   static double get_attribute_base( sim_t*, dbc_t& pData, int level, player_type class_type, race_type race, base_stat_type stat_type );
 };
 
-// Weapon ====================================================================
+// Weapon ===================================================================
 
 struct weapon_t
 {
@@ -2865,7 +3006,7 @@ struct weapon_t
     type(t), school(s), damage(d), min_dmg(d), max_dmg(d), swing_time(st), slot(SLOT_NONE), buff_type(0), buff_value(0), bonus_dmg(0) { }
 };
 
-// Item ======================================================================
+// Item =====================================================================
 
 struct item_t
 {
@@ -2995,7 +3136,7 @@ struct item_t
                          const std::string& gem_id );
 };
 
-// Item database =============================================================
+// Item database ============================================================
 struct item_database_t
 {
   static bool     download_slot(      item_t& item,
@@ -3018,9 +3159,15 @@ struct item_database_t
   static uint32_t weapon_dmg_min(     const item_data_t*, const dbc_t& );
   static uint32_t weapon_dmg_max(     const item_t& item, unsigned item_id );
   static uint32_t weapon_dmg_max(     const item_data_t*, const dbc_t& );
+
+  static bool     load_item_from_data( item_t& item, const item_data_t* item_data );
+  static bool     parse_gems(         item_t&            item,
+                                      const item_data_t* item_data,
+                                      const std::string  gem_ids[ 3 ] );
+  static bool     parse_enchant(      item_t& item, const std::string& enchant_id );
 };
 
-// Set Bonus =================================================================
+// Set Bonus ================================================================
 
 struct set_bonus_t
 {
@@ -3044,19 +3191,22 @@ struct set_bonus_t
 
 struct set_bonus_array_t
 {
-  const spell_id_t* set_bonuses[ SET_MAX ];
-  const spell_id_t* default_value;
-  player_t*         p;
+private:
+  const std::auto_ptr<spell_id_t> default_value;
+  std::auto_ptr<spell_id_t> set_bonuses[ SET_MAX ];
+  player_t* p;
 
-  set_bonus_array_t( player_t* p, uint32_t a_bonus[ N_TIER ][ N_TIER_BONUS ] );
-  virtual ~set_bonus_array_t();
+  spell_id_t* create_set_bonus( uint32_t spell_id );
 
-  virtual bool              has_set_bonus( set_type s ) SC_CONST;
-  virtual const spell_id_t* set( set_type s ) SC_CONST;
-  virtual const spell_id_t* create_set_bonus( player_t* p, uint32_t spell_id ) SC_CONST;
+public:
+  set_bonus_array_t( player_t* p, const uint32_t a_bonus[ N_TIER ][ N_TIER_BONUS ] );
+  ~set_bonus_array_t();
+
+  bool              has_set_bonus( set_type s ) const;
+  const spell_id_t* set( set_type s ) const;
 };
 
-// Player ====================================================================
+// Player ===================================================================
 
 struct player_t
 {
@@ -3071,10 +3221,9 @@ struct player_t
   player_t*   target;
   int         level, use_pre_potion, party, member;
   double      skill, initial_skill, distance, default_distance, gcd_ready, base_gcd;
-  int         potion_used, sleeping, initialized;
+  int         potion_used, sleeping, initial_sleeping, initialized;
   rating_t    rating;
   pet_t*      pet_list;
-  int64_t     last_modified;
   int         bugs;
   int         specialization;
   int         invert_scaling;
@@ -3085,6 +3234,9 @@ struct player_t
   double      dtr_base_proc_chance;
   double      reaction_mean,reaction_stddev,reaction_nu;
   int         infinite_resource[ RESOURCE_MAX ];
+  std::vector<buff_t*> absorb_buffs;
+  int         scale_player;
+  bool        has_dtr;
 
   // Latency
   double      world_lag, world_lag_stddev;
@@ -3138,7 +3290,6 @@ struct player_t
   double base_mp5,               initial_mp5,                         mp5,                         buffed_mp5;
   double spell_power_multiplier,    initial_spell_power_multiplier;
   double spell_power_per_intellect, initial_spell_power_per_intellect;
-  double spell_power_per_spirit,    initial_spell_power_per_spirit;
   double spell_crit_per_intellect,  initial_spell_crit_per_intellect;
   double mp5_per_intellect;
   double mana_regen_base;
@@ -3238,19 +3389,21 @@ struct player_t
   // Action Priority List
   action_t*   action_list;
   std::string action_list_str;
+  std::string choose_action_list;
   std::string action_list_skip;
   std::string modify_action;
   int         action_list_default;
   cooldown_t* cooldown_list;
   dot_t*      dot_list;
   std::map<std::string,int> action_map;
+  std::vector<action_priority_list_t*> action_priority_list;
 
   // Reporting
   int       quiet;
   action_t* last_foreground_action;
-  double    current_time, total_seconds;
+  double    current_time, iteration_seconds, total_seconds, max_fight_length, arise_time;
   double    total_waiting, total_foreground_actions;
-  double    iteration_dmg, total_dmg;
+  double    iteration_dmg, total_dmg, iteration_heal, total_heal;
   double    resource_lost  [ RESOURCE_MAX ];
   double    resource_gained[ RESOURCE_MAX ];
   double    dps, dpse, dps_min, dps_max, dps_std_dev, dps_error, dps_convergence;
@@ -3258,8 +3411,8 @@ struct player_t
   double    dpr, rps_gain, rps_loss;
   int       death_count;
   std::vector<double> death_time;
-  double    avg_death_time, death_count_pct, min_death_time;
-  double    dmg_taken, total_dmg_taken;
+  double    avg_death_time, death_count_pct, min_death_time, max_death_time;
+  double    dmg_taken, total_dmg_taken, dtps, dtps_error;
   buff_t*   buff_list;
   proc_t*   proc_list;
   gain_t*   gain_list;
@@ -3271,14 +3424,17 @@ struct player_t
   std::vector<double> timeline_dmg;
   std::vector<double> timeline_dps;
   std::vector<double> iteration_dps;
+  std::vector<double> iteration_dtps;
+  std::vector<double> iteration_dpse;
   std::vector<int> distribution_dps;
+  std::vector<int> distribution_deaths;
   std::vector<double> dps_convergence_error;
   std::string action_sequence;
-  std::string action_dpet_chart, action_dmg_chart, gains_chart;
+  std::string action_dpet_chart, action_dmg_chart, time_spent_chart, gains_chart;
   std::vector<std::string> timeline_resource_chart;
   std::string timeline_dps_chart, timeline_dps_error_chart, timeline_resource_health_chart;
   std::string distribution_dps_chart, scaling_dps_chart, scale_factors_chart;
-  std::string reforge_dps_chart, dps_error_chart;
+  std::string reforge_dps_chart, dps_error_chart, distribution_deaths_chart;
   std::string gear_weights_lootrank_link, gear_weights_wowhead_link, gear_weights_wowreforge_link;
   std::string gear_weights_pawn_std_string, gear_weights_pawn_alt_string;
   std::string save_str;
@@ -3291,7 +3447,7 @@ struct player_t
   // Gear
   std::string items_str, meta_gem_str;
   std::vector<item_t> items;
-  gear_stats_t stats, initial_stats, gear, enchant;
+  gear_stats_t stats, initial_stats, gear, enchant, temporary;
   set_bonus_t set_bonus;
   set_bonus_array_t * sets;
   int meta_gem;
@@ -3301,17 +3457,21 @@ struct player_t
   gear_stats_t scaling;
   gear_stats_t scaling_normalized;
   gear_stats_t scaling_error;
-  double       scaling_lag;
+  gear_stats_t scaling_delta_dps;
+  gear_stats_t scaling_compare_error;
+  double       scaling_lag, scaling_lag_error;
   int          scales_with[ STAT_MAX ];
   double       over_cap[ STAT_MAX ];
+  std::vector<int> scaling_stats; // sorting vector
 
   // Movement & Position
   double base_movement_speed;
   double x_position, y_position;
 
-  struct buffs_t
+  struct buffs_base_t
   {
     buff_t* arcane_brilliance;
+    buff_t* battle_shout;
     buff_t* berserking;
     buff_t* blessing_of_kings;
     buff_t* blessing_of_might;
@@ -3324,6 +3484,7 @@ struct player_t
     buff_t* dark_intent;
     buff_t* dark_intent_feedback;
     buff_t* destruction_potion;
+    buff_t* commanding_shout;
     buff_t* earthen_potion;
     buff_t* essence_of_the_red;
     buff_t* exhaustion;
@@ -3360,7 +3521,12 @@ struct player_t
     buff_t* wild_magic_potion_sp;
     buff_t* blessing_of_ancient_kings;
 
-    buffs_t() { memset( (void*) this, 0x0, sizeof( buffs_t ) ); }
+    buffs_base_t() { zerofill( *this ); }
+  };
+  struct buffs_t : public buffs_base_t
+  {
+    std::vector<buff_t*> power_word_shield;
+    std::vector<buff_t*> divine_aegis;
   };
   buffs_t buffs;
 
@@ -3405,7 +3571,7 @@ struct player_t
     debuff_t* vindication;
     debuff_t* vulnerable;
 
-    debuffs_t() { memset( (void*) this, 0x0, sizeof( debuffs_t ) ); }
+    debuffs_t() { zerofill( *this ); }
     bool snared();
   };
   debuffs_t debuffs;
@@ -3431,7 +3597,7 @@ struct player_t
     gain_t* vampiric_touch;
     gain_t* water_elemental;
     gain_t* hymn_of_hope;
-    void reset() { memset( ( void* ) this, 0x00, sizeof( gains_t ) ); }
+    void reset() { zerofill( *this ); }
     gains_t() { reset(); }
   };
   gains_t gains;
@@ -3439,7 +3605,7 @@ struct player_t
   struct procs_t
   {
     proc_t* hat_donor;
-    void reset() { memset( ( void* ) this, 0x00, sizeof( procs_t ) ); }
+    void reset() { zerofill( *this ); }
     procs_t() { reset(); }
   };
   procs_t procs;
@@ -3455,7 +3621,7 @@ struct player_t
     rng_t* lag_reaction;
     rng_t* lag_world;
     rng_t* lag_brain;
-    void reset() { memset( ( void* ) this, 0x00, sizeof( rngs_t ) ); }
+    void reset() { zerofill( *this ); }
     rngs_t() { reset(); }
   };
   rngs_t rngs;
@@ -3484,9 +3650,9 @@ struct player_t
   virtual void init_enchant();
   virtual void init_resources( bool force = false );
   virtual void init_professions();
-  virtual void init_use_item_actions( const std::string& append = std::string() );
-  virtual void init_use_profession_actions( const std::string& append = std::string() );
-  virtual void init_use_racial_actions( const std::string& append = std::string() );
+  virtual std::string init_use_item_actions( const std::string& append = std::string() );
+  virtual std::string init_use_profession_actions( const std::string& append = std::string() );
+  virtual std::string init_use_racial_actions( const std::string& append = std::string() );
   virtual void init_actions();
   virtual void init_rating();
   virtual void init_scaling();
@@ -3504,6 +3670,7 @@ struct player_t
   virtual void reset();
   virtual void combat_begin();
   virtual void combat_end();
+  virtual void merge( player_t& other );
 
   virtual double composite_mastery() SC_CONST { return floor( ( mastery * 100.0 ) + 0.5 ) * 0.01; }
 
@@ -3591,14 +3758,17 @@ struct player_t
   virtual double time_to_die() SC_CONST;
   virtual double total_reaction_time() SC_CONST;
 
-  virtual void stat_gain( int stat, double amount, gain_t* g=0, action_t* a=0 );
-  virtual void stat_loss( int stat, double amount, action_t* a=0 );
+  virtual void stat_gain( int stat, double amount, gain_t* g=0, action_t* a=0, bool temporary=false );
+  virtual void stat_loss( int stat, double amount, action_t* a=0, bool temporary=false );
 
   virtual void cost_reduction_gain( int school, double amount, gain_t* g=0, action_t* a=0 );
   virtual void cost_reduction_loss( int school, double amount, action_t* a=0 );
 
   virtual double assess_damage( double amount, const school_type school, int type, int result, action_t* a=0 );
   virtual double target_mitigation( double amount, const school_type school, int type, int result, action_t* a=0 );
+
+  struct heal_info_t { double actual, amount; };
+  virtual heal_info_t assess_heal( double amount, const school_type school, int type, int result, action_t* a=0 );
 
   virtual void  summon_pet( const char* name, double duration=0 );
   virtual void dismiss_pet( const char* name );
@@ -3645,12 +3815,12 @@ struct player_t
 
   virtual void trigger_replenishment();
 
-  virtual int decode_set( item_t& item ) { assert( item.name() ); return SET_NONE; }
+  virtual int decode_set( item_t& item ) { (void)item; assert( item.name() ); return SET_NONE; }
 
   virtual void recalculate_haste();
 
   virtual void armory_extensions( const std::string& /* region */, const std::string& /* server */, const std::string& /* character */,
-                                  cache::behavior_t /* behavior */=cache::behavior())
+                                  cache::behavior_t /* behavior */=cache::players() )
   {}
 
   // Class-Specific Methods
@@ -3677,57 +3847,57 @@ struct player_t
   // Raid-wide Death Knight buff maintenance
   static void death_knight_init        ( sim_t* sim );
   static void death_knight_combat_begin( sim_t* sim );
-  static void death_knight_combat_end  ( sim_t* sim ) { assert( sim ); }
+  static void death_knight_combat_end  ( sim_t* /* sim */ ) {}
 
   // Raid-wide Druid buff maintenance
   static void druid_init        ( sim_t* sim );
   static void druid_combat_begin( sim_t* sim );
-  static void druid_combat_end  ( sim_t* sim ) { assert( sim ); }
+  static void druid_combat_end  ( sim_t* /* sim */ ) {}
 
   // Raid-wide Hunter buff maintenance
   static void hunter_init        ( sim_t* sim );
   static void hunter_combat_begin( sim_t* sim );
-  static void hunter_combat_end  ( sim_t* sim ) { assert( sim ); }
+  static void hunter_combat_end  ( sim_t* /* sim */ ) {}
 
   // Raid-wide Mage buff maintenance
   static void mage_init        ( sim_t* sim );
   static void mage_combat_begin( sim_t* sim );
-  static void mage_combat_end  ( sim_t* sim ) { assert( sim ); }
+  static void mage_combat_end  ( sim_t* /* sim */ ) {}
 
   // Raid-wide Paladin buff maintenance
   static void paladin_init        ( sim_t* sim );
   static void paladin_combat_begin( sim_t* sim );
-  static void paladin_combat_end  ( sim_t* sim ) { assert( sim ); }
+  static void paladin_combat_end  ( sim_t* /* sim */ ) {}
 
   // Raid-wide Priest buff maintenance
   static void priest_init        ( sim_t* sim );
   static void priest_combat_begin( sim_t* sim );
-  static void priest_combat_end  ( sim_t* sim ) { assert( sim ); }
+  static void priest_combat_end  ( sim_t* /* sim */ ) {}
 
   // Raid-wide Rogue buff maintenance
   static void rogue_init        ( sim_t* sim );
   static void rogue_combat_begin( sim_t* sim );
-  static void rogue_combat_end  ( sim_t* sim ) { assert( sim ); }
+  static void rogue_combat_end  ( sim_t* /* sim */ ) {}
 
   // Raid-wide Shaman buff maintenance
   static void shaman_init        ( sim_t* sim );
   static void shaman_combat_begin( sim_t* sim );
-  static void shaman_combat_end  ( sim_t* sim ) { assert( sim ); }
+  static void shaman_combat_end  ( sim_t* /* sim */ ) {}
 
   // Raid-wide Warlock buff maintenance
   static void warlock_init        ( sim_t* sim );
   static void warlock_combat_begin( sim_t* sim );
-  static void warlock_combat_end  ( sim_t* sim ) { assert( sim ); }
+  static void warlock_combat_end  ( sim_t* /* sim */ ) {}
 
   // Raid-wide Warrior buff maintenance
   static void warrior_init        ( sim_t* sim );
   static void warrior_combat_begin( sim_t* sim );
-  static void warrior_combat_end  ( sim_t* sim ) { assert( sim ); }
+  static void warrior_combat_end  ( sim_t* /* sim */ ) {}
 
   // Raid-wide Enemy buff maintenance
   static void enemy_init        ( sim_t* sim );
   static void enemy_combat_begin( sim_t* sim );
-  static void enemy_combat_end  ( sim_t* sim ) { assert( sim ); }
+  static void enemy_combat_end  ( sim_t* /* sim */ ) {}
 
   bool is_pet() SC_CONST { return type == PLAYER_PET || type == PLAYER_GUARDIAN || type == ENEMY_ADD; }
   bool is_enemy() SC_CONST { return type == ENEMY; }
@@ -3757,6 +3927,7 @@ struct player_t
 
   cooldown_t* find_cooldown( const std::string& name );
   dot_t*      find_dot     ( const std::string& name );
+  action_priority_list_t* find_action_priority_list( const std::string& name );
 
   cooldown_t* get_cooldown( const std::string& name );
   dot_t*      get_dot     ( const std::string& name );
@@ -3767,12 +3938,13 @@ struct player_t
   rng_t*      get_rng     ( const std::string& name, int type=RNG_DEFAULT );
   double      get_player_distance( player_t* p );
   double      get_position_distance( double m=0, double v=0 );
+  action_priority_list_t* get_action_priority_list( const std::string& name );
 
   // Opportunity to perform any stat fixups before analysis
   virtual void pre_analyze_hook() {}
 };
 
-// Pet =======================================================================
+// Pet ======================================================================
 
 struct pet_t : public player_t
 {
@@ -3785,7 +3957,9 @@ struct pet_t : public player_t
   bool summoned;
   pet_type_t pet_type;
 
+private:
   void init_pet_t_();
+public:
   pet_t( sim_t* sim, player_t* owner, const std::string& name, bool guardian=false );
   pet_t( sim_t* sim, player_t* owner, const std::string& name, pet_type_t pt, bool guardian=false );
 
@@ -3799,7 +3973,6 @@ struct pet_t : public player_t
   virtual double stamina() SC_CONST;
   virtual double intellect() SC_CONST;
 
-  virtual void init();
   virtual void init_base();
   virtual void init_talents();
   virtual void init_target();
@@ -3807,15 +3980,14 @@ struct pet_t : public player_t
   virtual void summon( double duration=0 );
   virtual void dismiss();
   virtual bool ooc_buffs() { return false; }
-
   virtual double assess_damage( double amount, const school_type school, int type, int result, action_t* a=0 );
+  virtual void combat_begin();
 
-  virtual action_t* create_action( const std::string& name, const std::string& options );
   virtual const char* name() SC_CONST { return full_name_str.c_str(); }
   virtual const char* id();
 };
 
-// Stats =====================================================================
+// Stats ====================================================================
 
 struct stats_t
 {
@@ -3828,47 +4000,50 @@ struct stats_t
   stats_type type;
   std::vector<action_t*> action_list;
   bool analyzed;
-  bool initialized;
   bool quiet;
+  bool background;
 
   int resource;
   double resource_consumed, resource_portion;
   double frequency, num_executes, num_ticks;
   double num_direct_results, num_tick_results;
-  double total_execute_time, total_tick_time;
-  double total_dmg, portion_dmg;
-  double dps, portion_dps, dpe, dpet, dpr, rpe, etpe, ttpt;
+  double total_execute_time, total_tick_time, total_time;
+  double actual_amount, total_amount, portion_amount, overkill_pct;
+  double aps, portion_aps, ape, apet, apr, rpe, etpe, ttpt;
   double total_intervals, num_intervals;
   double last_execute;
 
   std::vector<stats_t*> children;
-  double compound_dmg;
+  double compound_actual,compound_amount;
   double opportunity_cost;
 
   struct stats_results_t
   {
-    double count, min_dmg, max_dmg, avg_dmg, total_dmg, pct;
+    double count, min_amount, max_amount, avg_amount, total_amount, actual_amount, pct, overkill_pct;
+    stats_results_t() :
+      count( 0 ), min_amount( std::numeric_limits<double>::max() ), max_amount( 0 ),
+      avg_amount( 0 ), total_amount( 0 ), actual_amount( 0 ), pct( 0 ), overkill_pct( 0 ) {}
+    void merge( const stats_results_t& other );
   };
   stats_results_t direct_results[ RESULT_MAX ];
   stats_results_t   tick_results[ RESULT_MAX ];
 
-  int num_buckets;
-  std::vector<double> timeline_dmg;
-  std::vector<double> timeline_dps;
+  std::vector<double> timeline_amount;
+  std::vector<double> timeline_aps;
+  std::string timeline_aps_chart;
 
   void add_child( stats_t* child );
   void consume_resource( double r ) { resource_consumed += r; }
-  void add_result( double amount, int dmg_type, int result );
+  void add_result( double act_amount, double tot_amount, int dmg_type, int result );
   void add_tick   ( double time );
   void add_execute( double time );
-  void init();
   void reset();
   void analyze();
-  void merge( stats_t* other );
+  void merge( const stats_t* other );
   stats_t( const std::string& name, player_t* );
 };
 
-// Rank ======================================================================
+// Rank =====================================================================
 
 struct rank_t
 {
@@ -3876,7 +4051,7 @@ struct rank_t
   double dd_min, dd_max, tick, cost;
 };
 
-// Base Stats ================================================================
+// Base Stats ===============================================================
 
 struct base_stats_t
 {
@@ -3886,7 +4061,7 @@ struct base_stats_t
   double spell_crit, melee_crit;
 };
 
-// Action ====================================================================
+// Action ===================================================================
 
 struct action_t : public spell_id_t
 {
@@ -3938,7 +4113,7 @@ struct action_t : public spell_id_t
   stats_t* stats;
   event_t* execute_event;
   event_t* travel_event;
-  double time_to_execute, time_to_tick, time_to_travel, travel_speed;
+  double time_to_execute, time_to_travel, travel_speed;
   int rank_index, bloodlust_active;
   double max_haste;
   double haste_gain_percentage;
@@ -3959,6 +4134,9 @@ struct action_t : public spell_id_t
   std::string target_str;
   std::string label_str;
   double last_reaction_time;
+  action_t* dtr_action;
+  bool is_dtr_action;
+  bool can_trigger_dtr;
 
   action_t( int type, const char* name, player_t* p=0, int r=RESOURCE_NONE, const school_type s=SCHOOL_NONE, int t=TREE_NONE, bool special=false );
   action_t( int type, const active_spell_t& s, int t=TREE_NONE, bool special=false );
@@ -3997,18 +4175,14 @@ struct action_t : public spell_id_t
   virtual double resistance() SC_CONST;
   virtual void   consume_resource();
   virtual void   execute();
-  virtual void   tick();
-  virtual void   last_tick();
+  virtual void   tick( dot_t* d );
+  virtual void   last_tick( dot_t* d );
   virtual void   travel( player_t*, int result, double dmg );
   virtual void   assess_damage( player_t* t, double amount, int dmg_type, int travel_result );
   virtual void   additional_damage( player_t* t, double amount, int dmg_type, int travel_result );
   virtual void   schedule_execute();
-  virtual void   schedule_tick();
   virtual void   schedule_travel( player_t* t );
   virtual void   reschedule_execute( double time );
-  virtual void   refresh_duration();
-  virtual void   extend_duration( int extra_ticks );
-  virtual void   extend_duration_seconds( double extra_ticks );
   virtual void   update_ready();
   virtual bool   usable_moving();
   virtual bool   ready();
@@ -4046,6 +4220,8 @@ struct action_t : public spell_id_t
   virtual action_expr_t* create_expression( const std::string& name );
 
   virtual double ppm_proc_chance( double PPM ) SC_CONST;
+
+  virtual double dtr_proc_chance() SC_CONST;
 
   void add_child( action_t* child ) { stats -> add_child( child -> stats ); }
 
@@ -4090,7 +4266,7 @@ struct attack_t : public action_t
   virtual double   crit_chance( int delta_level ) SC_CONST;
 };
 
-// Spell =====================================================================
+// Spell ====================================================================
 
 struct spell_t : public action_t
 {
@@ -4115,7 +4291,7 @@ struct spell_t : public action_t
   virtual void   schedule_execute();
 };
 
-// Heal ======================================================================
+// Heal =====================================================================
 
 struct heal_t : public spell_t
 {
@@ -4141,15 +4317,13 @@ struct heal_t : public spell_t
   virtual double calculate_direct_damage();
   virtual double calculate_tick_damage();
   virtual void travel( player_t*, int travel_result, double travel_dmg );
-  virtual void tick();
-  virtual void last_tick();
+  virtual void tick( dot_t* d );
+  virtual void last_tick( dot_t* d );
   virtual player_t* find_greatest_difference_player();
   virtual player_t* find_lowest_player();
-  virtual void refresh_duration();
-
 };
 
-// Absorb ======================================================================
+// Absorb ===================================================================
 
 struct absorb_t : public spell_t
 {
@@ -4175,7 +4349,7 @@ struct absorb_t : public spell_t
 
 };
 
-// Sequence ==================================================================
+// Sequence =================================================================
 
 struct sequence_t : public action_t
 {
@@ -4191,7 +4365,7 @@ struct sequence_t : public action_t
   virtual void restart() { current_action=0; restarted=true;}
 };
 
-// Cooldown ==================================================================
+// Cooldown =================================================================
 
 struct cooldown_t
 {
@@ -4218,10 +4392,11 @@ struct cooldown_t
   const char* name() { return name_str.c_str(); }
 };
 
-// DoT =======================================================================
+// DoT ======================================================================
 
 struct dot_t
 {
+  sim_t* sim;
   player_t* player;
   action_t* action;
   std::string name_str;
@@ -4230,34 +4405,23 @@ struct dot_t
   double added_seconds;
   double ready;
   double miss_time;
+  double time_to_tick;
   dot_t* next;
+
   dot_t() : player(0) {}
-  dot_t( const std::string& n, player_t* p ) :
-    player(p), action(0), name_str(n), tick_event(0),
-    num_ticks(0), current_tick(0), added_ticks(0), ticking(0),
-    added_seconds( 0.0 ), ready(-1), miss_time(-1), next(0) {}
-  virtual ~dot_t() {}
-  virtual void reset() { tick_event=0; current_tick=0; added_ticks=0; ticking=0; added_seconds=0.0; ready=-1; miss_time=-1; }
-  virtual void recalculate_ready()
-  {
-    // Extending a DoT does not interfere with the next tick event.  To determine the
-    // new finish time for the DoT, start from the time of the next tick and add the time
-    // for the remaining ticks to that event.
-    int remaining_ticks = num_ticks - current_tick;
-    ready = 0.001 + tick_event -> time + action -> tick_time() * ( remaining_ticks - 1 );
-  }
-  virtual double remains()
-  {
-    if ( ! action ) return 0;
-    if ( ! ticking ) return 0;
-    return ready - player -> sim -> current_time;
-  }
-  virtual int ticks()
-  {
-    if ( ! action ) return 0;
-    if ( ! ticking ) return 0;
-    return ( num_ticks - current_tick );
-  }
+  dot_t( const std::string& n, player_t* p );
+
+  virtual ~dot_t();
+
+  virtual void   extend_duration( int extra_ticks, bool cap=false );
+  virtual void   extend_duration_seconds( double extra_ticks );
+  virtual void   recalculate_ready();
+  virtual void   refresh_duration();
+  virtual void   reset();
+  virtual double remains();
+  virtual void   schedule_tick();
+  virtual int    ticks();
+
   virtual const char* name() { return name_str.c_str(); }
 };
 
@@ -4308,7 +4472,18 @@ struct action_callback_t
   }
 };
 
-// Player Ready Event ========================================================
+// Action Priority List =====================================================
+
+struct action_priority_list_t
+{
+  std::string name_str;
+  std::string action_list_str;
+  player_t* player;
+  action_priority_list_t( std::string name, player_t* p ) : name_str( name ), player( p )
+  {}
+};
+
+// Player Ready Event =======================================================
 
 struct player_ready_event_t : public event_t
 {
@@ -4316,7 +4491,7 @@ struct player_ready_event_t : public event_t
   virtual void execute();
 };
 
-// Action Execute Event ======================================================
+// Action Execute Event =====================================================
 
 struct action_execute_event_t : public event_t
 {
@@ -4325,7 +4500,7 @@ struct action_execute_event_t : public event_t
   virtual void execute();
 };
 
-// DoT Tick Event ============================================================
+// DoT Tick Event ===========================================================
 
 struct dot_tick_event_t : public event_t
 {
@@ -4334,7 +4509,7 @@ struct dot_tick_event_t : public event_t
   virtual void execute();
 };
 
-// Action Travel Event =======================================================
+// Action Travel Event ======================================================
 
 struct action_travel_event_t : public event_t
 {
@@ -4346,7 +4521,7 @@ struct action_travel_event_t : public event_t
   virtual void execute();
 };
 
-// Regen Event ===============================================================
+// Regen Event ==============================================================
 
 struct regen_event_t : public event_t
 {
@@ -4354,7 +4529,7 @@ struct regen_event_t : public event_t
   virtual void execute();
 };
 
-// Unique Gear ===============================================================
+// Unique Gear ==============================================================
 
 struct unique_gear_t
 {
@@ -4405,7 +4580,7 @@ struct unique_gear_t
                                   const std::string& item_id=std::string() );
 };
 
-// Enchants ===================================================================
+// Enchants =================================================================
 
 struct enchant_t
 {
@@ -4420,14 +4595,14 @@ struct enchant_t
   static bool download_rsuffix( item_t&, const std::string& rsuffix_id );
 };
 
-// Consumable ================================================================
+// Consumable ===============================================================
 
 struct consumable_t
 {
   static action_t* create_action( player_t*, const std::string& name, const std::string& options );
 };
 
-// Up-Time =====================================================================
+// Up-Time ==================================================================
 
 struct uptime_t
 {
@@ -4443,7 +4618,7 @@ struct uptime_t
   const char* name() SC_CONST { return name_str.c_str(); }
 };
 
-// Gain ======================================================================
+// Gain =====================================================================
 
 struct gain_t
 {
@@ -4460,7 +4635,7 @@ struct gain_t
   const char* name() SC_CONST { return name_str.c_str(); }
 };
 
-// Proc ======================================================================
+// Proc =====================================================================
 
 struct proc_t
 {
@@ -4500,7 +4675,7 @@ struct proc_t
 };
 
 
-// Report =====================================================================
+// Report ===================================================================
 
 struct report_t
 {
@@ -4513,7 +4688,7 @@ struct report_t
   static void print_suite( sim_t* );
 };
 
-// Chart ======================================================================
+// Chart ====================================================================
 
 struct chart_t
 {
@@ -4525,14 +4700,17 @@ struct chart_t
   static const char* raid_timeline    ( std::string& s, sim_t* );
   static const char* action_dpet      ( std::string& s, player_t* );
   static const char* action_dmg       ( std::string& s, player_t* );
+  static const char* time_spent       ( std::string& s, player_t* );
   static const char* gains            ( std::string& s, player_t*, resource_type );
   static const char* timeline_resource( std::string& s, player_t*, int );
   static const char* timeline_dps     ( std::string& s, player_t* );
+  static const char* timeline_stat_dps( std::string& s, player_t*, stats_t* );
   static const char* timeline_dps_error( std::string& s, player_t* );
   static const char* scale_factors    ( std::string& s, player_t* );
   static const char* scaling_dps      ( std::string& s, player_t* );
   static const char* reforge_dps      ( std::string& s, player_t* );
   static const char* distribution_dps ( std::string& s, player_t* );
+  static const char* distribution_deaths ( std::string& s, player_t* );
 
   static const char* gear_weights_lootrank  ( std::string& s, player_t* );
   static const char* gear_weights_wowhead   ( std::string& s, player_t* );
@@ -4542,7 +4720,7 @@ struct chart_t
   static const char* dps_error( std::string& s, player_t* );
 };
 
-// Log =======================================================================
+// Log ======================================================================
 
 struct log_t
 {
@@ -4552,7 +4730,7 @@ struct log_t
   // Combat Log (unsupported)
 };
 
-// Pseudo Random Number Generation ===========================================
+// Pseudo Random Number Generation ==========================================
 
 struct rng_t
 {
@@ -4576,11 +4754,13 @@ struct rng_t
   virtual double exgauss( double mean, double stddev, double nu );
   virtual void   seed( uint32_t start );
   virtual void   report( FILE* );
+  virtual double stdnormal_cdf(double u);
+  virtual double stdnormal_inv(double p);
 
   static rng_t* create( sim_t*, const std::string& name, int type=RNG_STANDARD );
 };
 
-// String utils =================================================================
+// String utils =============================================================
 
 std::string tolower( const std::string& src );
 std::string proper_option_name( const std::string& full_name );
@@ -4591,7 +4771,7 @@ void replace_str( std::string& str, const std::string& old_str, const std::strin
 bool str_to_float( const std::string& src, double& dest );
 #endif // UNUSED
 
-// Armory ====================================================================
+// Armory ===================================================================
 
 struct armory_t
 {
@@ -4602,21 +4782,21 @@ struct armory_t
                               const std::vector<int>& ranks,
                               int player_type= PLAYER_NONE,
                               int max_rank=0,
-                              cache::behavior_t b=cache::behavior() );
+                              cache::behavior_t b=cache::players() );
   static player_t* download_player( sim_t* sim,
                                     const std::string& region,
                                     const std::string& server,
                                     const std::string& name,
                                     const std::string& talents,
-                                    cache::behavior_t  b=cache::behavior() );
-  static bool download_slot( item_t&, const std::string& item_id, cache::behavior_t b=cache::behavior() );
-  static bool download_item( item_t&, const std::string& item_id, cache::behavior_t b=cache::behavior() );
+                                    cache::behavior_t  b=cache::players() );
+  static bool download_slot( item_t&, const std::string& item_id, cache::behavior_t b=cache::items() );
+  static bool download_item( item_t&, const std::string& item_id, cache::behavior_t b=cache::items() );
   static void fuzzy_stats( std::string& encoding, const std::string& description );
   static int  parse_meta_gem( const std::string& description );
   static std::string& format( std::string& name, int format_type = FORMAT_DEFAULT );
 };
 
-// Battle Net ================================================================
+// Battle Net ===============================================================
 
 struct battle_net_t
 {
@@ -4625,7 +4805,7 @@ struct battle_net_t
                                     const std::string& server,
                                     const std::string& name,
                                     const std::string& talents,
-                                    cache::behavior_t b=cache::behavior() );
+                                    cache::behavior_t b=cache::players() );
   static bool download_guild( sim_t* sim,
                               const std::string& region,
                               const std::string& server,
@@ -4633,10 +4813,10 @@ struct battle_net_t
                               const std::vector<int>& ranks,
                               int player_type=PLAYER_NONE,
                               int max_rank=0,
-                              cache::behavior_t b=cache::behavior() );
+                              cache::behavior_t b=cache::players() );
 };
 
-// Wowhead  ==================================================================
+// Wowhead  =================================================================
 
 struct wowhead_t
 {
@@ -4645,11 +4825,11 @@ struct wowhead_t
                                     const std::string& server,
                                     const std::string& name,
                                     bool active=true,
-                                    cache::behavior_t b=cache::behavior() );
+                                    cache::behavior_t b=cache::players() );
   static player_t* download_player( sim_t* sim,
                                     const std::string& id,
                                     bool active=true,
-                                    cache::behavior_t b=cache::behavior() );
+                                    cache::behavior_t b=cache::players() );
   static bool download_slot( item_t&,
                              const std::string& item_id,
                              const std::string& enchant_id,
@@ -4657,24 +4837,24 @@ struct wowhead_t
                              const std::string& reforge_id,
                              const std::string& rsuffix_id,
                              const std::string gem_ids[ 3 ],
-                             cache::behavior_t b=cache::behavior(),
-                             bool ptr=false );
+                             bool ptr=false,
+                             cache::behavior_t b=cache::items() );
   static bool download_item( item_t&, const std::string& item_id,
-                             cache::behavior_t b=cache::behavior(), bool ptr=false );
+                             bool ptr=false, cache::behavior_t b=cache::items() );
   static bool download_glyph( player_t* player, std::string& glyph_name, const std::string& glyph_id,
-                              cache::behavior_t b=cache::behavior(), bool ptr=false );
+                              bool ptr=false, cache::behavior_t b=cache::items() );
   static int  parse_gem( item_t& item, const std::string& gem_id,
-                         cache::behavior_t b=cache::behavior(), bool ptr=false );
+                         bool ptr=false, cache::behavior_t b=cache::items() );
 };
 
-// CharDev  ==================================================================
+// CharDev  =================================================================
 
 struct chardev_t
 {
-  static player_t* download_player( sim_t* sim, const std::string& id, cache::behavior_t b=cache::behavior() );
+  static player_t* download_player( sim_t* sim, const std::string& id, cache::behavior_t b=cache::players() );
 };
 
-// MMO Champion ==============================================================
+// MMO Champion =============================================================
 
 struct mmo_champion_t
 {
@@ -4685,16 +4865,16 @@ struct mmo_champion_t
                              const std::string& reforge_id,
                              const std::string& rsuffix_id,
                              const std::string gem_ids[ 3 ],
-                             cache::behavior_t b=cache::behavior() );
+                             cache::behavior_t b=cache::items() );
   static bool download_item( item_t&, const std::string& item_id,
-                             cache::behavior_t b=cache::behavior() );
+                             cache::behavior_t b=cache::items() );
   static bool download_glyph( player_t* player, std::string& glyph_name,
-                              const std::string& glyph_id, cache::behavior_t b=cache::behavior() );
+                              const std::string& glyph_id, cache::behavior_t b=cache::items() );
   static int  parse_gem( item_t& item, const std::string& gem_id,
-                         cache::behavior_t b=cache::behavior() );
+                         cache::behavior_t b=cache::items() );
 };
 
-// Rawr ======================================================================
+// Rawr =====================================================================
 
 struct rawr_t
 {
@@ -4702,7 +4882,7 @@ struct rawr_t
   static player_t* load_player( sim_t*, const std::string& character_filename, const std::string& character_xml );
 };
 
-// Blizzard Community Platform API ===========================================
+// Blizzard Community Platform API ==========================================
 
 namespace bcp_api
 {
@@ -4713,19 +4893,35 @@ namespace bcp_api
                        const std::vector<int>& ranks,
                        int player_type = PLAYER_NONE,
                        int max_rank=0,
-                       cache::behavior_t b=cache::behavior() );
+                       cache::behavior_t b=cache::players() );
   player_t* download_player( sim_t*,
                              const std::string& region,
                              const std::string& server,
                              const std::string& name,
                              const std::string& talents=std::string("active"),
-                             cache::behavior_t b=cache::behavior() );
-  bool download_item( item_t&, const std::string& item_id, cache::behavior_t b=cache::behavior() );
+                             cache::behavior_t b=cache::players() );
+  bool download_item( item_t&, const std::string& item_id, cache::behavior_t b=cache::items() );
   bool download_glyph( player_t* player, std::string& glyph_name, const std::string& glyph_id,
-                       cache::behavior_t b=cache::behavior() );
+                       cache::behavior_t b=cache::items() );
+  bool download_slot( item_t& item,
+                      const std::string& item_id,
+                      const std::string& enchant_id,
+                      const std::string& addon_id,
+                      const std::string& reforge_id,
+                      const std::string& rsuffix_id,
+                      const std::string gem_ids[ 3 ],
+                      cache::behavior_t b=cache::items() );
+  int parse_gem( item_t& item, const std::string& gem_id, cache::behavior_t b=cache::items() );
 }
 
-// HTTP Download  ============================================================
+// Wowreforge ===============================================================
+
+namespace wowreforge
+{
+  player_t* download_player( sim_t* sim, const std::string& id, cache::behavior_t b=cache::players() );
+};
+
+// HTTP Download  ===========================================================
 
 struct http_t
 {
@@ -4744,8 +4940,8 @@ public:
   static void cache_save();
   static bool clear_cache( sim_t*, const std::string& name, const std::string& value );
 
-  static bool get( std::string& result, const std::string& url, const std::string& confirmation=std::string(),
-                   cache::behavior_t b=cache::behavior(), int throttle_seconds=0 );
+  static bool get( std::string& result, const std::string& url, cache::behavior_t b,
+                   const std::string& confirmation=std::string(), int throttle_seconds=0 );
 
   static std::string& format( std::string& encoded_url, const std::string& url )
   { format_( encoded_url, url ); return encoded_url; }
@@ -4753,7 +4949,7 @@ public:
   { format_( url, url ); return url; }
 };
 
-// XML =======================================================================
+// XML ======================================================================
 
 struct xml_t
 {
@@ -4767,21 +4963,21 @@ struct xml_t
   static bool get_value( std::string& value, xml_node_t* root, const std::string& path = std::string() );
   static bool get_value( int&         value, xml_node_t* root, const std::string& path = std::string() );
   static bool get_value( double&      value, xml_node_t* root, const std::string& path = std::string() );
-  static xml_node_t* get( sim_t* sim, const std::string& url, const std::string& confirmation=std::string(), cache::behavior_t b=cache::behavior(), int throttle_seconds=0 );
+  static xml_node_t* get( sim_t* sim, const std::string& url, cache::behavior_t b,
+                          const std::string& confirmation=std::string(), int throttle_seconds=0 );
   static xml_node_t* create( sim_t* sim, const std::string& input );
   static xml_node_t* create( sim_t* sim, FILE* input );
   static void print( xml_node_t* root, FILE* f=0, int spacing=0 );
 };
 
 
-// Java Script ===============================================================
+// Java Script ==============================================================
 
 struct js_t
 {
   static js_node_t* get_child( js_node_t* root, const std::string& name );
   static js_node_t* get_node ( js_node_t* root, const std::string& path );
-  static int  get_children( std::vector<js_node_t*>&, js_node_t* root, const std::string& name = std::string() );
-  static int  get_nodes   ( std::vector<js_node_t*>&, js_node_t* root, const std::string& path );
+  static int  get_children( std::vector<js_node_t*>&, js_node_t* root );
   static int  get_value( std::vector<std::string>& value, js_node_t* root, const std::string& path = std::string() );
   static bool get_value( std::string& value, js_node_t* root, const std::string& path = std::string() );
   static bool get_value( int&         value, js_node_t* root, const std::string& path = std::string() );
@@ -4791,6 +4987,75 @@ struct js_t
   static void print( js_node_t* root, FILE* f=0, int spacing=0 );
   static const char* get_name( js_node_t* root );
 };
+
+
+// Handy Actions ============================================================
+
+struct wait_action_base_t : public action_t
+{
+  wait_action_base_t( player_t* player, const char* name ) :
+    action_t( ACTION_OTHER, name, player )
+  { trigger_gcd = 0; }
+
+  virtual void execute()
+  { player -> total_waiting += time_to_execute; }
+};
+
+// Wait For Cooldown Action =================================================
+
+struct wait_for_cooldown_t : public wait_action_base_t
+{
+  cooldown_t* wait_cd;
+  wait_for_cooldown_t( player_t* player, const char* cd_name );
+  virtual double execute_time() SC_CONST;
+};
+
+// Sliding window averager ==================================================
+
+template <int HW, typename In, typename Out>
+void sliding_window_average( In first, In last, Out out )
+{
+  typedef typename std::iterator_traits<In>::value_type value_t;
+  typedef typename std::iterator_traits<In>::difference_type diff_t;
+  const diff_t n = std::distance( first, last );
+  const diff_t HALFWINDOW = static_cast<diff_t>( HW );
+
+  if ( n >= 2 * HALFWINDOW )
+  {
+    value_t window_sum = value_t();
+
+    // Fill right half of sliding window
+    In right = first;
+    for ( diff_t count = 0; count < HALFWINDOW; ++count )
+      window_sum += *right++;
+
+    // Fill left half of sliding window
+    for ( diff_t count = HALFWINDOW; count < 2 * HALFWINDOW; ++count )
+    {
+      window_sum += *right++;
+      *out++ = window_sum / ( count + 1 );
+    }
+
+    // Slide until window hits end of data
+    while ( right != last )
+    {
+      window_sum += *right++;
+      *out++ = window_sum / ( 2 * HALFWINDOW + 1 );
+      window_sum -= *first++;
+    }
+
+    // Empty right half of sliding window
+    for ( diff_t count = 2 * HALFWINDOW; count > HALFWINDOW; --count )
+    {
+      *out++ = window_sum / count;
+      window_sum -= *first++;
+    }
+  }
+  else {
+    // input is pathologically small compared to window size, just average everything.
+    std::fill_n( out, n, std::accumulate( first, last, value_t() ) / n );
+  }
+}
 
 #ifdef WHAT_IF
 

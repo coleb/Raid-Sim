@@ -104,7 +104,7 @@ static enchant_data_t enchant_db[] =
   { "4088",  "+40 Spirit",                                                "40spi",                          NULL,        NULL },
   { "4087",  "+50 Critical Strike Rating",                                "50crit",                         NULL,        NULL },
   { "4086",  "+50 Dodge Rating",                                          "50dodge",                        NULL,        NULL },
-  { "4085",  "+40 Block Rating",                                          "",                               NULL,        NULL },
+  { "4085",  "+50 Mastery Rating",                                        "50mastery",                      NULL,        NULL },
   { "4084",  "Heartsong",                                                 "heartsong",                      NULL,        NULL },
   { "4083",  "Hurricane",                                                 "hurricane",                      NULL,        NULL },
   { "4082",  "+50 Expertise Rating",                                      "50exp",                          NULL,        NULL },
@@ -442,7 +442,7 @@ static enchant_data_t enchant_db[] =
   { "1483",  "+150 Mana",                                                 "150Mana",                        NULL,        NULL },
   { "1441",  "+15 Shadow Resistance",                                     "",                               NULL,        NULL },
   { "1400",  "+20 Nature Resistance",                                     "",                               NULL,        NULL },
-  { "1354",  "+15 Haste Rating",                                          "15Haste",                        NULL,        NULL },
+  { "1354",  "+20 Fire Reistance",                                        "",                               NULL,        NULL },
   { "1257",  "+15 Arcane Resistance",                                     "",                               NULL,        NULL },
   { "1147",  "+18 Spirit",                                                "18Spi",                          NULL,        NULL },
   { "1144",  "+15 Spirit",                                                "15Spi",                          NULL,        NULL },
@@ -554,7 +554,7 @@ static const stat_type reforge_stats[] =
   STAT_NONE
 };
 
-// Weapon Stat Proc Callback ==================================================
+// Weapon Stat Proc Callback ================================================
 
 struct weapon_stat_proc_callback_t : public action_callback_t
 {
@@ -583,7 +583,7 @@ struct weapon_stat_proc_callback_t : public action_callback_t
   }
 };
 
-// Weapon Discharge Proc Callback =============================================
+// Weapon Discharge Proc Callback ===========================================
 
 struct weapon_discharge_proc_callback_t : public action_callback_t
 {
@@ -1101,7 +1101,7 @@ bool enchant_t::download_addon( item_t&            item,
   return false;
 }
 
-// enchant_t::download_reforge ===============================================
+// enchant_t::download_reforge ==============================================
 
 bool enchant_t::download_reforge( item_t&            item,
                                   const std::string& reforge_id )
@@ -1121,7 +1121,7 @@ bool enchant_t::download_reforge( item_t&            item,
   return false;
 }
 
-// enchant_t::download_rsuffix ===============================================
+// enchant_t::download_rsuffix ==============================================
 
 bool enchant_t::download_rsuffix( item_t&            item,
                                   const std::string& rsuffix_id )

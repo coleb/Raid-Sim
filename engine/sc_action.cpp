@@ -115,7 +115,7 @@ void action_t::init_action_t_()
   execute_event                  = NULL;
   travel_event                   = NULL;
   time_to_execute                = 0.0;
-  time_to_tick                   = 0.0;
+
   time_to_travel                 = 0.0;
   travel_speed                   = 0.0;
   rank_index                     = -1;
@@ -144,6 +144,8 @@ void action_t::init_action_t_()
   target_str                     = "";
   label_str                      = "";
   last_reaction_time             = 0.0;
+  dtr_action                     = 0;
+  is_dtr_action                  = false;
 
   if ( sim -> debug ) log_t::output( sim, "Player %s creates action %s", player -> name(), name() );
 
@@ -179,6 +181,12 @@ void action_t::init_action_t_()
 
     background = true; // prevent action from being executed
   }
+
+  if ( sim -> travel_variance && travel_speed && player -> distance )
+  {
+    std::string buffer = name_str + "_travel";
+    rng_travel = player -> get_rng( buffer, RNG_DISTRIBUTED );
+  }
 }
 
 action_t::action_t( int               ty,
@@ -199,7 +207,7 @@ action_t::action_t( int               ty,
 action_t::action_t( int ty, const char* name, const char* sname, player_t* p, int t, bool sp ) :
   spell_id_t( p, name, sname ),
   sim( s_player->sim ), type( ty ), name_str( s_token ),
-  player( s_player ), target( s_player -> sim -> target ), school( get_school_type() ), resource( power_type() ),
+  player( s_player ), target( s_player -> target ), school( get_school_type() ), resource( power_type() ),
   tree( t ), special( sp )
 {
   init_action_t_();
@@ -208,7 +216,7 @@ action_t::action_t( int ty, const char* name, const char* sname, player_t* p, in
 action_t::action_t( int ty, const active_spell_t& s, int t, bool sp ) :
   spell_id_t( s ),
   sim( s_player->sim ), type( ty ), name_str( s_token ),
-  player( s_player ), target( s_player -> sim -> target ), school( get_school_type() ), resource( power_type() ),
+  player( s_player ), target( s_player -> target ), school( get_school_type() ), resource( power_type() ),
   tree( t ), special( sp )
 {
   init_action_t_();
@@ -217,7 +225,7 @@ action_t::action_t( int ty, const active_spell_t& s, int t, bool sp ) :
 action_t::action_t( int type, const char* name, const uint32_t id, player_t* p, int t, bool sp ) :
   spell_id_t( p, name, id ),
   sim( s_player->sim ), type( type ), name_str( s_token ),
-  player( s_player ), target( s_player -> sim -> target ), school( get_school_type() ), resource( power_type() ),
+  player( s_player ), target( s_player -> target ), school( get_school_type() ), resource( power_type() ),
   tree( t ), special( sp )
 {
   init_action_t_();
@@ -225,14 +233,14 @@ action_t::action_t( int type, const char* name, const uint32_t id, player_t* p, 
 
 action_t::~action_t()
 {
-  if ( if_expr )
+  if ( if_expr && ! is_dtr_action )
     delete if_expr;
 
-  if ( interrupt_if_expr )
+  if ( interrupt_if_expr && ! is_dtr_action )
     delete interrupt_if_expr;
 }
 
-// action_t::parse_data ====================================================
+// action_t::parse_data =====================================================
 
 void action_t::parse_data()
 {
@@ -397,7 +405,7 @@ option_t* action_t::merge_options( std::vector<option_t>& merged_options,
   return &( merged_options[ 0 ] );
 }
 
-// action_t::parse_options =================================================
+// action_t::parse_options ==================================================
 
 void action_t::parse_options( option_t*          options,
                               const std::string& options_str )
@@ -505,7 +513,7 @@ rank_t* action_t::init_rank( rank_t* rank_list,
   return 0;
 }
 
-// action_t::cost ======================================================
+// action_t::cost ===========================================================
 
 double action_t::cost() SC_CONST
 {
@@ -522,12 +530,15 @@ double action_t::cost() SC_CONST
     if ( player -> buffs.power_infusion -> check() ) c *= 0.80;
   }
 
+  if ( is_dtr_action )
+    c = 0;
+
   if ( sim -> debug ) log_t::output( sim, "action_t::cost: %s %.2f %.2f %s", name(), base_cost, c, util_t::resource_type_string( resource ) );
 
   return floor( c );
 }
 
-// action_t::gcd =============================================================
+// action_t::gcd ============================================================
 
 double action_t::gcd() SC_CONST
 {
@@ -537,7 +548,7 @@ double action_t::gcd() SC_CONST
   return trigger_gcd;
 }
 
-// action_t::travel_time =====================================================
+// action_t::travel_time ====================================================
 
 double action_t::travel_time()
 {
@@ -562,7 +573,7 @@ double action_t::travel_time()
   return t;
 }
 
-// action_t::player_buff =====================================================
+// action_t::player_buff ====================================================
 
 void action_t::player_buff()
 {
@@ -812,7 +823,7 @@ double action_t::resistance() SC_CONST
   return resist;
 }
 
-// action_t::total_crit_bonus ================================================
+// action_t::total_crit_bonus ===============================================
 
 double action_t::total_crit_bonus() SC_CONST
 {
@@ -827,7 +838,7 @@ double action_t::total_crit_bonus() SC_CONST
   return bonus;
 }
 
-// action_t::total_power =====================================================
+// action_t::total_power ====================================================
 
 double action_t::total_power() SC_CONST
 {
@@ -839,7 +850,7 @@ double action_t::total_power() SC_CONST
   return power;
 }
 
-// action_t::calculate_weapon_damage =========================================
+// action_t::calculate_weapon_damage ========================================
 
 double action_t::calculate_weapon_damage()
 {
@@ -866,7 +877,7 @@ double action_t::calculate_weapon_damage()
   return total_dmg;
 }
 
-// action_t::calculate_tick_damage ===========================================
+// action_t::calculate_tick_damage ==========================================
 
 double action_t::calculate_tick_damage()
 {
@@ -903,7 +914,7 @@ double action_t::calculate_tick_damage()
   return dmg;
 }
 
-// action_t::calculate_direct_damage =========================================
+// action_t::calculate_direct_damage ========================================
 
 double action_t::calculate_direct_damage()
 {
@@ -1047,9 +1058,9 @@ void action_t::execute()
 
 // action_t::tick ===========================================================
 
-void action_t::tick()
+void action_t::tick( dot_t* d )
 {
-  if ( sim -> debug ) log_t::output( sim, "%s ticks (%d of %d)", name(), dot -> current_tick, dot -> num_ticks );
+  if ( sim -> debug ) log_t::output( sim, "%s ticks (%d of %d)", name(), d -> current_tick, d -> num_ticks );
 
   result = RESULT_HIT;
 
@@ -1073,22 +1084,22 @@ void action_t::tick()
 
   if ( harmful && callbacks ) action_callback_t::trigger( player -> tick_callbacks[ result ], this );
 
-  stats -> add_tick( time_to_tick );
+  stats -> add_tick( d -> time_to_tick );
 }
 
-// action_t::last_tick =======================================================
+// action_t::last_tick ======================================================
 
-void action_t::last_tick()
+void action_t::last_tick( dot_t* d )
 {
-  if ( sim -> debug ) log_t::output( sim, "%s fades from %s", name(), target -> name() );
+  if ( sim -> debug ) log_t::output( sim, "%s fades from %s", d -> name(), target -> name() );
 
-  dot -> ticking = 0;
-  time_to_tick = 0;
+  d -> ticking = 0;
+
 
   if ( school == SCHOOL_BLEED ) target -> debuffs.bleeding -> decrement();
 }
 
-// action_t::travel ==========================================================
+// action_t::travel =========================================================
 
 void action_t::travel( player_t* t, int travel_result, double travel_dmg=0 )
 {
@@ -1121,7 +1132,9 @@ void action_t::travel( player_t* t, int travel_result, double travel_dmg=0 )
       }
       else
       {
-        schedule_tick();
+        if ( school == SCHOOL_BLEED ) target -> debuffs.bleeding -> increment();
+
+        dot -> schedule_tick();
       }
       dot -> recalculate_ready();
 
@@ -1147,6 +1160,7 @@ void action_t::assess_damage( player_t* t,
                               int    dmg_result )
 {
   double dmg_adjusted = t -> assess_damage( dmg_amount, school, dmg_type, dmg_result, this );
+  double actual_amount = t -> infinite_resource[ RESOURCE_HEALTH ] ? dmg_adjusted : std::min( dmg_adjusted, t -> resource_current[ RESOURCE_HEALTH ] );
 
   if ( dmg_type == DMG_DIRECT )
   {
@@ -1180,10 +1194,10 @@ void action_t::assess_damage( player_t* t,
     if ( callbacks ) action_callback_t::trigger( player -> tick_damage_callbacks[ school ], this );
   }
 
-  stats -> add_result( dmg_adjusted, ( direct_tick ? DMG_OVER_TIME : dmg_type ), dmg_result );
+  stats -> add_result( actual_amount, dmg_adjusted, ( direct_tick ? DMG_OVER_TIME : dmg_type ), dmg_result );
 }
 
-// action_t::additional_damage =============================================
+// action_t::additional_damage ==============================================
 
 void action_t::additional_damage( player_t* t,
                                   double dmg_amount,
@@ -1191,11 +1205,12 @@ void action_t::additional_damage( player_t* t,
                                   int    dmg_result )
 {
   dmg_amount /= target_multiplier; // FIXME! Weak lip-service to the fact that the adds probably will not be properly debuffed.
-  t -> assess_damage( dmg_amount, school, dmg_type, dmg_result, this );
-  stats -> add_result( dmg_amount, dmg_type, dmg_result );
+  double dmg_adjusted = t -> assess_damage( dmg_amount, school, dmg_type, dmg_result, this );
+  double actual_amount = std::min( dmg_adjusted, t -> resource_current[ resource ] );
+  stats -> add_result( actual_amount, dmg_amount, dmg_type, dmg_result );
 }
 
-// action_t::schedule_execute ==============================================
+// action_t::schedule_execute ===============================================
 
 void action_t::schedule_execute()
 {
@@ -1216,58 +1231,34 @@ void action_t::schedule_execute()
     {
       player -> gcd_ready -= sim -> queue_gcd_reduction;
     }
-  }
-  if ( special && time_to_execute > 0 && ! proc && ! background )
-  {
-    // While an ability is casting, the auto_attack is paused
-    // So we simply reschedule the auto_attack by the ability's casttime
-    double time_to_next_hit;
-    // Mainhand
-    if ( player -> main_hand_attack )
+
+    if ( special && time_to_execute > 0 && ! proc )
     {
-      time_to_next_hit  = player -> main_hand_attack -> execute_event -> occurs();
-      time_to_next_hit -= sim -> current_time;
-      time_to_next_hit += time_to_execute;
-      player -> main_hand_attack -> execute_event -> reschedule( time_to_next_hit );
-    }
-    // Offhand
-    if ( player -> off_hand_attack )
-    {
-      time_to_next_hit  = player -> off_hand_attack -> execute_event -> occurs();
-      time_to_next_hit -= sim -> current_time;
-      time_to_next_hit += time_to_execute;
-      player -> off_hand_attack -> execute_event -> reschedule( time_to_next_hit );
+      // While an ability is casting, the auto_attack is paused
+      // So we simply reschedule the auto_attack by the ability's casttime
+      double time_to_next_hit;
+      // Mainhand
+      if ( player -> main_hand_attack )
+      {
+        time_to_next_hit  = player -> main_hand_attack -> execute_event -> occurs();
+        time_to_next_hit -= sim -> current_time;
+        time_to_next_hit += time_to_execute;
+        player -> main_hand_attack -> execute_event -> reschedule( time_to_next_hit );
+      }
+      // Offhand
+      if ( player -> off_hand_attack )
+      {
+        time_to_next_hit  = player -> off_hand_attack -> execute_event -> occurs();
+        time_to_next_hit -= sim -> current_time;
+        time_to_next_hit += time_to_execute;
+        player -> off_hand_attack -> execute_event -> reschedule( time_to_next_hit );
+      }
     }
   }
 }
 
-// action_t::schedule_tick =================================================
 
-void action_t::schedule_tick()
-{
-  if ( sim -> debug ) log_t::output( sim, "%s schedules tick for %s", player -> name(), name() );
-
-  if ( dot -> current_tick == 0 )
-  {
-    if ( school == SCHOOL_BLEED ) target -> debuffs.bleeding -> increment();
-
-    if ( tick_zero )
-    {
-      time_to_tick = 0;
-      tick();
-    }
-  }
-
-  time_to_tick = tick_time();
-
-  dot -> tick_event = new ( sim ) dot_tick_event_t( sim, dot, time_to_tick );
-
-  dot -> ticking = 1;
-
-  if ( channeled ) player -> channeling = this;
-}
-
-// action_t::schedule_travel ===============================================
+// action_t::schedule_travel ================================================
 
 void action_t::schedule_travel( player_t* t )
 {
@@ -1290,7 +1281,7 @@ void action_t::schedule_travel( player_t* t )
   }
 }
 
-// action_t::reschedule_execute ============================================
+// action_t::reschedule_execute =============================================
 
 void action_t::reschedule_execute( double time )
 {
@@ -1314,92 +1305,7 @@ void action_t::reschedule_execute( double time )
   }
 }
 
-// action_t::refresh_duration ================================================
-
-void action_t::refresh_duration()
-{
-  if ( sim -> log ) log_t::output( sim, "%s refreshes duration of %s", player -> name(), name() );
-
-  // Make sure this DoT is still ticking......
-  assert( dot -> tick_event );
-
-  player_buff();
-  target_debuff( target, DMG_OVER_TIME );
-
-  dot -> action = this;
-  dot -> current_tick = 0;
-  dot -> added_ticks = 0;
-  dot -> added_seconds = 0;
-  dot -> num_ticks = hasted_num_ticks();
-  dot -> recalculate_ready();
-}
-
-// action_t::extend_duration =================================================
-
-void action_t::extend_duration( int extra_ticks )
-{
-  if ( sim -> log ) log_t::output( sim, "%s extends duration of %s, adding %d tick(s), totalling %d ticks", player -> name(), name(), extra_ticks, dot -> num_ticks + extra_ticks );
-
-  // Make sure this DoT is still ticking......
-  assert( dot -> tick_event );
-
-  player_buff();
-  target_debuff( target, DMG_OVER_TIME );
-
-  dot -> action = this;
-  dot -> added_ticks += extra_ticks;
-  dot -> num_ticks += extra_ticks;
-  dot -> recalculate_ready();
-}
-
-// action_t::extend_duration_seconds =========================================
-
-void action_t::extend_duration_seconds( double extra_seconds )
-{
-  // Make sure this DoT is still ticking......
-  assert( dot -> tick_event );
-
-  // Treat extra_ticks as 'seconds added' instead of 'ticks added'
-  // Duration left needs to be calculated with old haste for tick_time()
-  // First we need the number of ticks remaining after the next one =>
-  // ( num_ticks - current_tick ) - 1
-  int old_num_ticks = dot -> num_ticks;
-  int old_remaining_ticks = old_num_ticks - dot -> current_tick - 1;
-  double old_haste_factor = 1.0 / player_haste;
-
-  // Multiply with tick_time() for the duration left after the next tick
-  double duration_left = old_remaining_ticks * tick_time();
-
-  // Add the added seconds
-  duration_left += extra_seconds;
-
-  // Switch to new haste values and calculate resulting ticks
-  // ONLY updates haste, modifiers/spellpower are left untouched.
-  player_haste = total_haste();
-  target_debuff( target, DMG_OVER_TIME );
-  dot -> action = this;
-  dot -> added_seconds += extra_seconds;
-
-  int new_remaining_ticks = hasted_num_ticks( duration_left );
-  dot -> num_ticks += ( new_remaining_ticks - old_remaining_ticks );
-
-  if ( sim -> debug )
-  {
-    log_t::output( sim, "%s extends duration of %s by %.1f second(s). h: %.2f => %.2f, num_t: %d => %d, rem_t: %d => %d",
-                   player -> name(), name(), extra_seconds,
-                   old_haste_factor, ( 1.0 / player_haste ),
-                   old_num_ticks, dot -> num_ticks,
-                   old_remaining_ticks, new_remaining_ticks );
-  }
-  else if ( sim -> log )
-  {
-    log_t::output( sim, "%s extends duration of %s by %.1f second(s).", player -> name(), name(), extra_seconds );
-  }
-
-  dot -> recalculate_ready();
-}
-
-// action_t::update_ready ====================================================
+// action_t::update_ready ===================================================
 
 void action_t::update_ready()
 {
@@ -1434,7 +1340,7 @@ void action_t::update_ready()
   }
 }
 
-// action_t::usable_moving ====================================================
+// action_t::usable_moving ==================================================
 
 bool action_t::usable_moving()
 {
@@ -1458,6 +1364,9 @@ bool action_t::ready()
 {
   player_t* t = target;
 
+  if ( is_dtr_action )
+    assert( 0 );
+
   if ( player -> skill < 1.0 )
     if ( ! sim -> roll( player -> skill ) )
       return false;
@@ -1466,6 +1375,9 @@ bool action_t::ready()
     return false;
 
   if ( ! player -> resource_available( resource, cost() ) )
+    return false;
+
+  if ( if_expr && ! if_expr -> success() )
     return false;
 
   if ( min_current_time > 0 )
@@ -1522,9 +1434,6 @@ bool action_t::ready()
     if ( t -> health_percentage() > max_health_percentage )
       return false;
 
-  if ( if_expr && ! if_expr -> success() )
-    return false;
-
   return true;
 }
 
@@ -1554,7 +1463,7 @@ void action_t::init()
     }
   }
 
-  if ( ! if_expr_str.empty() )
+  if ( ! if_expr_str.empty() && ! is_dtr_action )
   {
     if_expr = action_expr_t::parse( this, if_expr_str );
   }
@@ -1562,6 +1471,16 @@ void action_t::init()
   if ( ! interrupt_if_expr_str.empty() )
   {
     interrupt_if_expr = action_expr_t::parse( this, interrupt_if_expr_str );
+  }
+
+  if ( is_dtr_action )
+  {
+    cooldown = player -> get_cooldown( name_str + "_DTR" );
+    cooldown -> duration = 0;
+
+    stats = player -> get_stats( name_str + "_DTR", this );
+    background = true;
+    travel_speed = 0.0;
   }
 
   initialized = true;
@@ -1584,7 +1503,7 @@ void action_t::cancel()
 {
   if ( sim -> debug ) log_t::output( sim, "action %s of %s is canceled", name(), player -> name() );
 
-  if ( dot -> ticking ) last_tick();
+  if ( dot -> ticking ) last_tick( dot );
 
   if ( player -> executing  == this ) player -> executing  = 0;
   if ( player -> channeling == this ) player -> channeling = 0;
@@ -1597,7 +1516,7 @@ void action_t::cancel()
   player -> debuffs.casting -> expire();
 }
 
-// action_t::interrupt =========================================================
+// action_t::interrupt ======================================================
 
 void action_t::interrupt_action()
 {
@@ -1613,7 +1532,7 @@ void action_t::interrupt_action()
   if ( player -> executing  == this ) player -> executing  = 0;
   if ( player -> channeling == this )
   {
-    if ( dot -> ticking ) last_tick();
+    if ( dot -> ticking ) last_tick( dot );
     player -> channeling = 0;
     event_t::cancel( dot -> tick_event );
     dot -> reset();
@@ -1669,7 +1588,7 @@ void action_t::check_spec( int necessary_spec )
   }
 }
 
-// action_t::check_min_level ===================================================
+// action_t::check_min_level ================================================
 
 void action_t::check_min_level( int action_level )
 {
@@ -1783,7 +1702,7 @@ action_expr_t* action_t::create_expression( const std::string& name_str )
       virtual int evaluate()
       {
         if ( action -> dot -> miss_time == -1 ||
-             action -> sim -> current_time >= (action -> dot -> miss_time + action -> last_reaction_time ) )
+             action -> sim -> current_time >= ( action -> dot -> miss_time + action -> last_reaction_time ) )
         {
           result_num = 1;
         }
@@ -1806,10 +1725,10 @@ action_expr_t* action_t::create_expression( const std::string& name_str )
         if ( action -> sim -> debug )
         {
           log_t::output( action -> sim, "%s %s cast_delay(): can_react_at=%f cur_time=%f",
-            action -> player -> name_str.c_str(),
-            action -> name_str.c_str(),
-            action -> player -> cast_delay_occurred + action -> player -> cast_delay_reaction,
-            action -> sim -> current_time );
+                         action -> player -> name_str.c_str(),
+                         action -> name_str.c_str(),
+                         action -> player -> cast_delay_occurred + action -> player -> cast_delay_reaction,
+                         action -> sim -> current_time );
         }
 
         if ( ! action -> player -> cast_delay_occurred ||
@@ -1853,7 +1772,7 @@ double action_t::ppm_proc_chance( double PPM ) SC_CONST
   }
   else
   {
-    double time = channeled ? time_to_tick : time_to_execute;
+    double time = channeled ? dot -> time_to_tick : time_to_execute;
 
     if ( time == 0 ) time = player -> base_gcd;
 
@@ -1896,4 +1815,17 @@ int action_t::hasted_num_ticks( double d ) SC_CONST
     return ( int ) ceil ( n - 0.5 );
 
   return ( int ) floor( n + 0.5 );
+}
+
+// action_t::dtr_proc_chance() ===
+
+double action_t::dtr_proc_chance() SC_CONST
+{
+  // Get base proc chance from player
+  double p = 0.1;
+
+  if ( is_dtr_action )
+    p = 0;
+
+  return p;
 }

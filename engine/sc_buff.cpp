@@ -40,7 +40,9 @@ struct buff_delay_t : public event_t
 
   virtual void execute()
   {
-    buff -> execute( stacks, value );
+    // Add a Cooldown check here to avoid extra processing due to delays
+    if ( buff -> cooldown -> remains() ==  0 )
+      buff -> execute( stacks, value );
     buff -> delay = 0;
   }
 };
@@ -63,7 +65,7 @@ buff_t::buff_t( sim_t*             s,
                 int                rt,
                 int                id ) :
   spell_id_t( 0, n.c_str() ),
-  sim( s ), player( 0 ), source( 0 ), name_str( n ),
+  sim( s ), player( 0 ), source( 0 ), initial_source( 0 ), name_str( n ),
   max_stack( ms ), activated( true ), buff_duration( d ), buff_cooldown( cd ), default_chance( ch ),
   reverse( r ), constant( false ), quiet( q ), aura_id( id ), rng_type( rt )
 {
@@ -84,7 +86,7 @@ buff_t::buff_t( player_t*          p,
                 int                id,
                 bool               act ) :
   spell_id_t( p, n.c_str() ),
-  sim( p -> sim ), player( p ), source( p ), name_str( n ),
+  sim( p -> sim ), player( p ), source( p ), initial_source( p ), name_str( n ),
   max_stack( ms ), activated( act ), buff_duration( d ), buff_cooldown( cd ), default_chance( ch ),
   reverse( r ), constant( false ), quiet( q ), aura_id( id ), rng_type( rt )
 {
@@ -114,7 +116,7 @@ void buff_t::init_from_talent_( player_t* /* p */, talent_t* talent )
 buff_t::buff_t( player_t* p,
                 talent_t* talent, ... ) :
   spell_id_t( p, talent -> trigger ? talent -> trigger -> name_cstr() : talent -> td -> name_cstr() ),
-  sim( p -> sim ), player( p ), source( p ), name_str( s_token ),
+  sim( p -> sim ), player( p ), source( p ), initial_source( p ), name_str( s_token ),
   max_stack( 0 ), activated( true ), buff_duration( 0 ), buff_cooldown( 0 ), default_chance( 0 ),
   reverse( false ), constant( false ), quiet( false ), rng_type( RNG_CYCLIC )
 {
@@ -132,7 +134,7 @@ buff_t::buff_t( player_t* p,
 buff_t::buff_t( player_t* p,
                 talent_t* talent ) :
   spell_id_t( p, talent -> trigger ? talent -> trigger -> name_cstr() : talent -> td -> name_cstr() ),
-  sim( p -> sim ), player( p ), source( p ), name_str( s_token ),
+  sim( p -> sim ), player( p ), source( p ), initial_source( p ), name_str( s_token ),
   max_stack( 0 ), activated( true ), buff_duration( 0 ), buff_cooldown( 0 ), default_chance( 0 ),
   reverse( false ), constant( false ), quiet( false ), rng_type( RNG_CYCLIC )
 {
@@ -156,7 +158,7 @@ void buff_t::init_from_spell_( player_t* /* p */, spell_data_t* spell )
 buff_t::buff_t( player_t*     p,
                 spell_data_t* spell, ... ) :
   spell_id_t( p, spell -> name_cstr(), spell -> id() ),
-  sim( p -> sim ), player( p ), source( p ), name_str( s_token ),
+  sim( p -> sim ), player( p ), source( p ), initial_source( p ), name_str( s_token ),
   max_stack( 0 ), activated( true ), buff_duration( 0 ), buff_cooldown( 0 ), default_chance( 0 ),
   reverse( false ), constant( false ), quiet( false ), rng_type( RNG_CYCLIC )
 {
@@ -174,7 +176,7 @@ buff_t::buff_t( player_t*     p,
 buff_t::buff_t( player_t*     p,
                 spell_data_t* spell ) :
   spell_id_t( p, spell -> name_cstr(), spell -> id() ),
-  sim( p -> sim ), player( p ), source( p ), name_str( s_token ),
+  sim( p -> sim ), player( p ), source( p ), initial_source( p ), name_str( s_token ),
   max_stack( 0 ), activated( true ), buff_duration( 0 ), buff_cooldown( 0 ), default_chance( 0 ),
   reverse( false ), constant( false ), quiet( false ), rng_type( RNG_CYCLIC )
 {
@@ -306,7 +308,7 @@ buff_t::buff_t( player_t*          p,
                 int                rt,
                 bool               act ) :
   spell_id_t( p, n.c_str(), sname, 0 ),
-  sim( p -> sim ), player( p ), source( 0 ), name_str( n ),
+  sim( p -> sim ), player( p ), source( 0 ), initial_source( 0 ), name_str( n ),
   max_stack( ( max_stacks()!=0 ) ? max_stacks() : ( initial_stacks() != 0 ? initial_stacks() : 1 ) ),
   activated( act ),
   buff_duration( ( duration() > ( p -> sim -> wheel_seconds - 2.0 ) ) ?  ( p -> sim -> wheel_seconds - 2.0 ) : duration() ),
@@ -354,7 +356,7 @@ buff_t::buff_t( player_t*          p,
                 int                rt,
                 bool               act ) :
   spell_id_t( p, n.c_str(), id ),
-  sim( p -> sim ), player( p ), source( 0 ), name_str( n ),
+  sim( p -> sim ), player( p ), source( 0 ), initial_source( 0 ), name_str( n ),
   max_stack( ( max_stacks()!=0 ) ? max_stacks() : ( initial_stacks() != 0 ? initial_stacks() : 1 ) ),
   activated( act ),
   buff_duration( ( duration() > ( p -> sim -> wheel_seconds - 2.0 ) ) ?  ( p -> sim -> wheel_seconds - 2.0 ) : duration() ),
@@ -390,7 +392,7 @@ buff_t::buff_t( player_t*          p,
     log_t::output( sim, "Buff Spell status: %s", to_str().c_str() );
 }
 
-// buff_t::init_buff_t_ ====================================================
+// buff_t::init_buff_t_ =====================================================
 
 void buff_t::init_buff_t_()
 {
@@ -551,12 +553,12 @@ bool buff_t::trigger( int    stacks,
     // delayed proc will happen.
     if ( delay )
     {
-     buff_delay_t* d = dynamic_cast< buff_delay_t* >( delay );
-     d -> stacks += stacks;
-     d -> value = value;
+      buff_delay_t* d = dynamic_cast< buff_delay_t* >( delay );
+      d -> stacks += stacks;
+      d -> value = value;
     }
     else
-     delay = new ( sim ) buff_delay_t( sim, player, this, stacks, value );
+      delay = new ( sim ) buff_delay_t( sim, player, this, stacks, value );
   }
   else
     execute( stacks, value );
@@ -566,9 +568,6 @@ bool buff_t::trigger( int    stacks,
 
 void buff_t::execute( int stacks, double value )
 {
-  // Add a Cooldown check here to avoid extra processing due to delays
-  if ( cooldown -> remains() > 0 ) return;
-
   if( last_trigger > 0 )
   {
     trigger_intervals_sum += sim -> current_time - last_trigger;
@@ -864,6 +863,7 @@ void buff_t::reset()
   expire();
   last_start = -1;
   last_trigger = -1;
+  uptime_sum = 0;
 }
 
 // buff_t::merge ============================================================
@@ -872,7 +872,7 @@ void buff_t::merge( buff_t* other )
 {
   start_intervals_sum   += other -> start_intervals_sum;
   trigger_intervals_sum += other -> trigger_intervals_sum;
-  uptime_sum            += other -> uptime_sum;
+  uptime_pct            += other -> uptime_pct;
   up_count              += other -> up_count;
   down_count            += other -> down_count;
   start_intervals       += other -> start_intervals;
@@ -887,11 +887,6 @@ void buff_t::merge( buff_t* other )
 
 void buff_t::analyze()
 {
-  double total_seconds = player ? player -> total_seconds : sim -> total_seconds;
-  if ( total_seconds > 0 )
-  {
-    uptime_pct = 100.0 * uptime_sum / total_seconds;
-  }
   if ( up_count > 0 )
   {
     benefit_pct = 100.0 * up_count / ( up_count + down_count );
@@ -910,6 +905,7 @@ void buff_t::analyze()
   }
   avg_start   =   start_count / ( double ) sim -> iterations;
   avg_refresh = refresh_count / ( double ) sim -> iterations;
+  uptime_pct  /= ( double ) sim -> iterations;
 }
 
 // buff_t::find =============================================================
@@ -1104,7 +1100,7 @@ void stat_buff_t::bump( int    stacks,
   double delta = amount * current_stack - current_value;
   if( delta > 0 )
   {
-    player -> stat_gain( stat, delta );
+    player -> stat_gain( stat, delta, 0, 0, buff_duration > 0 );
     current_value += delta;
   }
   else assert( delta == 0 );
@@ -1123,7 +1119,7 @@ void stat_buff_t::decrement( int    stacks,
   else
   {
     double delta = amount * stacks;
-    player -> stat_loss( stat, delta );
+    player -> stat_loss( stat, delta, 0, buff_duration > 0 );
     current_stack -= stacks;
     current_value -= delta;
   }
@@ -1135,7 +1131,7 @@ void stat_buff_t::expire()
 {
   if ( current_stack > 0 )
   {
-    player -> stat_loss( stat, current_value );
+    player -> stat_loss( stat, current_value, 0, buff_duration > 0 );
     buff_t::expire();
   }
 }
@@ -1145,7 +1141,7 @@ void stat_buff_t::expire()
 // COST_REDUCTION_BUFF
 // ==========================================================================
 
-// cost_reduction_buff_t::cost_reduction_buff_t =================================================
+// cost_reduction_buff_t::cost_reduction_buff_t =============================
 
 cost_reduction_buff_t::cost_reduction_buff_t( player_t*          p,
                                               const std::string& n,
@@ -1165,7 +1161,7 @@ cost_reduction_buff_t::cost_reduction_buff_t( player_t*          p,
 {
 }
 
-// cost_reduction_buff_t::cost_reduction_buff_t =================================================
+// cost_reduction_buff_t::cost_reduction_buff_t =============================
 
 cost_reduction_buff_t::cost_reduction_buff_t( player_t*          p,
                                               const uint32_t     id,
@@ -1183,7 +1179,7 @@ cost_reduction_buff_t::cost_reduction_buff_t( player_t*          p,
 {
 }
 
-// cost_reduction_buff_t::bump ========================================================
+// cost_reduction_buff_t::bump ==============================================
 
 void cost_reduction_buff_t::bump( int    stacks,
                                   double value )
@@ -1203,7 +1199,7 @@ void cost_reduction_buff_t::bump( int    stacks,
   else assert( delta == 0 );
 }
 
-// cost_reduction_buff_t::decrement ===================================================
+// cost_reduction_buff_t::decrement =========================================
 
 void cost_reduction_buff_t::decrement( int    stacks,
                                        double /* value */ )
@@ -1222,7 +1218,7 @@ void cost_reduction_buff_t::decrement( int    stacks,
   }
 }
 
-// cost_reduction_buff_t::expire ======================================================
+// cost_reduction_buff_t::expire ============================================
 
 void cost_reduction_buff_t::expire()
 {
@@ -1233,7 +1229,7 @@ void cost_reduction_buff_t::expire()
   }
 }
 
-// cost_reduction_buff_t::refresh ==========================================================
+// cost_reduction_buff_t::refresh ===========================================
 
 void cost_reduction_buff_t::refresh( int    stacks,
                                      double value )

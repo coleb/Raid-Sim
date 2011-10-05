@@ -76,6 +76,9 @@ struct paladin_t : public player_t
   gain_t* gains_hp_tower_of_radiance;
   gain_t* gains_hp_zealotry;
 
+  // Cooldowns
+  cooldown_t* cooldowns_avengers_shield;
+
   // Passives
   struct passives_t
   {
@@ -139,10 +142,10 @@ struct paladin_t : public player_t
     // prot
     int ardent_defender;
     int divine_guardian;
-    int divinity;
     int eternal_glory;
     int guarded_by_the_light;
     int vindication;
+    talent_t* divinity;
     talent_t* grand_crusader;
     talent_t* hallowed_ground;
     talent_t* hammer_of_the_righteous;
@@ -230,6 +233,8 @@ struct paladin_t : public player_t
     active_hand_of_light_proc          = 0;
     ancient_fury_explosion             = 0;
 
+    cooldowns_avengers_shield = get_cooldown( "avengers_shield" );
+
     ret_pvp_gloves = -1;
 
     create_talents();
@@ -268,7 +273,8 @@ struct paladin_t : public player_t
   virtual int       primary_resource() SC_CONST { return RESOURCE_MANA; }
   virtual int       primary_role() SC_CONST;
   virtual void      regen( double periodicity );
-  virtual double      assess_damage( double amount, const school_type school, int    dmg_type, int result, action_t* a );
+  virtual double    assess_damage( double amount, const school_type school, int dmg_type, int result, action_t* a );
+  virtual heal_info_t assess_heal( double amount, const school_type school, int type, int result, action_t* a );
   virtual cooldown_t* get_cooldown( const std::string& name );
   virtual pet_t*    create_pet    ( const std::string& name, const std::string& type = std::string() );
   virtual void      create_pets   ();
@@ -303,7 +309,7 @@ static void trigger_grand_crusader( action_t* a )
 
   if ( a -> sim -> roll( p -> talents.grand_crusader -> proc_chance() ) )
   {
-    p -> get_cooldown( "avengers_shield" ) -> reset();
+    p -> cooldowns_avengers_shield -> reset();
     p -> buffs_grand_crusader -> trigger();
   }
 }
@@ -360,8 +366,11 @@ struct guardian_of_ancient_kings_ret_t : public pet_t
 
   virtual void dismiss()
   {
-    if (sleeping) return;
+    // Only trigger the explosion if we're not sleeping
+    if ( sleeping ) return;
+
     pet_t::dismiss();
+
     if ( owner -> cast_paladin() -> ancient_fury_explosion )
       owner -> cast_paladin() -> ancient_fury_explosion -> execute();
   }
@@ -373,9 +382,61 @@ struct guardian_of_ancient_kings_ret_t : public pet_t
   }
 };
 
-// =========================================================================
+struct paladin_heal_t : public heal_t
+{
+  void _init_paladin_heal_t()
+  {
+    may_crit          = true;
+    tick_may_crit     = true;
+
+    dot_behavior      = DOT_REFRESH;
+    weapon_multiplier = 0.0;
+  }
+  paladin_heal_t( const char* n, player_t* player, const char* sname, int t = TREE_NONE ) :
+    heal_t( n, player, sname, t )
+  {
+    _init_paladin_heal_t();
+  }
+
+  paladin_heal_t( const char* n, player_t* player, const uint32_t id, int t = TREE_NONE ) :
+    heal_t( n, player, id, t )
+  {
+    _init_paladin_heal_t();
+  }
+
+  virtual void player_buff()
+  {
+    heal_t::player_buff();
+  }
+
+  virtual double cost() SC_CONST
+  {
+    paladin_t* p = player -> cast_paladin();
+
+    if ( resource == RESOURCE_HOLY_POWER )
+    {
+      if ( p -> buffs_divine_purpose -> check() )
+        return 0;
+
+      return std::max( base_cost, p -> resource_current[ RESOURCE_HOLY_POWER ] );
+    }
+
+    return heal_t::cost();
+  }
+
+  virtual void consume_resource()
+  {
+    heal_t::consume_resource();
+
+    paladin_t* p = player -> cast_paladin();
+
+    p -> buffs_divine_purpose -> expire();
+  }
+};
+
+// ==========================================================================
 // Paladin Attacks
-// =========================================================================
+// ==========================================================================
 
 struct paladin_attack_t : public attack_t
 {
@@ -523,7 +584,8 @@ struct paladin_attack_t : public attack_t
   }
 };
 
-// Melee Attack ============================================================
+
+// Melee Attack =============================================================
 
 struct melee_t : public paladin_attack_t
 {
@@ -569,7 +631,7 @@ struct melee_t : public paladin_attack_t
   }
 };
 
-// Auto Attack =============================================================
+// Auto Attack ==============================================================
 
 struct auto_attack_t : public paladin_attack_t
 {
@@ -598,7 +660,7 @@ struct auto_attack_t : public paladin_attack_t
   }
 };
 
-// trigger_tier12_2pc_melee ===========================================================
+// trigger_tier12_2pc_melee =================================================
 
 static void trigger_tier12_2pc_melee( attack_t* s, double dmg )
 {
@@ -713,7 +775,7 @@ struct ancient_fury_t : public paladin_attack_t
   }
 };
 
-// Avengers Shield =========================================================
+// Avengers Shield ==========================================================
 
 struct avengers_shield_t : public paladin_attack_t
 {
@@ -815,7 +877,7 @@ struct crusader_strike_t : public paladin_attack_t
   }
 };
 
-// Divine Storm ============================================================
+// Divine Storm =============================================================
 
 struct divine_storm_t : public paladin_attack_t
 {
@@ -866,7 +928,7 @@ struct divine_storm_t : public paladin_attack_t
   }
 };
 
-// Hammer of Justice =======================================================
+// Hammer of Justice ========================================================
 
 struct hammer_of_justice_t : public paladin_attack_t
 {
@@ -879,7 +941,7 @@ struct hammer_of_justice_t : public paladin_attack_t
   }
 };
 
-// Hammer of the Righteous =================================================
+// Hammer of the Righteous ==================================================
 
 struct hammer_of_the_righteous_aoe_t : public paladin_attack_t
 {
@@ -929,7 +991,7 @@ struct hammer_of_the_righteous_t : public paladin_attack_t
   }
 };
 
-// Hammer of Wrath =========================================================
+// Hammer of Wrath ==========================================================
 
 struct hammer_of_wrath_t : public paladin_attack_t
 {
@@ -966,7 +1028,7 @@ struct hammer_of_wrath_t : public paladin_attack_t
   }
 };
 
-// Hand of Light proc ======================================================
+// Hand of Light proc =======================================================
 
 struct hand_of_light_proc_t : public attack_t
 {
@@ -1034,26 +1096,26 @@ struct paladin_seal_t : public paladin_attack_t
 
 // Seal of Insight ==========================================================
 
-struct seal_of_insight_proc_t : public paladin_attack_t
+struct seal_of_insight_proc_t : public paladin_heal_t
 {
   seal_of_insight_proc_t( paladin_t* p ) :
-    paladin_attack_t( "seal_of_insight", 20167, p )
+    paladin_heal_t( "seal_of_insight_proc", p, 20167 )
   {
     background  = true;
     proc        = true;
     trigger_gcd = 0;
 
-    base_attack_power_multiplier = 0.15;
-    base_spell_power_multiplier  = 0.15;
+    target = player;
+    heal_target.clear();
+    heal_target.push_back( target );
 
-    weapon            = &( p -> main_hand_weapon );
-    weapon_multiplier = 0.0;
   }
 
   virtual void execute()
   {
     paladin_t* p = player -> cast_paladin();
-    p -> resource_gain( RESOURCE_HEALTH, total_power() );
+    base_dd_min = base_dd_max = p -> resource_current[ RESOURCE_HOLY_POWER ] * 0.15 * p -> composite_attack_power();
+    paladin_heal_t::execute();
     p -> resource_gain( RESOURCE_MANA, p -> resource_max[ RESOURCE_MANA ] * effect2().resource( RESOURCE_MANA ), p -> gains_seal_of_insight );
   }
 };
@@ -1206,13 +1268,15 @@ struct seal_of_truth_dot_t : public paladin_attack_t
     may_glance       = false;
     dot_behavior     = DOT_REFRESH;
 
-
     base_spell_power_multiplier  = tick_power_mod;
     base_attack_power_multiplier = extra_coeff();
     tick_power_mod               = 1.0;
 
     base_multiplier *= 1.0 + ( p -> talents.seals_of_the_pure -> effect1().percent() +
                                p -> talents.inquiry_of_faith -> mod_additive( P_TICK_DAMAGE ) );
+
+    // Hotfix 40% increased damage needs testing
+    base_multiplier *= 1.40;
   }
 
   virtual void player_buff()
@@ -1231,10 +1295,10 @@ struct seal_of_truth_dot_t : public paladin_attack_t
     paladin_attack_t::travel( t, travel_result, travel_dmg );
   }
 
-  virtual void last_tick()
+  virtual void last_tick( dot_t* d )
   {
     paladin_t* p = player -> cast_paladin();
-    paladin_attack_t::last_tick();
+    paladin_attack_t::last_tick( d );
     p -> buffs_censure -> expire();
   }
 };
@@ -1392,7 +1456,7 @@ struct judgement_t : public paladin_attack_t
   }
 };
 
-// Shield of Righteousness =================================================
+// Shield of Righteousness ==================================================
 
 struct shield_of_the_righteous_t : public paladin_attack_t
 {
@@ -1638,11 +1702,11 @@ struct consecration_t : public paladin_spell_t
     tick_spell = new consecration_tick_t( p );
   }
 
-  virtual void tick()
+  virtual void tick( dot_t* d )
   {
-    if ( sim -> debug ) log_t::output( sim, "%s ticks (%d of %d)", name(), dot -> current_tick, dot -> num_ticks );
+    if ( sim -> debug ) log_t::output( sim, "%s ticks (%d of %d)", name(), d -> current_tick, d -> num_ticks );
     tick_spell -> execute();
-    stats -> add_tick( time_to_tick );
+    stats -> add_tick( d -> time_to_tick );
   }
 };
 
@@ -1698,7 +1762,7 @@ struct divine_plea_t : public paladin_spell_t
   }
 };
 
-// Exorcism ================================================================
+// Exorcism =================================================================
 
 struct exorcism_t : public paladin_spell_t
 {
@@ -1821,7 +1885,7 @@ struct guardian_of_ancient_kings_t : public paladin_spell_t
     if ( sim -> log ) log_t::output( sim, "%s performs %s", p -> name(), name() );
     update_ready();
     if ( p -> primary_tree() == TREE_RETRIBUTION )
-      p -> summon_pet( "guardian_of_ancient_kings", p -> spells.guardian_of_ancient_kings_ret -> duration() );
+      p -> guardian_of_ancient_kings -> summon( p -> spells.guardian_of_ancient_kings_ret -> duration() );
   }
 };
 
@@ -1845,7 +1909,7 @@ struct holy_shield_t : public paladin_spell_t
   }
 };
 
-// Holy Shock ==============================================================
+// Holy Shock ===============================================================
 
 // TODO: fix the fugly hack
 struct holy_shock_t : public paladin_spell_t
@@ -1875,7 +1939,7 @@ struct holy_shock_t : public paladin_spell_t
   }
 };
 
-// Holy Wrath ==============================================================
+// Holy Wrath ===============================================================
 
 struct holy_wrath_t : public paladin_spell_t
 {
@@ -1955,61 +2019,11 @@ struct zealotry_t : public paladin_spell_t
 };
 
 
-// =========================================================================
+// ==========================================================================
 // Paladin Heals
-// =========================================================================
+// ==========================================================================
 
-struct paladin_heal_t : public heal_t
-{
-  void _init_paladin_heal_t()
-  {
-    may_crit          = true;
-    tick_may_crit     = true;
 
-    dot_behavior      = DOT_REFRESH;
-    weapon_multiplier = 0.0;
-  }
-  paladin_heal_t( const char* n, player_t* player, const char* sname, int t = TREE_NONE ) :
-    heal_t( n, player, sname, t )
-  {
-    _init_paladin_heal_t();
-  }
-
-  paladin_heal_t( const char* n, player_t* player, const uint32_t id, int t = TREE_NONE ) :
-    heal_t( n, player, id, t )
-  {
-    _init_paladin_heal_t();
-  }
-
-  virtual void player_buff()
-  {
-    heal_t::player_buff();
-  }
-
-  virtual double cost() SC_CONST
-  {
-    paladin_t* p = player -> cast_paladin();
-
-    if ( resource == RESOURCE_HOLY_POWER )
-    {
-      if ( p -> buffs_divine_purpose -> check() )
-        return 0;
-
-      return std::max( base_cost, p -> resource_current[ RESOURCE_HOLY_POWER ] );
-    }
-
-    return heal_t::cost();
-  }
-
-  virtual void consume_resource()
-  {
-    heal_t::consume_resource();
-
-    paladin_t* p = player -> cast_paladin();
-
-    p -> buffs_divine_purpose -> expire();
-  }
-};
 
 // Word of Glory Spell
 
@@ -2100,7 +2114,7 @@ struct lay_on_hands_t : public paladin_heal_t
 // Paladin Character Definition
 // ==========================================================================
 
-// paladin_t::create_action ==================================================
+// paladin_t::create_action =================================================
 
 action_t* paladin_t::create_action( const std::string& name, const std::string& options_str )
 {
@@ -2146,7 +2160,7 @@ action_t* paladin_t::create_action( const std::string& name, const std::string& 
   return player_t::create_action( name, options_str );
 }
 
-// paladin_t::init_defense =============================================
+// paladin_t::init_defense ==================================================
 
 void paladin_t::init_defense()
 {
@@ -2422,8 +2436,8 @@ void paladin_t::init_actions()
           action_list_str += items[ i ].name();
         }
       }
-      init_use_profession_actions();
-      init_use_racial_actions();
+      action_list_str += init_use_profession_actions();
+      action_list_str += init_use_racial_actions();
       action_list_str += "/zealotry";
       if ( level >= 85 )
         action_list_str += "/guardian_of_ancient_kings,if=(buff.zealotry.remains<31&buff.zealotry.up)|cooldown.zealotry.remains>60";
@@ -2465,8 +2479,8 @@ void paladin_t::init_actions()
           action_list_str += items[ i ].name();
         }
       }
-      init_use_profession_actions();
-      init_use_racial_actions();
+      action_list_str += init_use_profession_actions();
+      action_list_str += init_use_racial_actions();
       action_list_str += "/avenging_wrath";
       action_list_str += "/guardian_of_ancient_kings,if=health_pct<=30";
       action_list_str += "/word_of_glory,if=health_pct<=50";
@@ -2504,8 +2518,8 @@ void paladin_t::init_actions()
           action_list_str += items[ i ].name();
         }
       }
-      init_use_profession_actions();
-      init_use_racial_actions();
+      action_list_str += init_use_profession_actions();
+      action_list_str += init_use_racial_actions();
       action_list_str += "/avenging_wrath";
       action_list_str += "/judgement";
       action_list_str += "/holy_wrath";
@@ -2550,6 +2564,7 @@ void paladin_t::init_talents()
 
 
   // Prot
+  talents.divinity                  = find_talent( "Divinity" );
   talents.seals_of_the_pure         = find_talent( "Seals of the Pure" );
   talents.judgements_of_the_just    = find_talent( "Judgements of the Just" );
   talents.improved_hammer_of_justice= find_talent( "Improved Hammer of Justice" );
@@ -2631,7 +2646,7 @@ void paladin_t::init_spells()
   glyphs.templars_verdict         = find_glyph( "Glyph of Templar's Verdict" );
 
   // Tier Bonuses
-  static uint32_t set_bonuses[N_TIER][N_TIER_BONUS] =
+  static const uint32_t set_bonuses[N_TIER][N_TIER_BONUS] =
   {
     //  C2P    C4P    M2P    M4P    T2P    T4P    H2P    H4P
     {     0,     0, 90298, 90299, 90301, 90306,     0,     0 }, // Tier11
@@ -2642,26 +2657,26 @@ void paladin_t::init_spells()
   sets = new set_bonus_array_t( this, set_bonuses );
 }
 
-// paladin_t::init_values ========================================================
+// paladin_t::init_values ===================================================
 
 void paladin_t::init_values()
 {
   player_t::init_values();
 
   if ( set_bonus.pvp_2pc_heal() )
-      attribute_initial[ ATTR_INTELLECT ] += 70;
+    attribute_initial[ ATTR_INTELLECT ] += 70;
 
   if ( set_bonus.pvp_4pc_heal() )
-      attribute_initial[ ATTR_INTELLECT ] += 90;
+    attribute_initial[ ATTR_INTELLECT ] += 90;
 
   if ( set_bonus.pvp_2pc_melee() )
-      attribute_initial[ ATTR_STRENGTH ] += 70;
+    attribute_initial[ ATTR_STRENGTH ] += 70;
 
   if ( set_bonus.pvp_4pc_melee() )
-      attribute_initial[ ATTR_STRENGTH ] += 90;
+    attribute_initial[ ATTR_STRENGTH ] += 90;
 }
 
-// paladin_t::primary_role ===============================================
+// paladin_t::primary_role ==================================================
 
 int paladin_t::primary_role() SC_CONST
 {
@@ -2680,7 +2695,7 @@ int paladin_t::primary_role() SC_CONST
   return ROLE_HYBRID;
 }
 
-// paladin_t::composite_attack_expertise =================================
+// paladin_t::composite_attack_expertise ====================================
 
 double paladin_t::composite_attack_expertise() SC_CONST
 {
@@ -2692,7 +2707,7 @@ double paladin_t::composite_attack_expertise() SC_CONST
   return m;
 }
 
-// paladin_t::jotp_haste =============================================
+// paladin_t::jotp_haste ====================================================
 
 double paladin_t::jotp_haste() SC_CONST
 {
@@ -2702,21 +2717,21 @@ double paladin_t::jotp_haste() SC_CONST
     return 1.0;
 }
 
-// paladin_t::composite_attack_haste =================================
+// paladin_t::composite_attack_haste ========================================
 
 double paladin_t::composite_attack_haste() SC_CONST
 {
   return player_t::composite_attack_haste() * jotp_haste();
 }
 
-// paladin_t::composite_spell_haste =================================
+// paladin_t::composite_spell_haste =========================================
 
 double paladin_t::composite_spell_haste() SC_CONST
 {
   return player_t::composite_spell_haste() * jotp_haste();
 }
 
-// paladin_t::composite_attribute_multiplier =================================
+// paladin_t::composite_attribute_multiplier ================================
 
 double paladin_t::composite_attribute_multiplier( int attr ) SC_CONST
 {
@@ -2728,7 +2743,7 @@ double paladin_t::composite_attribute_multiplier( int attr ) SC_CONST
   return m;
 }
 
-// paladin_t::composite_player_multiplier =================================
+// paladin_t::composite_player_multiplier ===================================
 
 double paladin_t::composite_player_multiplier( const school_type school, action_t* a ) SC_CONST
 {
@@ -2741,7 +2756,7 @@ double paladin_t::composite_player_multiplier( const school_type school, action_
   return m;
 }
 
-// paladin_t::composite_spell_power ==========================================
+// paladin_t::composite_spell_power =========================================
 
 double paladin_t::composite_spell_power( const school_type school ) SC_CONST
 {
@@ -2760,7 +2775,7 @@ double paladin_t::composite_spell_power( const school_type school ) SC_CONST
   return sp;
 }
 
-// paladin_t::composite_tank_block ===========================================
+// paladin_t::composite_tank_block ==========================================
 
 double paladin_t::composite_tank_block() SC_CONST
 {
@@ -2769,7 +2784,7 @@ double paladin_t::composite_tank_block() SC_CONST
   return b;
 }
 
-// paladin_t::composite_tank_block_reduction =================================
+// paladin_t::composite_tank_block_reduction ================================
 
 double paladin_t::composite_tank_block_reduction() SC_CONST
 {
@@ -2778,7 +2793,7 @@ double paladin_t::composite_tank_block_reduction() SC_CONST
   return b;
 }
 
-// paladin_t::composite_tank_crit ==========================================
+// paladin_t::composite_tank_crit ===========================================
 
 double paladin_t::composite_tank_crit( const school_type school ) SC_CONST
 {
@@ -2790,7 +2805,7 @@ double paladin_t::composite_tank_crit( const school_type school ) SC_CONST
   return c;
 }
 
-// paladin_t::matching_gear_multiplier =====================================
+// paladin_t::matching_gear_multiplier ======================================
 
 double paladin_t::matching_gear_multiplier( const attribute_type attr ) SC_CONST
 {
@@ -2842,7 +2857,7 @@ void paladin_t::regen( double periodicity )
   }
 }
 
-// paladin_t::assess_damage ==================================================
+// paladin_t::assess_damage =================================================
 
 double paladin_t::assess_damage( double            amount,
                                  const school_type school,
@@ -2853,7 +2868,7 @@ double paladin_t::assess_damage( double            amount,
 
   if ( talents.sanctuary -> rank() )
   {
-    amount *= 1.0 - talents.sanctuary -> effect1().percent();
+    amount *= 1.0 + talents.sanctuary -> effect1().percent();
 
     if ( result == RESULT_DODGE || result == RESULT_BLOCK )
     {
@@ -2882,7 +2897,18 @@ double paladin_t::assess_damage( double            amount,
   return player_t::assess_damage( amount, school, dmg_type, result, action );
 }
 
-// paladin_t::get_cooldown ===================================================
+player_t::heal_info_t paladin_t::assess_heal(  double            amount,
+                                               const school_type school,
+                                               int               dmg_type,
+                                               int               result,
+                                               action_t*         action )
+{
+  //amount *= 1.0 + p -> buffs_divinity -> value();
+
+  return player_t::assess_heal( amount, school, dmg_type, result, action );
+}
+
+// paladin_t::get_cooldown ==================================================
 
 cooldown_t* paladin_t::get_cooldown( const std::string& name )
 {
@@ -2892,7 +2918,7 @@ cooldown_t* paladin_t::get_cooldown( const std::string& name )
   return player_t::get_cooldown( name );
 }
 
-// paladin_t::create_options =================================================
+// paladin_t::create_options ================================================
 
 void paladin_t::create_options()
 {
@@ -2908,7 +2934,7 @@ void paladin_t::create_options()
 }
 
 
-// paladin_t::create_pet =====================================================
+// paladin_t::create_pet ====================================================
 
 pet_t* paladin_t::create_pet( const std::string& pet_name,
                               const std::string& /* pet_type */ )
@@ -2923,7 +2949,7 @@ pet_t* paladin_t::create_pet( const std::string& pet_name,
   return 0;
 }
 
-// paladin_t::create_pets ====================================================
+// paladin_t::create_pets ===================================================
 
 // FIXME: Not possible to check spec at this point, but in the future when all
 // three versions of the guardian are implemented, it would be fugly to have to
@@ -2934,7 +2960,7 @@ void paladin_t::create_pets()
   guardian_of_ancient_kings = create_pet( "guardian_of_ancient_kings_ret" );
 }
 
-// paladin_t::combat_begin ===================================================
+// paladin_t::combat_begin ==================================================
 
 void paladin_t::combat_begin()
 {
@@ -2945,7 +2971,7 @@ void paladin_t::combat_begin()
   resource_current[ RESOURCE_HOLY_POWER ] = 0;
 }
 
-// paladin_t::holy_power_stacks ==============================================
+// paladin_t::holy_power_stacks =============================================
 
 int paladin_t::holy_power_stacks() SC_CONST
 {
@@ -2955,7 +2981,7 @@ int paladin_t::holy_power_stacks() SC_CONST
   return ( int ) resource_current[ RESOURCE_HOLY_POWER ];
 }
 
-// paladin_t::get_divine_bulwark =============================================
+// paladin_t::get_divine_bulwark ============================================
 
 double paladin_t::get_divine_bulwark() SC_CONST
 {
@@ -2965,7 +2991,7 @@ double paladin_t::get_divine_bulwark() SC_CONST
   return composite_mastery() * passives.divine_bulwark -> base_value( E_APPLY_AURA, A_DUMMY );
 }
 
-// paladin_t::get_hand_of_light ==============================================
+// paladin_t::get_hand_of_light =============================================
 
 double paladin_t::get_hand_of_light() SC_CONST
 {
@@ -3002,7 +3028,7 @@ void player_t::paladin_init( sim_t* sim )
   }
 }
 
-// player_t::paladin_combat_begin ============================================
+// player_t::paladin_combat_begin ===========================================
 
 void player_t::paladin_combat_begin( sim_t* sim )
 {

@@ -216,10 +216,11 @@ struct death_knight_t : public player_t
   spells_t spells;
 
   // Pets and Guardians
-  army_ghoul_pet_t*          active_army_ghoul;
-  bloodworms_pet_t*          active_bloodworms;
+  pet_t* active_army_ghoul;
+  pet_t* active_bloodworms;
   dancing_rune_weapon_pet_t* active_dancing_rune_weapon;
-  ghoul_pet_t*               active_ghoul;
+  pet_t* active_ghoul;
+  pet_t* active_gargoyle;
 
   // Procs
   proc_t* proc_runic_empowerment;
@@ -334,6 +335,7 @@ struct death_knight_t : public player_t
     active_bloodworms          = NULL;
     active_dancing_rune_weapon = NULL;
     active_ghoul               = NULL;
+    active_gargoyle            = NULL;
 
     blood_plague = NULL;
     frost_fever  = NULL;
@@ -352,7 +354,7 @@ struct death_knight_t : public player_t
   virtual void      init_talents();
   virtual void      init_spells();
   virtual void      init_actions();
-  virtual void      init_use_racial_actions( const std::string& append = std::string() );
+  virtual std::string init_use_racial_actions( const std::string& append = std::string() );
   virtual void      init_enchant();
   virtual void      init_rng();
   virtual void      init_defense();
@@ -427,7 +429,7 @@ void dk_rune_t::regen_rune( player_t* p, double periodicity )
   // If the other rune is already regening, we don't
   // but if both are full we still continue on to record resource gain overflow
   if ( state == STATE_DEPLETED &&   paired_rune -> state == STATE_REGENERATING ) return;
-  if ( state == STATE_FULL     && ! paired_rune -> state == STATE_FULL         ) return;
+  if ( state == STATE_FULL     && ! ( paired_rune -> state == STATE_FULL )     ) return;
 
 
   // Base rune regen rate is 10 seconds; we want the per-second regen
@@ -452,7 +454,7 @@ void dk_rune_t::regen_rune( player_t* p, double periodicity )
 
   // record rune gains and overflow
   gain_t* gains_rune      = o -> gains_rune         ;
-  gain_t* gains_rune_type = 
+  gain_t* gains_rune_type =
     is_frost()            ? o -> gains_rune_frost   :
     is_blood()            ? o -> gains_rune_blood   :
     is_unholy()           ? o -> gains_rune_unholy  :
@@ -463,8 +465,8 @@ void dk_rune_t::regen_rune( player_t* p, double periodicity )
   {
     if ( paired_rune -> state == STATE_FULL )
     {
-      gains_rune_type -> add(0, regen_amount * 0.5);
-      gains_rune      -> add(0, regen_amount * 0.5);
+      gains_rune_type -> add( 0, regen_amount * 0.5 );
+      gains_rune      -> add( 0, regen_amount * 0.5 );
     }
     return;
   }
@@ -498,8 +500,8 @@ void dk_rune_t::regen_rune( player_t* p, double periodicity )
     else
       paired_rune -> state = STATE_REGENERATING;
   }
- gains_rune_type -> add(regen_amount - overflow, overflow);
- gains_rune      -> add(regen_amount - overflow, overflow);
+  gains_rune_type -> add( regen_amount - overflow, overflow );
+  gains_rune      -> add( regen_amount - overflow, overflow );
 
   if ( p -> sim -> debug )
   {
@@ -647,14 +649,6 @@ struct army_ghoul_pet_t : public pet_t
     snapshot_speed    = o -> composite_attack_speed();
     snapshot_hit      = o -> composite_attack_hit();
     snapshot_strength = o -> strength();
-    o -> active_army_ghoul = this;
-  }
-
-  virtual void dismiss()
-  {
-    death_knight_t* o = owner -> cast_death_knight();
-    pet_t::dismiss();
-    o -> active_army_ghoul = 0;
   }
 
   virtual double composite_attack_crit() SC_CONST
@@ -693,6 +687,16 @@ struct army_ghoul_pet_t : public pet_t
     if ( name == "claw"           ) return new         army_ghoul_pet_claw_t( this );
 
     return pet_t::create_action( name, options_str );
+  }
+
+  double available() SC_CONST
+  {
+    double energy = resource_current[ RESOURCE_ENERGY ];
+
+    if ( energy > 40 )
+      return 0.1;
+
+    return std::max( ( 40 - energy ) / energy_regen_per_second(), 0.1 );
   }
 };
 
@@ -754,17 +758,8 @@ struct bloodworms_pet_t : public pet_t
 
   virtual void summon( double duration=0 )
   {
-    death_knight_t* o = owner -> cast_death_knight();
     pet_t::summon( duration );
-    o -> active_bloodworms = this;
     melee -> schedule_execute();
-  }
-
-  virtual void dismiss()
-  {
-    death_knight_t* o = owner -> cast_death_knight();
-    pet_t::dismiss();
-    o -> active_bloodworms = 0;
   }
 
   virtual int primary_resource() SC_CONST { return RESOURCE_MANA; }
@@ -1141,20 +1136,12 @@ struct dancing_rune_weapon_pet_t : public pet_t
   {
     death_knight_t* o = owner -> cast_death_knight();
     pet_t::summon( duration );
-    o -> active_dancing_rune_weapon = this;
     snapshot_spell_crit  = o -> composite_spell_crit();
     snapshot_attack_crit = o -> composite_attack_crit();
     haste_snapshot       = o -> composite_attack_haste();
     speed_snapshot       = o -> composite_attack_speed();
     attack_power         = o -> composite_attack_power() * o -> composite_attack_power_multiplier();
     drw_melee -> schedule_execute();
-  }
-
-  virtual void dismiss()
-  {
-    death_knight_t* o = owner -> cast_death_knight();
-    pet_t::dismiss();
-    o -> active_dancing_rune_weapon = 0;
   }
 };
 
@@ -1386,14 +1373,6 @@ struct ghoul_pet_t : public pet_t
     snapshot_speed    = o -> composite_attack_speed();
     snapshot_hit      = o -> composite_attack_hit();
     snapshot_strength = o -> strength();
-    o -> active_ghoul = this;
-  }
-
-  virtual void dismiss()
-  {
-    death_knight_t* o = owner -> cast_death_knight();
-    pet_t::dismiss();
-    o -> active_ghoul = 0;
   }
 
   virtual double composite_attack_crit() SC_CONST
@@ -1489,6 +1468,16 @@ struct ghoul_pet_t : public pet_t
 
     return pet_t::create_action( name, options_str );
   }
+
+  double available() SC_CONST
+  {
+    double energy = resource_current[ RESOURCE_ENERGY ];
+
+    if ( energy > 40 )
+      return 0.1;
+
+    return std::max( ( 40 - energy ) / energy_regen_per_second(), 0.1 );
+  }
 };
 
 namespace   // ANONYMOUS NAMESPACE ==========================================
@@ -1550,21 +1539,6 @@ struct death_knight_attack_t : public attack_t
 // Death Knight Spell
 // ==========================================================================
 
-void extract_rune_cost( spell_id_t* spell, int* cost_blood, int* cost_frost, int* cost_unholy )
-{
-  // Rune costs appear to be in binary: 0a0b0c where 'c' is whether the ability
-  // costs a blood rune, 'b' is whether it costs an unholy rune, and 'a'
-  // is whether it costs a frost rune.
-
-  uint32_t spell_id = spell -> spell_id();
-  if ( spell_id == 0 ) return;
-
-  uint32_t rune_cost = spell -> rune_cost();
-  *cost_blood  =        rune_cost & 0x1;
-  *cost_unholy = ( rune_cost >> 2 ) & 0x1;
-  *cost_frost  = ( rune_cost >> 4 ) & 0x1;
-}
-
 struct death_knight_spell_t : public spell_t
 {
   int    cost_blood;
@@ -1575,14 +1549,14 @@ struct death_knight_spell_t : public spell_t
 
   death_knight_spell_t( const char* n, death_knight_t* p, int r=RESOURCE_NONE, const school_type s=SCHOOL_PHYSICAL, int t=TREE_NONE ) :
     spell_t( n, p, r, s, t ),
-    cost_blood( 0 ),cost_frost( 0 ),cost_unholy( 0 ),convert_runes( false )
+    cost_blood( 0 ), cost_frost( 0 ), cost_unholy( 0 ), convert_runes( 0 )
   {
     _init_dk_spell();
   }
 
   death_knight_spell_t( const char* n, uint32_t id, death_knight_t* p ) :
     spell_t( n, id, p ),
-    cost_blood( 0 ),cost_frost( 0 ),cost_unholy( 0 ),convert_runes( false )
+    cost_blood( 0 ), cost_frost( 0 ), cost_unholy( 0 ), convert_runes( 0 )
   {
     _init_dk_spell();
   }
@@ -1610,6 +1584,21 @@ struct death_knight_spell_t : public spell_t
 // ==========================================================================
 // Local Utility Functions
 // ==========================================================================
+
+static void extract_rune_cost( const spell_id_t* spell, int* cost_blood, int* cost_frost, int* cost_unholy )
+{
+  // Rune costs appear to be in binary: 0a0b0c where 'c' is whether the ability
+  // costs a blood rune, 'b' is whether it costs an unholy rune, and 'a'
+  // is whether it costs a frost rune.
+
+  uint32_t spell_id = spell -> spell_id();
+  if ( spell_id == 0 ) return;
+
+  uint32_t rune_cost = spell -> rune_cost();
+  *cost_blood  =        rune_cost & 0x1;
+  *cost_unholy = ( rune_cost >> 2 ) & 0x1;
+  *cost_frost  = ( rune_cost >> 4 ) & 0x1;
+}
 
 // Count Runes ==============================================================
 
@@ -1643,7 +1632,7 @@ static int count_death_runes( death_knight_t* p, bool inactive )
 
 // Consume Runes ============================================================
 
-static void consume_runes( player_t* player, const bool* use, bool convert_runes = false )
+static void consume_runes( player_t* player, const bool use[RUNE_SLOT_MAX], bool convert_runes = false )
 {
   death_knight_t* p = player -> cast_death_knight();
 
@@ -1669,7 +1658,7 @@ static void consume_runes( player_t* player, const bool* use, bool convert_runes
 
 // Group Runes ==============================================================
 
-static bool group_runes ( player_t* player, int blood, int frost, int unholy, bool* group )
+static bool group_runes ( player_t* player, int blood, int frost, int unholy, bool group[RUNE_SLOT_MAX] )
 {
   death_knight_t* p = player -> cast_death_knight();
   int cost[]  = { blood + frost + unholy, blood, frost, unholy };
@@ -1996,7 +1985,7 @@ void death_knight_attack_t::target_debuff( player_t* t, int dmg_type )
 void death_knight_spell_t::reset()
 {
   for ( int i = 0; i < RUNE_SLOT_MAX; ++i ) use[i] = false;
-  action_t::reset();
+  spell_t::reset();
 }
 
 // death_knight_spell_t::consume_resource() =================================
@@ -2082,7 +2071,7 @@ bool death_knight_spell_t::ready()
     return group_runes( player, cost_blood, cost_frost, cost_unholy, use );
 }
 
-// death_knight_spell_t::target_debuff ====================================
+// death_knight_spell_t::target_debuff ======================================
 
 void death_knight_spell_t::target_debuff( player_t* t, int dmg_type )
 {
@@ -2283,12 +2272,15 @@ struct army_of_the_dead_t : public death_knight_spell_t
       // sense to cast ghouls 7-10s before a fight begins so you don't
       // waste rune regen and enter the fight depleted.  So, the time
       // you get for ghouls is 4-6 seconds less.
-      player -> summon_pet( "army_of_the_dead", 35.0 );
+      p -> active_army_ghoul -> summon( 35.0 );
     }
     else
     {
       death_knight_spell_t::execute();
-      player -> summon_pet( "army_of_the_dead", 40.0 );
+
+      death_knight_t* p = player -> cast_death_knight();
+
+      p -> active_army_ghoul -> summon( 40.0 );
     }
   }
   virtual void consume_resource()
@@ -2303,7 +2295,7 @@ struct army_of_the_dead_t : public death_knight_spell_t
   virtual bool ready()
   {
     death_knight_t* p = player -> cast_death_knight();
-    if ( p -> active_army_ghoul )
+    if ( p -> active_army_ghoul && ! p -> active_army_ghoul -> sleeping )
       return false;
 
     return death_knight_spell_t::ready();
@@ -2314,28 +2306,15 @@ struct army_of_the_dead_t : public death_knight_spell_t
 
 struct blood_boil_t : public death_knight_spell_t
 {
-  blood_boil_t( death_knight_t* player, const std::string& options_str ) :
-    death_knight_spell_t( "blood_boil", 48721, player )
+  blood_boil_t( death_knight_t* p, const std::string& options_str ) :
+    death_knight_spell_t( "blood_boil", 48721, p )
   {
-    death_knight_t* p = player -> cast_death_knight();
-
     parse_options( NULL, options_str );
 
     aoe                = -1;
     extract_rune_cost( this, &cost_blood, &cost_frost, &cost_unholy );
     direct_power_mod   = 0.08;
     player_multiplier *= 1.0 + p -> talents.crimson_scourge -> mod_additive( P_GENERIC );
-  }
-
-  virtual double cost() SC_CONST
-  {
-    death_knight_t* p = player -> cast_death_knight();
-    if ( p -> buffs_crimson_scourge -> up() )
-    {
-      return 0;
-    }
-
-    return death_knight_spell_t::cost();
   }
 
   virtual void execute()
@@ -2348,6 +2327,20 @@ struct blood_boil_t : public death_knight_spell_t
       p -> active_dancing_rune_weapon -> drw_blood_boil -> execute();
     if( p -> buffs_crimson_scourge -> up() )
       p -> buffs_crimson_scourge -> expire();
+  }
+
+  virtual bool ready()
+  {
+    death_knight_t* p = player -> cast_death_knight();
+
+    if ( ! spell_t::ready() )
+      return false;
+
+    if ( ( ! p -> in_combat && ! harmful ) || p -> buffs_crimson_scourge -> check() )
+      return group_runes( p, 0, 0, 0, use );
+    else
+      return group_runes( p, cost_blood, cost_frost, cost_unholy, use );
+
   }
 };
 
@@ -2485,7 +2478,7 @@ struct blood_tap_t : public death_knight_spell_t
       dk_rune_t& r = p -> _runes.slot[i];
       if ( r.get_type() == RUNE_TYPE_BLOOD && ! r.is_death() && ! r.is_ready() )
       {
-        p -> gains_blood_tap       -> add(1 - r.value, r.value);
+        p -> gains_blood_tap       -> add( 1 - r.value, r.value );
         // p -> gains_blood_tap_blood -> add(1 - r.value, r.value);
         r.fill_rune();
         rune_was_refreshed = true;
@@ -2501,7 +2494,7 @@ struct blood_tap_t : public death_knight_spell_t
         dk_rune_t& r = p -> _runes.slot[i];
         if ( r.get_type() == RUNE_TYPE_BLOOD && r.is_death() && ! r.is_ready() )
         {
-          p -> gains_blood_tap       -> add(1 - r.value, r.value);
+          p -> gains_blood_tap       -> add( 1 - r.value, r.value );
           // p -> gains_blood_tap_blood -> add(1 - r.value, r.value);
           r.fill_rune();
           rune_was_refreshed = true;
@@ -2602,7 +2595,7 @@ struct dancing_rune_weapon_t : public death_knight_spell_t
     death_knight_t* p = player -> cast_death_knight();
     death_knight_spell_t::execute();
     p -> buffs_dancing_rune_weapon -> trigger();
-    p -> summon_pet( "dancing_rune_weapon", p -> dbc.spell( id ) -> duration() );
+    p -> active_dancing_rune_weapon -> summon( p -> dbc.spell( id ) -> duration() );
   }
 };
 
@@ -2797,7 +2790,7 @@ struct empower_rune_weapon_t : public death_knight_spell_t
       erw_over += r.value;
       r.fill_rune();
     }
-    p -> gains_empower_rune_weapon -> add(erw_gain, erw_over);
+    p -> gains_empower_rune_weapon -> add( erw_gain, erw_over );
   }
 };
 
@@ -2832,8 +2825,8 @@ struct festering_strike_t : public death_knight_attack_t
 
     if ( result_is_hit() )
     {
-      if ( p -> dots_blood_plague -> ticking ) p -> dots_blood_plague -> action -> extend_duration( 2 );
-      if ( p -> dots_frost_fever  -> ticking ) p -> dots_frost_fever  -> action -> extend_duration( 2 );
+      p -> dots_blood_plague -> extend_duration( 2 );
+      p -> dots_frost_fever  -> extend_duration( 2 );
       if ( p -> dots_blood_plague -> ticking || p -> dots_frost_fever -> ticking )
         trigger_ebon_plaguebringer( this );
     }
@@ -2844,11 +2837,9 @@ struct festering_strike_t : public death_knight_attack_t
 
 struct frost_fever_t : public death_knight_spell_t
 {
-  frost_fever_t( death_knight_t* player ) :
-    death_knight_spell_t( "frost_fever", 59921, player )
+  frost_fever_t( death_knight_t* p ) :
+    death_knight_spell_t( "frost_fever", 59921, p )
   {
-    death_knight_t* p = player -> cast_death_knight();
-
     base_td          = effect_average( 1 ) * 1.15;
     base_tick_time   = 3.0;
     hasted_ticks     = false;
@@ -2873,9 +2864,9 @@ struct frost_fever_t : public death_knight_spell_t
       trigger_brittle_bones( this, t );
   }
 
-  virtual void last_tick()
+  virtual void last_tick( dot_t* d )
   {
-    death_knight_spell_t::last_tick();
+    death_knight_spell_t::last_tick( d );
 
     if ( target -> debuffs.brittle_bones -> check()
          && target -> debuffs.brittle_bones -> source
@@ -2980,7 +2971,7 @@ struct frost_strike_t : public death_knight_attack_t
     death_knight_t* p = player -> cast_death_knight();
 
     if ( t -> health_percentage() < 35 )
-         player_multiplier *= 1.0 + p -> talents.merciless_combat -> effect1().percent();
+      player_multiplier *= 1.0 + p -> talents.merciless_combat -> effect1().percent();
   }
 };
 
@@ -3071,10 +3062,9 @@ struct horn_of_winter_t : public death_knight_spell_t
 // FIXME: -3% spell crit suppression? Seems to have the same crit chance as FS in the absence of KM
 struct howling_blast_t : public death_knight_spell_t
 {
-  howling_blast_t( death_knight_t* player, const std::string& options_str ) :
-    death_knight_spell_t( "howling_blast", 49184, player )
+  howling_blast_t( death_knight_t* p, const std::string& options_str ) :
+    death_knight_spell_t( "howling_blast", 49184, p )
   {
-    death_knight_t* p = player -> cast_death_knight();
     check_talent( p -> talents.howling_blast -> rank() );
 
     parse_options( NULL, options_str );
@@ -3088,13 +3078,6 @@ struct howling_blast_t : public death_knight_spell_t
   }
 
   virtual void consume_resource() {}
-
-  // FIXME: need to verify this for other spells as well (and get definitive confirmation for HB).
-  virtual double crit_chance( int delta_level ) SC_CONST
-  {
-    death_knight_t* p = player -> cast_death_knight();
-    return p -> composite_attack_crit() - delta_level*0.006; // eww
-  }
 
   virtual double cost() SC_CONST
   {
@@ -3138,7 +3121,7 @@ struct howling_blast_t : public death_knight_spell_t
     death_knight_t* p = player -> cast_death_knight();
 
     if ( t -> health_percentage() < 35 )
-         player_multiplier *= 1.0 + p -> talents.merciless_combat -> effect1().percent();
+      player_multiplier *= 1.0 + p -> talents.merciless_combat -> effect1().percent();
   }
 
   virtual bool ready()
@@ -3222,7 +3205,7 @@ struct icy_touch_t : public death_knight_spell_t
     death_knight_t* p = player -> cast_death_knight();
 
     if ( t -> health_percentage() < 35 )
-         player_multiplier *= 1.0 + p -> talents.merciless_combat -> effect1().percent();
+      player_multiplier *= 1.0 + p -> talents.merciless_combat -> effect1().percent();
   }
 
   virtual bool ready()
@@ -3508,10 +3491,9 @@ struct pestilence_t : public death_knight_spell_t
 
 struct pillar_of_frost_t : public death_knight_spell_t
 {
-  pillar_of_frost_t( death_knight_t* player, const std::string& options_str ) :
-    death_knight_spell_t( "pillar_of_frost", 51271, player )
+  pillar_of_frost_t( death_knight_t* p, const std::string& options_str ) :
+    death_knight_spell_t( "pillar_of_frost", 51271, p )
   {
-    death_knight_t* p = player -> cast_death_knight();
     check_talent( p -> talents.pillar_of_frost -> rank() );
 
     parse_options( NULL, options_str );
@@ -3670,7 +3652,7 @@ struct presence_t : public death_knight_spell_t
     {
     case PRESENCE_BLOOD:
       p -> buffs_blood_presence  -> trigger();
-    break;
+      break;
     case PRESENCE_FROST:
     {
       double fp_value = p -> dbc.spell( 48266 ) -> effect1().percent();
@@ -3722,9 +3704,8 @@ struct raise_dead_t : public death_knight_spell_t
   virtual void execute()
   {
     death_knight_t* p = player -> cast_death_knight();
-    consume_resource();
-    update_ready();
-    player -> summon_pet( "ghoul", ( p -> primary_tree() == TREE_UNHOLY ) ? 0.0 : 60.0 );
+    death_knight_spell_t::execute();
+    p -> active_ghoul -> summon( ( p -> primary_tree() == TREE_UNHOLY ) ? 0.0 : 60.0 );
   }
 
   virtual double gcd() SC_CONST
@@ -3735,7 +3716,7 @@ struct raise_dead_t : public death_knight_spell_t
   virtual bool ready()
   {
     death_knight_t* p = player -> cast_death_knight();
-    if ( p -> active_ghoul )
+    if ( p -> active_ghoul && ! p -> active_ghoul -> sleeping )
       return false;
 
     return death_knight_spell_t::ready();
@@ -3916,7 +3897,8 @@ struct summon_gargoyle_t : public death_knight_spell_t
     // can begin casting, so rather than the tooltip's 30s duration,
     // let's use 25s.  This still probably overestimates and assumes
     // no meleeing, which gargoyles sometimes choose to do.
-    player -> summon_pet( "gargoyle", 25.0 );
+    death_knight_t* p = player -> cast_death_knight();
+    p -> active_gargoyle -> summon( 25.0 );
   }
 };
 
@@ -4184,11 +4166,11 @@ action_expr_t* death_knight_t::create_expression( action_t* a, const std::string
 
 void death_knight_t::create_pets()
 {
-  create_pet( "army_of_the_dead" );
-  create_pet( "bloodworms" );
-  create_pet( "dancing_rune_weapon" );
-  create_pet( "gargoyle" );
-  create_pet( "ghoul" );
+  active_army_ghoul           = create_pet( "army_of_the_dead" );
+  active_bloodworms           = create_pet( "bloodworms" );
+  active_dancing_rune_weapon  = new dancing_rune_weapon_pet_t ( sim, this );
+  active_gargoyle             = create_pet( "gargoyle" );
+  active_ghoul                = create_pet( "ghoul" );
 }
 
 // death_knight_t::create_pet ===============================================
@@ -4202,7 +4184,6 @@ pet_t* death_knight_t::create_pet( const std::string& pet_name,
 
   if ( pet_name == "army_of_the_dead"         ) return new army_ghoul_pet_t          ( sim, this );
   if ( pet_name == "bloodworms"               ) return new bloodworms_pet_t          ( sim, this );
-  if ( pet_name == "dancing_rune_weapon"      ) return new dancing_rune_weapon_pet_t ( sim, this );
   if ( pet_name == "gargoyle"                 ) return new gargoyle_pet_t            ( sim, this );
   if ( pet_name == "ghoul"                    ) return new ghoul_pet_t               ( sim, this );
 
@@ -4428,7 +4409,7 @@ void death_knight_t::init_spells()
   glyphs.scourge_strike  = find_glyph( "Glyph of Scourge Strike" );
 
   // Tier Bonuses
-  static uint32_t set_bonuses[N_TIER][N_TIER_BONUS] =
+  static const uint32_t set_bonuses[N_TIER][N_TIER_BONUS] =
   {
     //  C2P    C4P    M2P    M4P    T2P    T4P    H2P    H4P
     {     0,     0, 90457, 90459, 90454, 90456,     0,     0 }, // Tier11
@@ -4441,16 +4422,20 @@ void death_knight_t::init_spells()
 
 // death_knight_t::init_use_racial_actions ==================================
 
-void death_knight_t::init_use_racial_actions( const std::string& append )
+std::string death_knight_t::init_use_racial_actions( const std::string& append )
 {
+  std::string buffer;
+
   if ( race == RACE_DWARF )
   {
-    if ( talents.bladed_armor -> rank() > 0 ) action_list_str += "/stoneform" + append;
+    if ( talents.bladed_armor -> rank() > 0 ) buffer += "/stoneform" + append;
   }
   else
   {
-    player_t::init_use_racial_actions( append );
+    buffer = player_t::init_use_racial_actions( append );
   }
+
+  return buffer;
 }
 
 // death_knight_t::init_actions =============================================
@@ -4486,11 +4471,11 @@ void death_knight_t::init_actions()
     int num_items = ( int ) items.size();
     bool has_hor = false;
 
-    init_use_item_actions( ",time>=10" );
+    action_list_str += init_use_item_actions( ",time>=10" );
 
-    init_use_profession_actions();
+    action_list_str += init_use_profession_actions();
 
-    init_use_racial_actions( ",time>=10" );
+    action_list_str += init_use_racial_actions( ",time>=10" );
 
     for ( int i=0; i < num_items; i++ )
     {
@@ -4780,7 +4765,8 @@ void death_knight_t::init_buffs()
     virtual void start( int stacks, double value )
     {
       buff_t::start( stacks, value );
-      player -> summon_pet( "bloodworms" );
+      death_knight_t* p = player -> cast_death_knight();
+      p -> active_bloodworms -> summon();
     }
     virtual void expire()
     {
@@ -4872,12 +4858,6 @@ void death_knight_t::reset()
   // Active
   active_presence = 0;
 
-  // Pets and Guardians
-  active_army_ghoul          = NULL;
-  active_bloodworms          = NULL;
-  active_dancing_rune_weapon = NULL;
-  active_ghoul               = NULL;
-
   _runes.reset();
 }
 
@@ -4913,7 +4893,7 @@ double death_knight_t::assess_damage( double            amount,
   return player_t::assess_damage( amount, school, dmg_type, result, action );
 }
 
-// death_knight_t::composite_pet_attack_crit ===============================
+// death_knight_t::composite_pet_attack_crit ================================
 
 double death_knight_t::composite_pet_attack_crit()
 {
@@ -4969,7 +4949,7 @@ double death_knight_t::composite_attribute_multiplier( int attr ) SC_CONST
   return m;
 }
 
-// death_knight_t::matching_gear_multiplier ==================================
+// death_knight_t::matching_gear_multiplier =================================
 
 double death_knight_t::matching_gear_multiplier( const attribute_type attr ) SC_CONST
 {
@@ -5024,7 +5004,7 @@ double death_knight_t::composite_player_multiplier( const school_type school, ac
   return m;
 }
 
-// death_knight_t::composite_tank_crit ==========================================
+// death_knight_t::composite_tank_crit ======================================
 
 double death_knight_t::composite_tank_crit( const school_type school ) SC_CONST
 {
@@ -5036,7 +5016,7 @@ double death_knight_t::composite_tank_crit( const school_type school ) SC_CONST
   return c;
 }
 
-// death_knight_t::primary_role ====================================================
+// death_knight_t::primary_role =============================================
 
 int death_knight_t::primary_role() SC_CONST
 {
@@ -5174,11 +5154,11 @@ void death_knight_t::trigger_runic_empowerment()
     int rune_to_regen = depleted_runes[ ( int ) ( sim -> rng -> real() * num_depleted * 0.9999 ) ];
     dk_rune_t* regen_rune = &_runes.slot[rune_to_regen];
     regen_rune -> fill_rune();
-    if      ( regen_rune -> is_blood()  ) gains_runic_empowerment_blood  -> add (1,0);
-    else if ( regen_rune -> is_unholy() ) gains_runic_empowerment_unholy -> add (1,0);
-    else if ( regen_rune -> is_frost()  ) gains_runic_empowerment_frost  -> add (1,0);
+    if      ( regen_rune -> is_blood()  ) gains_runic_empowerment_blood  -> add ( 1,0 );
+    else if ( regen_rune -> is_unholy() ) gains_runic_empowerment_unholy -> add ( 1,0 );
+    else if ( regen_rune -> is_frost()  ) gains_runic_empowerment_frost  -> add ( 1,0 );
 
-    gains_runic_empowerment -> add (1,0);
+    gains_runic_empowerment -> add ( 1,0 );
     if ( sim -> log ) log_t::output( sim, "runic empowerment regen'd rune %d", rune_to_regen );
     proc_runic_empowerment -> occur();
   }
@@ -5186,7 +5166,7 @@ void death_knight_t::trigger_runic_empowerment()
   {
     // If there were no available runes to refresh
     proc_runic_empowerment_wasted -> occur();
-    gains_runic_empowerment -> add (0,1);
+    gains_runic_empowerment -> add ( 0,1 );
   }
 }
 

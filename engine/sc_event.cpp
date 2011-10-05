@@ -14,15 +14,14 @@
 void* event_freelist_t::allocate( std::size_t size )
 {
   // This override of ::new is ONLY for event_t memory management!
-
   static const std::size_t SIZE = 2 * sizeof( event_t );
-  assert( SIZE > size );
+  assert( SIZE > size ); ( void )size;
 
   free_event_t* new_event = list;
 
   if ( new_event )
   {
-   list = list -> next;
+    list = list -> next;
   }
   else
   {
@@ -132,13 +131,19 @@ player_ready_event_t::player_ready_event_t( sim_t*    sim,
   sim -> add_event( this, delta_time );
 }
 
-// player_ready_event_t::execute =============================================
+// player_ready_event_t::execute ============================================
 
 void player_ready_event_t::execute()
 {
   if ( ! player -> execute_action() )
   {
-    player -> schedule_ready( player -> available(), true );
+    double x = player -> available();
+    player -> schedule_ready( x, true );
+    // Waiting Debug
+    //if ( sim -> debug )
+    //{
+    //  log_t::output( sim, "%s is waiting for %.4f resource=%.2f", player -> name(), x, player -> resource_current[ player -> primary_resource() ] );
+    //}
   }
 }
 
@@ -158,7 +163,7 @@ action_execute_event_t::action_execute_event_t( sim_t*    sim,
   sim -> add_event( this, time_to_execute );
 }
 
-// action_execute_event_t::execute ===========================================
+// action_execute_event_t::execute ==========================================
 
 void action_execute_event_t::execute()
 {
@@ -192,7 +197,7 @@ dot_tick_event_t::dot_tick_event_t( sim_t* sim,
   sim -> add_event( this, time_to_tick );
 }
 
-// dot_tick_event_t::execute =================================================
+// dot_tick_event_t::execute ================================================
 
 void dot_tick_event_t::execute()
 {
@@ -212,12 +217,12 @@ void dot_tick_event_t::execute()
   {
     if ( sim -> roll( player -> skill ) )
     {
-      dot -> action -> tick();
+      dot -> action -> tick( dot );
     }
   }
   else // No skill-check required
   {
-    dot -> action -> tick();
+    dot -> action -> tick( dot );
   }
 
   if ( dot -> action -> channeled && ( dot -> ticks() > 0 ) )
@@ -244,7 +249,8 @@ void dot_tick_event_t::execute()
 
   if ( dot -> current_tick == dot -> num_ticks )
   {
-    dot -> action -> last_tick();
+    dot -> time_to_tick = 0;
+    dot -> action -> last_tick( dot );
 
     if ( dot -> action -> channeled )
     {
@@ -253,7 +259,7 @@ void dot_tick_event_t::execute()
       player -> schedule_ready( 0 );
     }
   }
-  else dot -> action -> schedule_tick();
+  else dot -> schedule_tick();
 }
 
 // ==========================================================================
@@ -288,11 +294,11 @@ void action_travel_event_t::execute()
     action -> travel_event = NULL;
 }
 
-// ===========================================================================
+// ==========================================================================
 // Regen Event
-// ===========================================================================
+// ==========================================================================
 
-// regen_event_t::regen_event_t ==============================================
+// regen_event_t::regen_event_t =============================================
 
 regen_event_t::regen_event_t( sim_t* sim ) : event_t( sim )
 {
@@ -301,7 +307,7 @@ regen_event_t::regen_event_t( sim_t* sim ) : event_t( sim )
   sim -> add_event( this, sim -> regen_periodicity );
 }
 
-// regen_event_t::execute ====================================================
+// regen_event_t::execute ===================================================
 
 void regen_event_t::execute()
 {

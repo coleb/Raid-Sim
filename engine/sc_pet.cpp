@@ -15,7 +15,7 @@ void pet_t::init_pet_t_()
 {
   target = owner -> target;
   level = owner -> level;
-  full_name_str = owner -> name_str + "_" + name_str;
+  full_name_str = owner -> name_str + '_' + name_str;
 
   pet_t** last = &( owner -> pet_list );
   while ( *last ) last = &( ( *last ) -> next_pet );
@@ -30,9 +30,6 @@ void pet_t::init_pet_t_()
   intellect_per_owner = 0.30;
 
   party = owner -> party;
-
-  // By default, only report statistics in the context of the owner
-  quiet = 1;
 
   // Inherit owner's dbc state
   dbc.ptr = owner -> dbc.ptr;
@@ -54,14 +51,6 @@ pet_t::pet_t( sim_t*             s,
               player_t( s, g ? PLAYER_GUARDIAN : PLAYER_PET, n ), owner( o ), next_pet( 0 ), summoned( false ), pet_type( pt )
 {
   init_pet_t_();
-}
-
-// pet_t::create_action =====================================================
-
-action_t* pet_t::create_action( const std::string& name,
-                                const std::string& options_str )
-{
-  return player_t::create_action( name, options_str );
 }
 
 // pet_t::stamina ===========================================================
@@ -97,18 +86,10 @@ const char* pet_t::id()
   return id_str.c_str();
 }
 
-// pet_t::init ==============================================================
-
-void pet_t::init()
-{
-  player_t::init();
-}
-
 // pet_t::init_base =========================================================
 
 void pet_t::init_base()
-{
-}
+{}
 
 // pet_t::init_target =======================================================
 
@@ -138,7 +119,7 @@ void pet_t::summon( double duration )
 {
   if ( sim -> log )
   {
-    log_t::output( sim, "%s summons %s.", owner -> name(), name() );
+    log_t::output( sim, "%s summons %s. for %.2fs", owner -> name(), name(), duration );
   }
 
   distance = owner -> distance;
@@ -152,7 +133,7 @@ void pet_t::summon( double duration )
   {
     struct expiration_t : public event_t
     {
-      expiration_t( sim_t* sim, player_t* p, double duration ) : event_t( sim, p )
+      expiration_t( sim_t* sim, pet_t* p, double duration ) : event_t( sim, p )
       {
         sim -> add_event( this, duration );
       }
@@ -179,7 +160,7 @@ void pet_t::dismiss()
   demise();
 }
 
-// pet_t::assess_damage ==================================================
+// pet_t::assess_damage =====================================================
 
 double pet_t::assess_damage( double            amount,
                              const school_type school,
@@ -187,10 +168,18 @@ double pet_t::assess_damage( double            amount,
                              int               result,
                              action_t*         action )
 {
-  if ( ! action )
-    amount *= 0.10;
-  else if ( action -> aoe )
+  if ( ! action || action -> aoe )
     amount *= 0.10;
 
   return player_t::assess_damage( amount, school, dmg_type, result, action );
+}
+
+// pet_t::combat_begin ======================================================
+
+void pet_t::combat_begin()
+{
+  // By default, only report statistics in the context of the owner
+  quiet = ! sim -> report_pets_separately;
+
+  player_t::combat_begin();
 }

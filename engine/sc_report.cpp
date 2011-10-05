@@ -23,7 +23,7 @@ static const char* beta_warnings[] =
 };
 #endif
 
-// simplify_html =============================================================
+// simplify_html ============================================================
 
 static void simplify_html( std::string& buffer )
 {
@@ -41,11 +41,38 @@ static void simplify_html( std::string& buffer )
   }
 }
 
-// print_text_action ==============================================================
+// replace_entity ===========================================================
+
+static inline void replace_entity( std::string& str, char c, const char* text )
+{
+  std::size_t len = strlen( text );
+  std::string::size_type pos = 0;
+  while ( ( pos = str.find( c, pos ) ) != str.npos )
+  {
+    str.replace( pos, 1, text );
+    pos += len;
+  }
+}
+
+// encode_html ==============================================================
+
+std::string encode_html( const char* str )
+{
+  if ( str == 0 ) return "";
+
+  std::string nstr( str );
+  replace_entity( nstr, '&', "&amp;" );
+  replace_entity( nstr, '<', "&lt;" );
+  replace_entity( nstr, '>', "&gt;" );
+
+  return nstr;
+}
+
+// print_text_action ========================================================
 
 static void print_text_action( FILE* file, stats_t* s, int max_name_length=0 )
 {
-  if ( s -> num_executes == 0 && s -> total_dmg == 0 ) return;
+  if ( s -> num_executes == 0 && s -> total_amount == 0 ) return;
 
   if( max_name_length == 0 ) max_name_length = 20;
 
@@ -55,38 +82,38 @@ static void print_text_action( FILE* file, stats_t* s, int max_name_length=0 )
                    s -> name_str.c_str(),
                    s -> num_executes,
                    s -> frequency,
-                   s -> dpe,
-                   s -> portion_dmg * 100.0,
-                   s -> dpet,
-                   s -> dpr,
-                   s -> portion_dps );
+                   s -> ape,
+                   s -> portion_amount * 100.0,
+                   s -> apet,
+                   s -> apr,
+                   s -> portion_amount );
 
   if ( s -> num_direct_results > 0 )
   {
     util_t::fprintf( file, "  Miss=%.2f%%", s -> direct_results[ RESULT_MISS ].pct );
   }
 
-  if ( s -> direct_results[ RESULT_HIT ].avg_dmg > 0 )
+  if ( s -> direct_results[ RESULT_HIT ].avg_amount > 0 )
   {
     util_t::fprintf( file, "  Hit=%4.0f|%4.0f|%4.0f",
-                     s -> direct_results[ RESULT_HIT ].avg_dmg,
-                     s -> direct_results[ RESULT_HIT ].min_dmg,
-                     s -> direct_results[ RESULT_HIT ].max_dmg );
+                     s -> direct_results[ RESULT_HIT ].avg_amount,
+                     s -> direct_results[ RESULT_HIT ].min_amount,
+                     s -> direct_results[ RESULT_HIT ].max_amount );
   }
-  if ( s -> direct_results[ RESULT_CRIT ].avg_dmg > 0 )
+  if ( s -> direct_results[ RESULT_CRIT ].avg_amount > 0 )
   {
     util_t::fprintf( file,
                      "  Crit=%5.0f|%5.0f|%5.0f|%.1f%%",
-                     s -> direct_results[ RESULT_CRIT ].avg_dmg,
-                     s -> direct_results[ RESULT_CRIT ].min_dmg,
-                     s -> direct_results[ RESULT_CRIT ].max_dmg,
+                     s -> direct_results[ RESULT_CRIT ].avg_amount,
+                     s -> direct_results[ RESULT_CRIT ].min_amount,
+                     s -> direct_results[ RESULT_CRIT ].max_amount,
                      s -> direct_results[ RESULT_CRIT ].pct );
   }
-  if ( s -> direct_results[ RESULT_GLANCE ].avg_dmg > 0 )
+  if ( s -> direct_results[ RESULT_GLANCE ].avg_amount > 0 )
   {
     util_t::fprintf( file,
                      "  Glance=%4.0f|%.1f%%",
-                     s -> direct_results[ RESULT_GLANCE ].avg_dmg,
+                     s -> direct_results[ RESULT_GLANCE ].avg_amount,
                      s -> direct_results[ RESULT_GLANCE ].pct );
   }
   if ( s -> direct_results[ RESULT_DODGE ].count > 0 )
@@ -104,26 +131,26 @@ static void print_text_action( FILE* file, stats_t* s, int max_name_length=0 )
 
   if ( s -> num_ticks > 0 ) util_t::fprintf( file, "  TickCount=%.0f", s -> num_ticks );
 
-  if ( s -> tick_results[ RESULT_HIT ].avg_dmg > 0 || s -> tick_results[ RESULT_CRIT ].avg_dmg > 0 )
+  if ( s -> tick_results[ RESULT_HIT ].avg_amount > 0 || s -> tick_results[ RESULT_CRIT ].avg_amount > 0 )
   {
     util_t::fprintf( file, "  MissTick=%.1f%%", s -> tick_results[ RESULT_MISS ].pct );
   }
 
-  if ( s -> tick_results[ RESULT_HIT ].avg_dmg > 0 )
+  if ( s -> tick_results[ RESULT_HIT ].avg_amount > 0 )
   {
     util_t::fprintf( file,
                      "  Tick=%.0f|%.0f|%.0f",
-                     s -> tick_results[ RESULT_HIT ].avg_dmg,
-                     s -> tick_results[ RESULT_HIT ].min_dmg,
-                     s -> tick_results[ RESULT_HIT ].max_dmg );
+                     s -> tick_results[ RESULT_HIT ].avg_amount,
+                     s -> tick_results[ RESULT_HIT ].min_amount,
+                     s -> tick_results[ RESULT_HIT ].max_amount );
   }
-  if ( s -> tick_results[ RESULT_CRIT ].avg_dmg > 0 )
+  if ( s -> tick_results[ RESULT_CRIT ].avg_amount > 0 )
   {
     util_t::fprintf( file,
                      "  CritTick=%.0f|%.0f|%.0f|%.1f%%",
-                     s -> tick_results[ RESULT_CRIT ].avg_dmg,
-                     s -> tick_results[ RESULT_CRIT ].min_dmg,
-                     s -> tick_results[ RESULT_CRIT ].max_dmg,
+                     s -> tick_results[ RESULT_CRIT ].avg_amount,
+                     s -> tick_results[ RESULT_CRIT ].min_amount,
+                     s -> tick_results[ RESULT_CRIT ].max_amount,
                      s -> tick_results[ RESULT_CRIT ].pct );
   }
 
@@ -135,7 +162,7 @@ static void print_text_action( FILE* file, stats_t* s, int max_name_length=0 )
   util_t::fprintf( file, "\n" );
 }
 
-// print_text_actions =============================================================
+// print_text_actions =======================================================
 
 static void print_text_actions( FILE* file, player_t* p )
 {
@@ -162,13 +189,13 @@ static void print_text_actions( FILE* file, player_t* p )
 
   int max_length=0;
   for ( stats_t* s = p -> stats_list; s; s = s -> next )
-    if ( s -> total_dmg > 0 )
+    if ( s -> total_amount > 0 )
       if( max_length < ( int ) s -> name_str.length() )
         max_length = ( int ) s -> name_str.length();
 
   for ( stats_t* s = p -> stats_list; s; s = s -> next )
   {
-    if ( s -> num_executes > 1 || s -> compound_dmg > 0 )
+    if ( s -> num_executes > 1 || s -> compound_amount > 0 )
     {
       print_text_action( file, s, max_length );
     }
@@ -179,7 +206,7 @@ static void print_text_actions( FILE* file, player_t* p )
     bool first=true;
     for ( stats_t* s = pet -> stats_list; s; s = s -> next )
     {
-      if ( s -> num_executes || s -> compound_dmg > 0 )
+      if ( s -> num_executes || s -> compound_amount > 0 )
       {
         if ( first )
         {
@@ -192,7 +219,7 @@ static void print_text_actions( FILE* file, player_t* p )
   }
 }
 
-// print_text_buffs ===============================================================
+// print_text_buffs =========================================================
 
 static void print_text_buffs( FILE* file, player_t* p )
 {
@@ -295,7 +322,7 @@ static void print_text_buffs( FILE* file, player_t* p )
   }
 }
 
-// print_text_buffs ===============================================================
+// print_text_buffs =========================================================
 
 static void print_text_buffs( FILE* file, sim_t* sim )
 {
@@ -361,7 +388,7 @@ static void print_text_buffs( FILE* file, sim_t* sim )
   }
 }
 
-// print_text_core_stats ===========================================================
+// print_text_core_stats ====================================================
 
 static void print_text_core_stats( FILE* file, player_t* p )
 {
@@ -377,7 +404,7 @@ static void print_text_core_stats( FILE* file, player_t* p )
                    p -> resource_buffed[ RESOURCE_MANA   ], p -> resource_max[ RESOURCE_MANA   ] );
 }
 
-// print_text_spell_stats ==========================================================
+// print_text_spell_stats ===================================================
 
 static void print_text_spell_stats( FILE* file, player_t* p )
 {
@@ -391,7 +418,7 @@ static void print_text_spell_stats( FILE* file, player_t* p )
                    p -> buffed_mp5, p -> composite_mp5(), p -> stats.mp5 );
 }
 
-// print_text_attack_stats =========================================================
+// print_text_attack_stats ==================================================
 
 static void print_text_attack_stats( FILE* file, player_t* p )
 {
@@ -405,7 +432,7 @@ static void print_text_attack_stats( FILE* file, player_t* p )
                    100 * ( 1 / p -> buffed_attack_speed - 1 ), 100 * ( 1 / p -> composite_attack_speed() - 1 ), p -> stats.haste_rating );
 }
 
-// print_text_defense_stats =======================================================
+// print_text_defense_stats =================================================
 
 static void print_text_defense_stats( FILE* file, player_t* p )
 {
@@ -419,7 +446,7 @@ static void print_text_defense_stats( FILE* file, player_t* p )
                    100 * p -> buffed_crit,  100 * p -> composite_tank_crit( SCHOOL_PHYSICAL ) );
 }
 
-// print_text_gains ===============================================================
+// print_text_gains =========================================================
 
 static void print_text_gains( FILE* file, player_t* p )
 {
@@ -448,7 +475,7 @@ static void print_text_gains( FILE* file, player_t* p )
   }
 }
 
-// print_text_pet_gains ===============================================================
+// print_text_pet_gains =====================================================
 
 static void print_text_pet_gains( FILE* file, player_t* p )
 {
@@ -484,7 +511,7 @@ static void print_text_pet_gains( FILE* file, player_t* p )
   }
 }
 
-// print_text_procs ================================================================
+// print_text_procs =========================================================
 
 static void print_text_procs( FILE* file, player_t* p )
 {
@@ -501,7 +528,7 @@ static void print_text_procs( FILE* file, player_t* p )
   }
 }
 
-// print_text_uptime ===============================================================
+// print_text_uptime ========================================================
 
 static void print_text_uptime( FILE* file, player_t* p )
 {
@@ -517,7 +544,7 @@ static void print_text_uptime( FILE* file, player_t* p )
   }
 }
 
-// print_text_waiting ===============================================================
+// print_text_waiting =======================================================
 
 static void print_text_waiting( FILE* file, sim_t* sim )
 {
@@ -540,7 +567,7 @@ static void print_text_waiting( FILE* file, sim_t* sim )
   if ( nobody_waits ) util_t::fprintf( file, "    All players active 100%% of the time.\n" );
 }
 
-// print_text_performance ==========================================================
+// print_text_performance ===================================================
 
 static void print_text_performance( FILE* file, sim_t* sim )
 {
@@ -562,7 +589,7 @@ static void print_text_performance( FILE* file, sim_t* sim )
   sim -> rng -> report( file );
 }
 
-// print_text_scale_factors ========================================================
+// print_text_scale_factors =================================================
 
 static void print_text_scale_factors( FILE* file, sim_t* sim )
 {
@@ -606,13 +633,13 @@ static void print_text_scale_factors( FILE* file, sim_t* sim )
       util_t::fprintf( file, "  DPS/%s=%.*f", util_t::stat_type_abbrev( p -> normalize_by() ), sim -> report_precision, p -> scaling.get_stat( p -> normalize_by() ) );
     }
 
-    if ( sim -> scaling -> scale_lag ) util_t::fprintf( file, "  ms Lag=%.*f", sim -> report_precision, p -> scaling_lag );
+    if ( p -> sim -> scaling -> scale_lag ) util_t::fprintf( file, "  ms Lag=%.*f(%.*f)", p -> sim -> report_precision, p -> scaling_lag, p -> sim -> report_precision, p -> scaling_lag_error );
 
     util_t::fprintf( file, "\n" );
   }
 }
 
-// print_text_scale_factors ========================================================
+// print_text_scale_factors =================================================
 
 static void print_text_scale_factors( FILE* file, player_t* p )
 {
@@ -639,7 +666,7 @@ static void print_text_scale_factors( FILE* file, player_t* p )
   {
     util_t::fprintf( file, "  DPS/%s=%.*f", util_t::stat_type_abbrev( p -> normalize_by() ), p -> sim -> report_precision, p -> scaling.get_stat( p -> normalize_by() ) );
   }
-  if ( p -> sim -> scaling -> scale_lag ) util_t::fprintf( file, "  ms Lag=%.*f", p -> sim -> report_precision, p -> scaling_lag );
+  if ( p -> sim -> scaling -> scale_lag ) util_t::fprintf( file, "  ms Lag=%.*f(%.*f)", p -> sim -> report_precision, p -> scaling_lag, p -> sim -> report_precision, p -> scaling_lag_error );
 
   util_t::fprintf( file, "\n" );
 
@@ -659,7 +686,7 @@ static void print_text_scale_factors( FILE* file, player_t* p )
   util_t::fprintf( file, "    Wowhead : %s\n", wowhead.c_str() );
 }
 
-// print_text_dps_plots ============================================================
+// print_text_dps_plots =====================================================
 
 static void print_text_dps_plots( FILE* file, player_t* p )
 {
@@ -693,7 +720,7 @@ static void print_text_dps_plots( FILE* file, player_t* p )
   }
 }
 
-// print_text_reference_dps ========================================================
+// print_text_reference_dps =================================================
 
 static void print_text_reference_dps( FILE* file, sim_t* sim )
 {
@@ -811,7 +838,7 @@ static void print_text_hat_donors( FILE* file, sim_t* sim )
   }
 }
 
-// print_text_player =========================================================
+// print_text_player ========================================================
 
 static void print_text_player( FILE* file, player_t* p )
 {
@@ -853,7 +880,7 @@ static void print_text_player( FILE* file, player_t* p )
 
 }
 
-// print_html_contents =======================================================
+// print_html_contents ======================================================
 
 static void print_html_contents( FILE*  file, sim_t* sim )
 {
@@ -993,6 +1020,8 @@ static void print_html_contents( FILE*  file, sim_t* sim )
           ab = 1;
         }
         ci++;
+        cols[i] += "\t\t\t\t\t\t<li><a href=\"#sim-info\">Simulation Information</a></li>\n";
+        ci++;
       }
       if ( sim -> report_targets && ab > 0 )
       {
@@ -1030,7 +1059,151 @@ static void print_html_contents( FILE*  file, sim_t* sim )
                    "\t\t</div>\n\n" );
 }
 
-// print_html_raid_summary ===================================================
+// print_html_sim_summary ===================================================
+
+static void print_html_sim_summary( FILE*  file, sim_t* sim )
+{
+
+  util_t::fprintf( file,
+                   "\t\t\t\t<div id=\"sim-info\" class=\"section" );
+  util_t::fprintf( file, " grouped-first" );
+  util_t::fprintf( file, "\">\n" );
+
+  util_t::fprintf( file,
+                   "\t\t\t\t\t<h2 class=\"toggle\">Simulation Information</h2>\n"
+                   "\t\t\t\t\t\t<div class=\"toggle-content hide\">\n" );
+
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t<table class=\"sc mt\">\n" );
+
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t<tr class=\"left\">\n"
+                   "\t\t\t\t\t\t\t\t<th>Iterations:</th>\n"
+                   "\t\t\t\t\t\t\t\t<td>%d</td>\n"
+                   "\t\t\t\t\t\t\t</tr>\n",
+                   sim -> iterations );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t<tr class=\"left\">\n"
+                   "\t\t\t\t\t\t\t\t<th>Threads:</th>\n"
+                   "\t\t\t\t\t\t\t\t<td>%d</td>\n"
+                   "\t\t\t\t\t\t\t</tr>\n",
+                   sim -> threads < 1 ? 1 : sim -> threads );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t<tr class=\"left\">\n"
+                   "\t\t\t\t\t\t\t\t<th>Confidence:</th>\n"
+                   "\t\t\t\t\t\t\t\t<td>%.2f%%</td>\n"
+                   "\t\t\t\t\t\t\t</tr>\n",
+                   sim -> confidence * 100.0 );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t<tr class=\"left\">\n"
+                   "\t\t\t\t\t\t\t\t<th>Fight Length:</th>\n"
+                   "\t\t\t\t\t\t\t\t<td>%.0f - %.0f</td>\n"
+                   "\t\t\t\t\t\t\t</tr>\n",
+                   sim -> iteration_timeline[ 0 ],
+                   sim -> iteration_timeline [sim -> iteration_timeline.size() - 1 ] );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t<tr class=\"left\">\n"
+                   "\t\t\t\t\t\t\t\t<th><h2>Performance:</h2></th>\n"
+                   "\t\t\t\t\t\t\t\t<td></td>\n"
+                   "\t\t\t\t\t\t\t</tr>\n" );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t<tr class=\"left\">\n"
+                   "\t\t\t\t\t\t\t\t<th>Total Events Processed:</th>\n"
+                   "\t\t\t\t\t\t\t\t<td>%ld</td>\n"
+                   "\t\t\t\t\t\t\t</tr>\n",
+                   ( long ) sim -> total_events_processed );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t<tr class=\"left\">\n"
+                   "\t\t\t\t\t\t\t\t<th>Max Event Queue:</th>\n"
+                   "\t\t\t\t\t\t\t\t<td>%ld</td>\n"
+                   "\t\t\t\t\t\t\t</tr>\n",
+                   ( long ) sim -> max_events_remaining );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t<tr class=\"left\">\n"
+                   "\t\t\t\t\t\t\t\t<th>Sim Seconds:</th>\n"
+                   "\t\t\t\t\t\t\t\t<td>%.0f</td>\n"
+                   "\t\t\t\t\t\t\t</tr>\n",
+                   sim -> iterations * sim -> total_seconds );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t<tr class=\"left\">\n"
+                   "\t\t\t\t\t\t\t\t<th>CPU Seconds:</th>\n"
+                   "\t\t\t\t\t\t\t\t<td>%.4f</td>\n"
+                   "\t\t\t\t\t\t\t</tr>\n",
+                   sim -> elapsed_cpu_seconds );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t<tr class=\"left\">\n"
+                   "\t\t\t\t\t\t\t\t<th>Speed Up:</th>\n"
+                   "\t\t\t\t\t\t\t\t<td>%.0f</td>\n"
+                   "\t\t\t\t\t\t\t</tr>\n",
+                   sim -> iterations * sim -> total_seconds / sim -> elapsed_cpu_seconds );
+
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t<tr class=\"left\">\n"
+                   "\t\t\t\t\t\t\t\t<th><h2>Settings:</h2></th>\n"
+                   "\t\t\t\t\t\t\t\t<td></td>\n"
+                   "\t\t\t\t\t\t\t</tr>\n" );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t<tr class=\"left\">\n"
+                   "\t\t\t\t\t\t\t\t<th>World Lag:</th>\n"
+                   "\t\t\t\t\t\t\t\t<td>%.0f ms ( stddev = %.0f ms )</td>\n"
+                   "\t\t\t\t\t\t\t</tr>\n",
+                   sim -> world_lag * 1000.0, sim -> world_lag_stddev * 1000.0 );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t<tr class=\"left\">\n"
+                   "\t\t\t\t\t\t\t\t<th>Queue Lag:</th>\n"
+                   "\t\t\t\t\t\t\t\t<td>%.0f ms ( stddev = %.0f ms )</td>\n"
+                   "\t\t\t\t\t\t\t</tr>\n",
+                   sim -> queue_lag * 1000.0, sim -> queue_lag_stddev * 1000.0 );
+  if ( sim -> strict_gcd_queue )
+  {
+    util_t::fprintf( file,
+                     "\t\t\t\t\t\t\t<tr class=\"left\">\n"
+                     "\t\t\t\t\t\t\t\t<th>GCD Lag:</th>\n"
+                     "\t\t\t\t\t\t\t\t<td>%.0f ms ( stddev = %.0f ms )</td>\n"
+                     "\t\t\t\t\t\t\t</tr>\n",
+                     sim -> gcd_lag * 1000.0, sim -> gcd_lag_stddev * 1000.0 );
+    util_t::fprintf( file,
+                     "\t\t\t\t\t\t\t<tr class=\"left\">\n"
+                     "\t\t\t\t\t\t\t\t<th>Channel Lag:</th>\n"
+                     "\t\t\t\t\t\t\t\t<td>%.0f ms ( stddev = %.0f ms )</td>\n"
+                     "\t\t\t\t\t\t\t</tr>\n",
+                     sim -> channel_lag * 1000.0, sim -> channel_lag_stddev * 1000.0 );
+    util_t::fprintf( file,
+                     "\t\t\t\t\t\t\t<tr class=\"left\">\n"
+                     "\t\t\t\t\t\t\t\t<th>Queue GCD Reduction:</th>\n"
+                     "\t\t\t\t\t\t\t\t<td>%.0f ms</td>\n"
+                     "\t\t\t\t\t\t\t</tr>\n",
+                     sim -> queue_gcd_reduction * 1000.0 );
+  }
+
+
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t</table>\n" );
+
+  // Timeline Distribution Chart
+  if ( sim -> iterations > 1 && ! sim -> timeline_chart.empty() )
+  {
+    util_t::fprintf( file,
+                     "\t\t\t\t\t<a href=\"#help-timeline-distribution\" class=\"help\"><img src=\"%s\" alt=\"Timeline Distribution Chart\" /></a>\n",
+                     sim -> timeline_chart.c_str() );
+  }
+
+  // Raid Downtime Chart
+  if ( ! sim -> downtime_chart.empty() )
+  {
+    util_t::fprintf( file,
+                     "\t\t\t\t\t<img src=\"%s\" alt=\"Player Downtime Chart\" />\n",
+                     sim -> downtime_chart.c_str() );
+  }
+
+  // closure
+  util_t::fprintf( file,
+                   "\t\t\t\t<div class=\"clear\"></div>\n"
+                   "\t\t\t</div>\n"
+                   "\t\t</div>\n\n" );
+}
+
+// print_html_raid_summary ==================================================
 
 static void print_html_raid_summary( FILE*  file, sim_t* sim )
 {
@@ -1040,9 +1213,27 @@ static void print_html_raid_summary( FILE*  file, sim_t* sim )
                    "\t\t\t<h2 class=\"toggle open\">Raid Summary</h2>\n" );
   util_t::fprintf( file,
                    "\t\t\t<div class=\"toggle-content\">\n" );
+  util_t::fprintf( file,
+                   "\t\t\t<ul class=\"params\">\n" );
+  util_t::fprintf( file,
+                   "\t\t\t\t<li><b>Raid Damage:</b> %.0f</li>\n",
+                   sim -> total_dmg );
+  util_t::fprintf( file,
+                   "\t\t\t\t<li><b>Raid DPS:</b> %.0f</li>\n",
+                   sim -> raid_dps );
+  if ( sim -> total_heal > 0 )
+  {
+    util_t::fprintf( file,
+                     "\t\t\t\t<li><b>Raid Heal:</b> %.0f</li>\n",
+                     sim -> total_heal );
+    util_t::fprintf( file,
+                     "\t\t\t\t<li><b>Raid HPS:</b> %.0f</li>\n",
+                     sim -> raid_hps );
+  }
+  util_t::fprintf( file,
+                   "\t\t\t</ul><p>&nbsp;</p>\n" );
 
-  assert( sim ->  dps_charts.size() ==
-          sim -> gear_charts.size() );
+  assert( sim ->  dps_charts.size() == sim -> gear_charts.size() );
 
   // Left side charts: dps, gear, timeline, raid events
   util_t::fprintf( file,
@@ -1061,12 +1252,7 @@ static void print_html_raid_summary( FILE*  file, sim_t* sim )
                      "\t\t\t\t\t<img src=\"%s\" alt=\"Gear Chart\" />\n",
                      sim -> gear_charts[ i ].c_str() );
   }
-  if ( sim -> iterations > 1 )
-  {
-    util_t::fprintf( file,
-                     "\t\t\t\t\t<a href=\"#help-timeline-distribution\" class=\"help\"><img src=\"%s\" alt=\"Timeline Distribution Chart\" /></a>\n",
-                     sim -> timeline_chart.c_str() );
-  }
+
   if ( ! sim -> raid_events_str.empty() )
   {
     util_t::fprintf( file,
@@ -1139,7 +1325,7 @@ static void print_html_raid_summary( FILE*  file, sim_t* sim )
 
 }
 
-// print_html_scale_factors ===================================================
+// print_html_scale_factors =================================================
 
 static void print_html_scale_factors( FILE*  file, sim_t* sim )
 {
@@ -1233,7 +1419,7 @@ static void print_html_scale_factors( FILE*  file, sim_t* sim )
                    "\t\t</div>\n\n" );
 }
 
-// print_html_auras_buffs ==================================================
+// print_html_auras_buffs ===================================================
 
 static void print_html_auras_buffs( FILE*  file, sim_t* sim )
 {
@@ -1352,7 +1538,7 @@ static void print_html_auras_buffs( FILE*  file, sim_t* sim )
 
 }
 
-// print_html_help_boxes =====================================================
+// print_html_help_boxes ====================================================
 
 static void print_html_help_boxes( FILE*  file, sim_t* sim )
 {
@@ -1467,9 +1653,10 @@ static void print_html_help_boxes( FILE*  file, sim_t* sim )
                    "\t\t<div id=\"help-error\">\n"
                    "\t\t\t<div class=\"help-box\">\n"
                    "\t\t\t\t<h3>Error</h3>\n"
-                   "\t\t\t\t<p>Estimator for the 95%% confidence intervall.</p>\n"
+                   "\t\t\t\t<p>Estimator for the %.2f%% confidence intervall.</p>\n"
                    "\t\t\t</div>\n"
-                   "\t\t</div>\n" );
+                   "\t\t</div>\n",
+                   sim -> confidence * 100.0 );
 
   util_t::fprintf( file,
                    "\t\t<div id=\"help-glance-pct\">\n"
@@ -1647,7 +1834,7 @@ static void print_html_help_boxes( FILE*  file, sim_t* sim )
                    "\t\t<!-- End Help Boxes -->\n" );
 }
 
-// print_html_action_damage ===================================================
+// print_html_action_damage =================================================
 
 static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j )
 {
@@ -1700,15 +1887,15 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
                    "\t\t\t\t\t\t\t\t<td class=\"right small\">%.1f%%</td>\n"
                    "\t\t\t\t\t\t\t\t<td class=\"right small\">%.1f%%</td>\n"
                    "\t\t\t\t\t\t\t</tr>\n",
-                   s -> portion_dps,
-                   s -> portion_dmg * 100,
+                   s -> portion_aps,
+                   s -> portion_amount * 100,
                    s -> num_executes,
                    s -> frequency,
-                   s -> dpe,
-                   s -> dpet,
-                   s -> direct_results[ RESULT_HIT  ].avg_dmg,
-                   s -> direct_results[ RESULT_CRIT ].avg_dmg,
-                   s -> direct_results[ RESULT_CRIT ].max_dmg ? s -> direct_results[ RESULT_CRIT ].max_dmg : s -> direct_results[ RESULT_HIT ].max_dmg,
+                   s -> ape,
+                   s -> apet,
+                   s -> direct_results[ RESULT_HIT  ].avg_amount,
+                   s -> direct_results[ RESULT_CRIT ].avg_amount,
+                   s -> direct_results[ RESULT_CRIT ].max_amount ? s -> direct_results[ RESULT_CRIT ].max_amount : s -> direct_results[ RESULT_HIT ].max_amount,
                    s -> direct_results[ RESULT_CRIT ].pct,
                    s -> direct_results[ RESULT_MISS ].pct +
                    s -> direct_results[ RESULT_DODGE  ].pct +
@@ -1716,8 +1903,8 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
                    s -> direct_results[ RESULT_GLANCE ].pct,
                    s -> direct_results[ RESULT_BLOCK  ].pct,
                    s -> num_ticks,
-                   s -> tick_results[ RESULT_HIT  ].avg_dmg,
-                   s -> tick_results[ RESULT_CRIT ].avg_dmg,
+                   s -> tick_results[ RESULT_HIT  ].avg_amount,
+                   s -> tick_results[ RESULT_CRIT ].avg_amount,
                    s -> tick_results[ RESULT_CRIT ].pct,
                    s -> tick_results[ RESULT_MISS ].pct +
                    s -> tick_results[ RESULT_DODGE ].pct +
@@ -1726,9 +1913,14 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
 
   if ( p -> sim -> report_details )
   {
+    std::string timeline_stat_aps_str                    = "";
+    if ( ! s -> timeline_aps_chart.empty() )
+    {
+      timeline_stat_aps_str = "<img src=\"" + s -> timeline_aps_chart + "\" alt=\"APS Timeline Chart\" />\n";
+    }
     util_t::fprintf( file,
                      "\t\t\t\t\t\t\t<tr class=\"details hide\">\n"
-                     "\t\t\t\t\t\t\t\t<td colspan=\"18\" class=\"filler\">\n" );
+                     "\t\t\t\t\t\t\t\t<td colspan=\"20\" class=\"filler\">\n" );
 
     // Stat Details
     util_t::fprintf ( file,
@@ -1738,13 +1930,17 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
                       "\t\t\t\t\t\t\t\t\t<table class=\"details\">\n"
                       "\t\t\t\t\t\t\t\t\t\t<tr>\n" );
     util_t::fprintf ( file,
-                      "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">executes</th>\n"
-                      "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">direct results</th>\n"
-                      "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">ticks</th>\n"
-                      "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">tick results</th>\n"
+                      "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Executes</th>\n"
+                      "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Direct Results</th>\n"
+                      "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Ticks</th>\n"
+                      "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Tick Results</th>\n"
                       "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Execute Time per Execution</th>\n"
                       "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Tick Time per  Tick</th>\n"
-                      "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">total dmg</th>\n" );
+                      "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Actual Amount</th>\n"
+                      "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Total Amount</th>\n"
+                      "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Overkill %%</th>\n"
+                      "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Amount per Total Time</th>\n"
+                      "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Amount per Total Execute Time</th>\n" );
     util_t::fprintf ( file,
                       "\t\t\t\t\t\t\t\t\t\t</tr>\n"
                       "\t\t\t\t\t\t\t\t\t\t<tr>\n" );
@@ -1755,14 +1951,22 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
                       "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f</td>\n"
                       "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.4f</td>\n"
                       "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.4f</td>\n"
-                      "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.0f</td>\n",
+                      "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f</td>\n"
+                      "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f</td>\n"
+                      "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f</td>\n"
+                      "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f</td>\n"
+                      "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f</td>\n",
                       s -> num_executes,
                       s -> num_direct_results,
                       s -> num_ticks,
                       s -> num_tick_results,
                       s -> etpe,
                       s -> ttpt,
-                      s -> total_dmg );
+                      s -> actual_amount,
+                      s -> total_amount,
+                      s -> overkill_pct,
+                      s -> aps,
+                      s -> apet );
     util_t::fprintf ( file,
                       "\t\t\t\t\t\t\t\t\t\t</tr>\n"
                       "\t\t\t\t\t\t\t\t\t</table>\n" );
@@ -1781,7 +1985,9 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
                         "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Average</th>\n"
                         "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Min</th>\n"
                         "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Max</th>\n"
-                        "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Total Damage</th>\n"
+                        "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Total Amount</th>\n"
+                        "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Total Amount</th>\n"
+                        "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Overkill %%</th>\n"
                         "\t\t\t\t\t\t\t\t\t\t</tr>\n" );
       for ( int i=RESULT_MAX-1; i >= RESULT_NONE; i-- )
       {
@@ -1796,20 +2002,24 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
           util_t::fprintf( file, ">\n" );
           util_t::fprintf ( file,
                             "\t\t\t\t\t\t\t\t\t\t\t<td class=\"left small\">%s</td>\n"
-                            "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.1f</td>\n"
+                            "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f</td>\n"
                             "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f%%</td>\n"
                             "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f</td>\n"
                             "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.0f</td>\n"
                             "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.0f</td>\n"
                             "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.0f</td>\n"
+                            "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.0f</td>\n"
+                            "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f</td>\n"
                             "\t\t\t\t\t\t\t\t\t\t</tr>\n",
                             util_t::result_type_string( i ),
                             s -> direct_results[ i  ].count,
                             s -> direct_results[ i  ].pct,
-                            s -> direct_results[ i  ].avg_dmg,
-                            s -> direct_results[ i  ].min_dmg,
-                            s -> direct_results[ i  ].max_dmg,
-                            s -> direct_results[ i  ].total_dmg );
+                            s -> direct_results[ i  ].avg_amount,
+                            s -> direct_results[ i  ].min_amount,
+                            s -> direct_results[ i  ].max_amount,
+                            s -> direct_results[ i  ].actual_amount,
+                            s -> direct_results[ i  ].total_amount,
+                            s -> direct_results[ i  ].overkill_pct );
         }
       }
 
@@ -1826,7 +2036,9 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
                         "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Average</th>\n"
                         "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Min</th>\n"
                         "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Max</th>\n"
-                        "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Total Damage</th>\n"
+                        "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Actual Amount</th>\n"
+                        "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Total Amount</th>\n"
+                        "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Overkill %%</th>\n"
                         "\t\t\t\t\t\t\t\t\t\t</tr>\n" );
       for ( int i=RESULT_MAX-1; i >= RESULT_NONE; i-- )
       {
@@ -1847,14 +2059,18 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
                             "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.0f</td>\n"
                             "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.0f</td>\n"
                             "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.0f</td>\n"
+                            "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.0f</td>\n"
+                            "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f</td>\n"
                             "\t\t\t\t\t\t\t\t\t\t</tr>\n",
                             util_t::result_type_string( i ),
                             s -> tick_results[ i  ].count,
                             s -> tick_results[ i  ].pct,
-                            s -> tick_results[ i  ].avg_dmg,
-                            s -> tick_results[ i  ].min_dmg,
-                            s -> tick_results[ i  ].max_dmg,
-                            s -> tick_results[ i  ].total_dmg );
+                            s -> tick_results[ i  ].avg_amount,
+                            s -> tick_results[ i  ].min_amount,
+                            s -> tick_results[ i  ].max_amount,
+                            s -> tick_results[ i  ].actual_amount,
+                            s -> tick_results[ i  ].total_amount,
+                            s -> tick_results[ i  ].overkill_pct );
         }
       }
 
@@ -1862,6 +2078,13 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
     }
     util_t::fprintf ( file,
                       "\t\t\t\t\t\t\t\t\t</table>\n" );
+
+    util_t::fprintf ( file,
+                      "\t\t\t\t\t\t\t\t\t<div class=\"clear\"></div>\n" );
+
+    util_t::fprintf ( file,
+                      "\t\t\t\t\t\t\t\t\t%s\n",
+                      timeline_stat_aps_str.c_str() );
 
     util_t::fprintf ( file,
                       "\t\t\t\t\t\t\t\t\t<div class=\"clear\"></div>\n" );
@@ -1914,7 +2137,7 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
                         a -> base_crit,
                         a -> target ? a -> target -> name() : "",
                         a -> tooltip(),
-                        a -> desc() );
+                        encode_html( a -> desc() ).c_str() );
       if( a -> direct_power_mod || a -> base_dd_min || a -> base_dd_max )
       {
         util_t::fprintf ( file,
@@ -1994,7 +2217,7 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
   }
 }
 
-// print_html_action_resource ==================================================
+// print_html_action_resource ===============================================
 
 static void print_html_action_resource( FILE* file, stats_t* s, int j )
 {
@@ -2023,11 +2246,11 @@ static void print_html_action_resource( FILE* file, stats_t* s, int j )
                    s -> name_str.c_str(),
                    util_t::resource_type_string( s -> resource ),
                    s -> resource_portion * 100,
-                   s -> dpr,
+                   s -> apr,
                    s -> rpe );
 }
 
-// print_html_gear ============================================================
+// print_html_gear ==========================================================
 
 static void print_html_gear ( FILE* file, player_t* a )
 {
@@ -2063,7 +2286,7 @@ static void print_html_gear ( FILE* file, player_t* a )
   }
 }
 
-// print_html_profile ============================================================
+// print_html_profile =======================================================
 
 static void print_html_profile ( FILE* file, player_t* a )
 {
@@ -2086,7 +2309,7 @@ static void print_html_profile ( FILE* file, player_t* a )
 }
 
 
-// print_html_stats ============================================================
+// print_html_stats =========================================================
 
 static void print_html_stats ( FILE* file, player_t* a )
 {
@@ -2295,15 +2518,15 @@ static void print_html_stats ( FILE* file, player_t* a )
                      a -> stats.haste_rating );
 
     util_t::fprintf( file,
-                      "\t\t\t\t\t\t\t\t\t<tr>\n"
-                      "\t\t\t\t\t\t\t\t\t\t<th class=\"left\">Swing Speed</th>\n"
-                      "\t\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f%%</td>\n"
-                      "\t\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f%%</td>\n"
-                      "\t\t\t\t\t\t\t\t\t\t<td class=\"right\">%.0f</td>\n"
-                      "\t\t\t\t\t\t\t\t\t</tr>\n",
-                      100 * ( 1 / a -> buffed_attack_speed - 1 ),
-                      100 * ( 1 / a -> composite_attack_speed() - 1 ),
-                      a -> stats.haste_rating );
+                     "\t\t\t\t\t\t\t\t\t<tr>\n"
+                     "\t\t\t\t\t\t\t\t\t\t<th class=\"left\">Swing Speed</th>\n"
+                     "\t\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f%%</td>\n"
+                     "\t\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f%%</td>\n"
+                     "\t\t\t\t\t\t\t\t\t\t<td class=\"right\">%.0f</td>\n"
+                     "\t\t\t\t\t\t\t\t\t</tr>\n",
+                     100 * ( 1 / a -> buffed_attack_speed - 1 ),
+                     100 * ( 1 / a -> composite_attack_speed() - 1 ),
+                     a -> stats.haste_rating );
 
     util_t::fprintf( file,
                      "\t\t\t\t\t\t\t\t\t<tr class=\"odd\">\n"
@@ -2401,7 +2624,7 @@ static void print_html_stats ( FILE* file, player_t* a )
 }
 
 
-// print_html_talents_player ======================================================
+// print_html_talents_player ================================================
 
 static void print_html_talents( FILE* file, player_t* p )
 {
@@ -2457,7 +2680,7 @@ static void print_html_talents( FILE* file, player_t* p )
 }
 
 
-// print_html_player_scale_factors =========================================================
+// print_html_player_scale_factors ==========================================
 
 static void print_html_player_scale_factors( FILE* file, sim_t* sim, player_t* p )
 {
@@ -2538,6 +2761,11 @@ static void print_html_player_scale_factors( FILE* file, sim_t* sim, player_t* p
                            "\t\t\t\t\t\t\t\t<td>%.*f</td>\n",
                            p -> sim -> report_precision,
                            p -> scaling_error.get_stat( i ) );
+      if ( p -> sim -> scaling -> scale_lag )
+              util_t::fprintf( file,
+                               "\t\t\t\t\t\t\t\t<td>%.*f</td>\n",
+                               p -> sim -> report_precision,
+                               p -> scaling_lag_error );
       util_t::fprintf( file,
                        "\t\t\t\t\t\t\t</tr>\n" );
       util_t::fprintf( file,
@@ -2565,6 +2793,33 @@ static void print_html_player_scale_factors( FILE* file, sim_t* sim, player_t* p
                        colspan,
                        p -> gear_weights_wowreforge_link.c_str() );
       util_t::fprintf( file,
+                       "\t\t\t\t\t\t\t<tr class=\"left\">\n"
+                       "\t\t\t\t\t\t\t\t<th>Stat Ranking</th>\n"
+                       "\t\t\t\t\t\t\t\t<td colspan=\"%i\" class=\"filler\">\n"
+                       "\t\t\t\t\t\t\t\t\t<ul class=\"float\">\n"
+                       "\t\t\t\t\t\t\t\t\t\t<li>",
+                       colspan );
+      int num_scaling_stats = p -> scaling_stats.size();
+      for ( int i=0; i < num_scaling_stats; i++ )
+      {
+        if ( i > 0 )
+        {
+          if ( ( ( p -> scaling.get_stat( p -> scaling_stats[ i - 1 ] ) - p -> scaling.get_stat( p -> scaling_stats[ i ] ) )
+              > sqrt ( p -> scaling_compare_error.get_stat( p -> scaling_stats[ i - 1 ] ) * p -> scaling_compare_error.get_stat( p -> scaling_stats[ i - 1 ] ) / 4 + p -> scaling_compare_error.get_stat( p -> scaling_stats[ i ] ) * p -> scaling_compare_error.get_stat( p -> scaling_stats[ i ] ) / 4 ) * 2 ) )
+            util_t::fprintf( file, " > " );
+          else
+            util_t::fprintf( file, " = " );
+        }
+
+        util_t::fprintf( file, "%s", util_t::stat_type_abbrev( p -> scaling_stats[ i ] ) );
+
+      }
+      util_t::fprintf( file, "</li>\n"
+                       "\t\t\t\t\t\t\t\t\t</ul>\n"
+                       "\t\t\t\t\t\t\t\t</td>\n"
+                       "\t\t\t\t\t\t\t</tr>\n" );
+
+      util_t::fprintf( file,
                        "\t\t\t\t\t\t</table>\n" );
       if ( sim -> iterations < 10000 )
         util_t::fprintf( file,
@@ -2579,12 +2834,12 @@ static void print_html_player_scale_factors( FILE* file, sim_t* sim, player_t* p
                    "\t\t\t\t</div>\n" );
 }
 
-// print_html_player_action_priority_list =========================================================
+// print_html_player_action_priority_list ===================================
 
 static void print_html_player_action_priority_list( FILE* file, sim_t* sim, player_t* p )
 {
 
-util_t::fprintf( file,
+  util_t::fprintf( file,
                    "\t\t\t\t\t\t<div class=\"player-section action-priority-list\">\n"
                    "\t\t\t\t\t\t\t<h3 class=\"toggle\">Action Priority List</h3>\n"
                    "\t\t\t\t\t\t\t<div class=\"toggle-content hide\">\n"
@@ -2647,326 +2902,283 @@ util_t::fprintf( file,
 
 }
 
-// print_html_player_statistics =========================================================
+// print_html_player_statistics =============================================
 
 static void print_html_player_statistics( FILE* file, player_t* p )
 {
 
 // Statistics & Data Analysis
 
- util_t::fprintf( file,
-                  "\t\t\t\t\t<div class=\"player-section gains\">\n"
-                  "\t\t\t\t\t\t<h3 class=\"toggle\">Statistics & Data Analysis</h3>\n"
-                  "\t\t\t\t\t\t<div class=\"toggle-content hide\">\n"
-                  "\t\t\t\t\t\t\t<table class=\"sc\">\n"
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<th>DPS</th>\n"
-                  "\t\t\t\t\t\t\t\t\t<th></th>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n" );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t<div class=\"player-section gains\">\n"
+                   "\t\t\t\t\t\t<h3 class=\"toggle\">Statistics & Data Analysis</h3>\n"
+                   "\t\t\t\t\t\t<div class=\"toggle-content hide\">\n"
+                   "\t\t\t\t\t\t\t<table class=\"sc\">\n"
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<th>DPS</th>\n"
+                   "\t\t\t\t\t\t\t\t\t<th></th>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n" );
 
 
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\"><b>Sample Data</b></td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\"></td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n" );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\"><b>Sample Data</b></td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\"></td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n" );
 
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">Standard Deviation</td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.4f</td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n",
-                  p -> dps_std_dev );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\">Average</td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n",
+                   p -> dps );
 
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">Minimum</td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n",
-                  p -> dps_min );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\">Standard Deviation</td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.4f</td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n",
+                   p -> dps_std_dev );
 
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">Maximum</td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n",
-                  p -> dps_max );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\">Minimum</td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n",
+                   p -> dps_min );
 
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">Spread ( max - min )</td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n",
-                  p -> dps_max - p -> dps_min );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\">Maximum</td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n",
+                   p -> dps_max );
 
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">Range [ ( max - min ) / 2 * 100%% ]</td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n",
-                  p -> dps ? ( ( p -> dps_max - p -> dps_min ) / 2 ) * 100 / p -> dps : 0 );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\">Spread ( max - min )</td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n",
+                   p -> dps_max - p -> dps_min );
 
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">10th Percentile</td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n",
-                  p -> dps_10_percentile );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\">Range [ ( max - min ) / 2 * 100%% ]</td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f%%</td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n",
+                   p -> dps ? ( ( p -> dps_max - p -> dps_min ) / 2 ) * 100 / p -> dps : 0 );
 
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">90th Percentile</td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n",
-                  p -> dps_90_percentile );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\">10th Percentile</td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n",
+                   p -> dps_10_percentile );
 
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">( 90th Percentile - 10th Percentile )</td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n",
-                  p -> dps_90_percentile - p -> dps_10_percentile );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\">90th Percentile</td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n",
+                   p -> dps_90_percentile );
 
-
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\"><b>Population</b></td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\"></td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n" );
-
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">Standard Deviation of the Average DPS(e)</td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.4f</td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n",
-                  p -> dps_error / 2.0 );
-
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">95%% Confidence Intervall</td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\">( %.2f - %.2f )</td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n",
-                  p -> dpse - p -> dps_error, p -> dpse + p -> dps_error );
-
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">Normalized 95%% Confidence Intervall</td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\">( %.2f%% - %.2f%% )</td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n",
-                  p -> dpse ? 100 - p -> dps_error * 100 / p -> dpse : 0, p -> dpse ? 100 + p -> dps_error * 100 / p -> dpse : 0 );
-
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">99.7%% Confidence Intervall</td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\">( %.2f - %.2f )</td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n",
-                  p -> dpse - 1.50 * p -> dps_error, p -> dpse + 1.50 * p -> dps_error );
-
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\"><b>Approx. Iterations needed for ( always use n>=50 )</b></td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\"></td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n" );
-
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">1%% dps error</td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\">%i</td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n",
-                  ( int ) ( p -> dpse ? ( ( 2 * p -> dps_std_dev / ( 0.01 * p -> dpse ) ) * ( 2 * p -> dps_std_dev / ( 0.01 * p -> dpse ) ) ) : 0 ) );
-
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">0.1%% dps error</td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\">%i</td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n",
-                  ( int ) ( p -> dpse ? ( ( 2 * p -> dps_std_dev / ( 0.001 * p -> dpse ) ) * ( 2 * p -> dps_std_dev / ( 0.001 * p -> dpse ) ) ) : 0 ) );
-
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">0.1 scale factor error with delta=300</td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\">%i</td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n",
-                  ( int ) ( ( sqrt( 2.0 ) * 2 * p -> dps_std_dev / ( 30 ) ) * ( sqrt( 2.0 ) * 2 * p -> dps_std_dev / ( 30 ) ) ) );
-
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">0.05 scale factor error with delta=300</td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\">%i</td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n",
-                  ( int ) ( ( sqrt( 2.0 ) * 2 * p -> dps_std_dev / ( 15 ) ) * ( sqrt( 2.0 ) * 2 * p -> dps_std_dev / ( 15 ) ) ) );
-
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t<tr>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"left\">0.01 scale factor error with delta=300</td>\n"
-                  "\t\t\t\t\t\t\t\t\t<td class=\"right\">%i</td>\n"
-                  "\t\t\t\t\t\t\t\t</tr>\n",
-                  ( int ) ( ( sqrt( 2.0 ) * 2 * p -> dps_std_dev / ( 3 ) ) * ( sqrt( 2.0 ) * 2 * p -> dps_std_dev / ( 3 ) ) ) );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\">( 90th Percentile - 10th Percentile )</td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n",
+                   p -> dps_90_percentile - p -> dps_10_percentile );
 
 
- util_t::fprintf( file,
-                  "\t\t\t\t\t\t\t\t</table>\n" );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\"><b>Population</b></td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\"></td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n" );
 
- std::string timeline_dps_error_str           = "";
- std::string dps_error_str                    = "";
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\">Standard Deviation of the Average DPS(e)</td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.4f</td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n",
+                   p -> dps_std_dev / sqrt( ( float ) p -> sim -> iterations ));
 
- char buffer[ 1024 ];
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\">%.2f%% Confidence Intervall</td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">( %.2f - %.2f )</td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n",
+                   p -> sim -> confidence * 100.0, p -> dps - p -> dps_error, p -> dps + p -> dps_error );
 
- if ( ! p -> timeline_dps_error_chart.empty() )
- {
-   snprintf( buffer, sizeof( buffer ), "<img src=\"%s\" />\n", p -> timeline_dps_error_chart.c_str() );
-   timeline_dps_error_str = buffer;
- }
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\">Normalized %.2f%% Confidence Intervall</td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">( %.2f%% - %.2f%% )</td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n",
+                   p -> sim -> confidence * 100.0, p -> dps ? 100 - p -> dps_error * 100 / p -> dps : 0, p -> dps ? 100 + p -> dps_error * 100 / p -> dps : 0 );
 
- util_t::fprintf( file,
-                  "%s\n",
-                  timeline_dps_error_str.c_str() );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\"><b>Approx. Iterations needed for ( always use n>=50 )</b></td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\"></td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n" );
 
- if ( ! p -> dps_error_chart.empty() )
- {
-   snprintf( buffer, sizeof( buffer ), "<img src=\"%s\"/>\n", p -> dps_error_chart.c_str() );
-   dps_error_str = buffer;
- }
- util_t::fprintf( file,
-                  "%s\n"
-                  "\t\t\t\t\t\t\t</div>\n"
-                  "\t\t\t\t\t\t</div>\n",
-                  dps_error_str.c_str() );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\">1%% DPS Error</td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">%i</td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n",
+                   ( int ) ( p -> dps ? ( ( p -> dps_error * p -> dps_error * ( ( float ) p -> sim -> iterations ) / ( 0.01 * p -> dps * 0.01 * p -> dps) ) ) : 0 ) );
 
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\">0.1%% DPS Error</td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">%i</td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n",
+                   ( int ) ( p -> dps ? ( ( p -> dps_error * p -> dps_error * ( ( float ) p -> sim -> iterations ) / ( 0.001 * p -> dps * 0.001 * p -> dps ) ) ) : 0 ) );
+
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\">0.1 Scale Factor Error with Delta=300</td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">%i</td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n",
+                   ( int ) ( 2.0 * p -> dps_error * p -> dps_error * ( ( float ) p -> sim -> iterations ) / ( 30 * 30 ) ) );
+
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\">0.05 Scale Factor Error with Delta=300</td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">%i</td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n",
+                   ( int ) ( 2.0 * p -> dps_error * p -> dps_error * ( ( float ) p -> sim -> iterations ) / ( 15 * 15 ) ) );
+
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"left\">0.01 Scale Factor Error with Delta=300</td>\n"
+                   "\t\t\t\t\t\t\t\t\t<td class=\"right\">%i</td>\n"
+                   "\t\t\t\t\t\t\t\t</tr>\n",
+                   ( int ) (  2.0 * p -> dps_error * p -> dps_error * ( ( float ) p -> sim -> iterations ) / ( 3 * 3) ) );
+
+
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t\t</table>\n" );
+
+  std::string timeline_dps_error_str           = "";
+  std::string dps_error_str                    = "";
+
+  char buffer[ 1024 ];
+
+  if ( ! p -> timeline_dps_error_chart.empty() )
+  {
+    snprintf( buffer, sizeof( buffer ), "<img src=\"%s\" alt=\"Timeline DPS Error Chart\" />\n", p -> timeline_dps_error_chart.c_str() );
+    timeline_dps_error_str = buffer;
+  }
+
+  util_t::fprintf( file,
+                   "%s\n",
+                   timeline_dps_error_str.c_str() );
+
+  if ( ! p -> dps_error_chart.empty() )
+  {
+    snprintf( buffer, sizeof( buffer ), "<img src=\"%s\" alt=\"DPS Error Chart\" />\n", p -> dps_error_chart.c_str() );
+    dps_error_str = buffer;
+  }
+  util_t::fprintf( file,
+                   "%s\n"
+                   "\t\t\t\t\t\t\t</div>\n"
+                   "\t\t\t\t\t\t</div>\n",
+                   dps_error_str.c_str() );
 }
 
-// print_html_player_resources =========================================================
+// print_html_player_resources ==============================================
 
 static void print_html_player_resources( FILE* file, player_t* p )
 {
 // Resources Section
 
-util_t::fprintf( file,
+  util_t::fprintf( file,
+                   "\t\t\t\t<div class=\"player-section gains\">\n"
+                   "\t\t\t\t\t<h3 class=\"toggle\">Resources</h3>\n"
+                   "\t\t\t\t\t<div class=\"toggle-content hide\">\n"
+                   "\t\t\t\t\t\t<table class=\"sc mt\">\n"
+                   "\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t<th class=\"left small\">Resource Usage</th>\n"
+                   "\t\t\t\t\t\t\t\t<th class=\"small\">Type</th>\n"
+                   "\t\t\t\t\t\t\t\t<th class=\"small\">Res%%</th>\n"
+                   "\t\t\t\t\t\t\t\t<th class=\"small\"><a href=\"#help-dpr\" class=\"help\">DPR</a></th>\n"
+                   "\t\t\t\t\t\t\t\t<th class=\"small\">RPE</th>\n"
+                   "\t\t\t\t\t\t\t</tr>\n" );
 
-                 "\t\t\t\t<div class=\"player-section gains\">\n"
-                 "\t\t\t\t\t<h3 class=\"toggle\">Resources</h3>\n"
-                 "\t\t\t\t\t<div class=\"toggle-content hide\">\n"
-                 "\t\t\t\t\t\t<table class=\"sc mt\">\n"
-                 "\t\t\t\t\t\t\t<tr>\n"
-                 "\t\t\t\t\t\t\t\t<th class=\"left small\">Resource Usage</th>\n"
-                 "\t\t\t\t\t\t\t\t<th class=\"small\">Type</th>\n"
-                 "\t\t\t\t\t\t\t\t<th class=\"small\">Res%%</th>\n"
-                 "\t\t\t\t\t\t\t\t<th class=\"small\"><a href=\"#help-dpr\" class=\"help\">DPR</a></th>\n"
-                 "\t\t\t\t\t\t\t\t<th class=\"small\">RPE</th>\n"
-                 "\t\t\t\t\t\t\t</tr>\n" );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t<th class=\"left small\">%s</th>\n"
+                   "\t\t\t\t\t\t\t\t<td colspan=\"4\" class=\"filler\"></td>\n"
+                   "\t\t\t\t\t\t\t</tr>\n",
+                   p -> name() );
 
-util_t::fprintf( file,
-                 "\t\t\t\t\t\t\t<tr>\n"
-                 "\t\t\t\t\t\t\t\t<th class=\"left small\">%s</th>\n"
-                 "\t\t\t\t\t\t\t\t<td colspan=\"4\" class=\"filler\"></td>\n"
-                 "\t\t\t\t\t\t\t</tr>\n",
-                 p -> name() );
-
-int i = 0;
-for ( stats_t* s = p -> stats_list; s; s = s -> next )
-{
-  if ( s -> rpe > 0 )
-  {
-    print_html_action_resource( file, s, i );
-    i++;
-  }
-}
-
-for ( pet_t* pet = p -> pet_list; pet; pet = pet -> next_pet )
-{
-  bool first=true;
-
-  i = 0;
-  for ( stats_t* s = pet -> stats_list; s; s = s -> next )
+  int i = 0;
+  for ( stats_t* s = p -> stats_list; s; s = s -> next )
   {
     if ( s -> rpe > 0 )
     {
-      if ( first )
-      {
-        first = false;
-        util_t::fprintf( file,
-                         "\t\t\t\t\t\t\t<tr>\n"
-                         "\t\t\t\t\t\t\t\t<th class=\"left small\">pet - %s</th>\n"
-                         "\t\t\t\t\t\t\t\t<td colspan=\"3\" class=\"filler\"></td>\n"
-                         "\t\t\t\t\t\t\t</tr>\n",
-                         pet -> name_str.c_str() );
-      }
       print_html_action_resource( file, s, i );
       i++;
     }
   }
-}
 
-util_t::fprintf( file,
-                 "\t\t\t\t\t\t</table>\n"
-               );
+  for ( pet_t* pet = p -> pet_list; pet; pet = pet -> next_pet )
+  {
+    bool first=true;
+
+    i = 0;
+    for ( stats_t* s = pet -> stats_list; s; s = s -> next )
+    {
+      if ( s -> rpe > 0 )
+      {
+        if ( first )
+        {
+          first = false;
+          util_t::fprintf( file,
+                           "\t\t\t\t\t\t\t<tr>\n"
+                           "\t\t\t\t\t\t\t\t<th class=\"left small\">pet - %s</th>\n"
+                           "\t\t\t\t\t\t\t\t<td colspan=\"4\" class=\"filler\"></td>\n"
+                           "\t\t\t\t\t\t\t</tr>\n",
+                           pet -> name_str.c_str() );
+        }
+        print_html_action_resource( file, s, i );
+        i++;
+      }
+    }
+  }
+
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t</table>\n" );
 
 // Resource Gains Section
-util_t::fprintf( file,
+  util_t::fprintf( file,
 
-                 "\t\t\t\t\t\t<table class=\"sc\">\n"
-                 "\t\t\t\t\t\t\t<tr>\n"
-                 "\t\t\t\t\t\t\t\t<th>Resource Gains</th>\n"
-                 "\t\t\t\t\t\t\t\t<th>Type</th>\n"
-                 "\t\t\t\t\t\t\t\t<th>Count</th>\n"
-                 "\t\t\t\t\t\t\t\t<th>Total</th>\n"
-                 "\t\t\t\t\t\t\t\t<th>Average</th>\n"
-                 "\t\t\t\t\t\t\t\t<th colspan=2>Overflow</th>\n"
-                 "\t\t\t\t\t\t\t</tr>\n" );
-i = 1;
-for ( gain_t* g = p -> gain_list; g; g = g -> next )
-{
-  if ( g -> actual > 0 || g -> overflow > 0 )
-  {
-    double overflow_pct = 100.0 * g -> overflow / ( g -> actual + g -> overflow );
-    util_t::fprintf( file,
-                     "\t\t\t\t\t\t\t\t<tr" );
-    if ( !( i & 1 ) )
-    {
-      util_t::fprintf( file, " class=\"odd\"" );
-    }
-    util_t::fprintf( file, ">\n" );
-    util_t::fprintf( file,
-                     "\t\t\t\t\t\t\t\t<td class=\"left\">%s</td>\n"
-                     "\t\t\t\t\t\t\t\t<td class=\"left\">%s</td>\n"
-                     "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f</td>\n"
-                     "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f</td>\n"
-                     "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f</td>\n"
-                     "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f</td>\n"
-                     "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f%%</td>\n"
-                     "\t\t\t\t\t\t\t</tr>\n",
-                     g -> name(),
-                     util_t::resource_type_string( g -> type ),
-                     g -> count,
-                     g -> actual,
-                     g -> actual / g -> count,
-                     g -> overflow,
-                     overflow_pct);
-    i++;
-  }
-}
-for ( pet_t* pet = p -> pet_list; pet; pet = pet -> next_pet )
-{
-  if ( pet -> total_dmg <= 0 ) continue;
-  bool first = true;
-  for ( gain_t* g = pet -> gain_list; g; g = g -> next )
+                   "\t\t\t\t\t\t<table class=\"sc\">\n"
+                   "\t\t\t\t\t\t\t<tr>\n"
+                   "\t\t\t\t\t\t\t\t<th>Resource Gains</th>\n"
+                   "\t\t\t\t\t\t\t\t<th>Type</th>\n"
+                   "\t\t\t\t\t\t\t\t<th>Count</th>\n"
+                   "\t\t\t\t\t\t\t\t<th>Total</th>\n"
+                   "\t\t\t\t\t\t\t\t<th>Average</th>\n"
+                   "\t\t\t\t\t\t\t\t<th colspan=\"2\">Overflow</th>\n"
+                   "\t\t\t\t\t\t\t</tr>\n" );
+  i = 1;
+  for ( gain_t* g = p -> gain_list; g; g = g -> next )
   {
     if ( g -> actual > 0 || g -> overflow > 0 )
     {
-      if ( first )
-      {
-        first = false;
-        util_t::fprintf( file,
-                         "\t\t\t\t\t\t\t<tr>\n"
-                         "\t\t\t\t\t\t\t\t<th>pet - %s</th>\n"
-                         "\t\t\t\t\t\t\t\t<th>%s</th>\n"
-                         "\t\t\t\t\t\t\t</tr>\n",
-                         pet -> name_str.c_str(),
-                         util_t::resource_type_string( pet -> primary_resource() ) );
-      }
       double overflow_pct = 100.0 * g -> overflow / ( g -> actual + g -> overflow );
       util_t::fprintf( file,
-                       "\t\t\t\t\t\t\t<tr>\n"
+                       "\t\t\t\t\t\t\t\t<tr" );
+      if ( !( i & 1 ) )
+      {
+        util_t::fprintf( file, " class=\"odd\"" );
+      }
+      util_t::fprintf( file, ">\n" );
+      util_t::fprintf( file,
                        "\t\t\t\t\t\t\t\t<td class=\"left\">%s</td>\n"
                        "\t\t\t\t\t\t\t\t<td class=\"left\">%s</td>\n"
                        "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f</td>\n"
@@ -2980,237 +3192,218 @@ for ( pet_t* pet = p -> pet_list; pet; pet = pet -> next_pet )
                        g -> count,
                        g -> actual,
                        g -> actual / g -> count,
-                       overflow_pct,
-                       g -> overflow);
+                       g -> overflow,
+                       overflow_pct );
+      i++;
     }
   }
-}
-util_t::fprintf( file,
-                 "\t\t\t\t\t\t</table>\n" );
-
-util_t::fprintf( file,
-                 "\t\t\t\t\t\t<div class=\"charts charts-left\">\n" );
-for ( i = RESOURCE_NONE; i < RESOURCE_MAX; ++i )
-{
-  // hack hack. don't display RESOURCE_RUNE_<TYPE> yet. only shown in tabular data.  WiP
-  if ( i == RESOURCE_RUNE_BLOOD || i == RESOURCE_RUNE_UNHOLY || i == RESOURCE_RUNE_FROST ) continue;
-  double total_gain=0;
-  for ( gain_t* g = p -> gain_list; g; g = g -> next )
+  for ( pet_t* pet = p -> pet_list; pet; pet = pet -> next_pet )
   {
-    if ( g -> actual > 0 && g -> type == i )
-      total_gain += g -> actual;
+    if ( pet -> total_seconds <= 0 ) continue;
+    bool first = true;
+    for ( gain_t* g = pet -> gain_list; g; g = g -> next )
+    {
+      if ( g -> actual > 0 || g -> overflow > 0 )
+      {
+        if ( first )
+        {
+          first = false;
+          util_t::fprintf( file,
+                           "\t\t\t\t\t\t\t<tr>\n"
+                           "\t\t\t\t\t\t\t\t<th>pet - %s</th>\n"
+                           "\t\t\t\t\t\t\t\t<td colspan=\"6\" class=\"filler\"></td>\n"
+                           "\t\t\t\t\t\t\t</tr>\n",
+                           pet -> name_str.c_str() );
+        }
+        double overflow_pct = 100.0 * g -> overflow / ( g -> actual + g -> overflow );
+        util_t::fprintf( file,
+                         "\t\t\t\t\t\t\t<tr>\n"
+                         "\t\t\t\t\t\t\t\t<td class=\"left\">%s</td>\n"
+                         "\t\t\t\t\t\t\t\t<td class=\"left\">%s</td>\n"
+                         "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f</td>\n"
+                         "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f</td>\n"
+                         "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f</td>\n"
+                         "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f</td>\n"
+                         "\t\t\t\t\t\t\t\t<td class=\"right\">%.1f%%</td>\n"
+                         "\t\t\t\t\t\t\t</tr>\n",
+                         g -> name(),
+                         util_t::resource_type_string( g -> type ),
+                         g -> count,
+                         g -> actual,
+                         g -> actual / g -> count,
+                         g -> overflow,
+                         overflow_pct );
+      }
+    }
   }
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t</table>\n" );
 
-  if ( total_gain > 0 )
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t<div class=\"charts charts-left\">\n" );
+  for ( i = RESOURCE_NONE; i < RESOURCE_MAX; ++i )
   {
-    chart_t::gains( p -> gains_chart, p, ( resource_type ) i );
-    if ( ! p -> gains_chart.empty() )
+    // hack hack. don't display RESOURCE_RUNE_<TYPE> yet. only shown in tabular data.  WiP
+    if ( i == RESOURCE_RUNE_BLOOD || i == RESOURCE_RUNE_UNHOLY || i == RESOURCE_RUNE_FROST ) continue;
+    double total_gain=0;
+    for ( gain_t* g = p -> gain_list; g; g = g -> next )
+    {
+      if ( g -> actual > 0 && g -> type == i )
+        total_gain += g -> actual;
+    }
+
+    if ( total_gain > 0 )
+    {
+      chart_t::gains( p -> gains_chart, p, ( resource_type ) i );
+      if ( ! p -> gains_chart.empty() )
+      {
+        util_t::fprintf( file,
+                         "\t\t\t\t\t\t\t<img src=\"%s\" alt=\"Resource Gains Chart\" />\n",
+                         p -> gains_chart.c_str() );
+      }
+    }
+  }
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t</div>\n" );
+
+
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t<div class=\"charts\">\n" );
+  for ( int i = RESOURCE_NONE + 1; i < RESOURCE_MAX; i++ )
+  {
+    if ( p -> resource_max[ i ] > 0 && ! p -> timeline_resource_chart[ i ].empty() )
     {
       util_t::fprintf( file,
-                       "\t\t\t\t\t\t\t<img src=\"%s\" alt=\"Resource Gains Chart\" />\n",
-                       p -> gains_chart.c_str() );
+                       "\t\t\t\t\t\t<img src=\"%s\" alt=\"Resource Timeline Chart\" />\n",
+                       p -> timeline_resource_chart[ i ].c_str() );
     }
   }
-}
-util_t::fprintf( file,
-                 "\t\t\t\t\t\t</div>\n" );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t\t</div>\n"
+                   "\t\t\t\t\t<div class=\"clear\"></div>\n" );
 
-
-util_t::fprintf( file,
-                 "\t\t\t\t\t\t<div class=\"charts\">\n" );
-for ( int i = RESOURCE_NONE + 1; i < RESOURCE_MAX; i++ )
-{
-  if ( p -> resource_max[ i ] > 0 && ! p -> timeline_resource_chart[ i ].empty() )
-  {
-    util_t::fprintf( file,
-                     "\t\t\t\t\t\t<img src=\"%s\" alt=\"Resource Timeline Chart\" />\n",
-                     p -> timeline_resource_chart[ i ].c_str() );
-  }
-}
-util_t::fprintf( file,
-                 "\t\t\t\t\t\t</div>\n"
-                 "\t\t\t\t\t<div class=\"clear\"></div>\n" );
-
-util_t::fprintf( file,
-                 "\t\t\t\t\t</div>\n"
-                 "\t\t\t\t</div>\n" );
+  util_t::fprintf( file,
+                   "\t\t\t\t\t</div>\n"
+                   "\t\t\t\t</div>\n" );
 }
 
-// print_html_player_charts =========================================================
+// print_html_player_charts =================================================
 
 static void print_html_player_charts( FILE* file, sim_t* sim, player_t* p )
 {
-  int num_players = ( int ) sim -> players_by_name.size();
+  const unsigned num_players = sim -> players_by_name.size();
 
-  // Check for healers in the raid
-  bool healer_in_the_raid = false;
-  for ( player_t* q = sim -> player_list; q; q = q -> next )
-  {
-    if ( q -> primary_role() == ROLE_HEAL )
-    {
-      healer_in_the_raid = true;
-      break;
-    }
-  }
+  fputs( "\t\t\t\t<div class=\"player-section\">\n"
+         "\t\t\t\t\t<h3 class=\"toggle open\">Charts</h3>\n"
+         "\t\t\t\t\t<div class=\"toggle-content\">\n"
+         "\t\t\t\t\t\t<div class=\"charts charts-left\">\n", file );
 
-std::string action_dpet_str                     = "";
-std::string action_dmg_str                      = "";
-std::string reforge_dps_str                     = "";
-std::string scaling_dps_str                     = "";
-std::string scale_factors_str                   = "";
-std::string timeline_resource_health_str        = "";
-std::string timeline_dps_str                    = "";
-std::string distribution_dps_str                = "";
-std::string distribution_encounter_timeline_str = "";
-
-if ( ! p -> action_dpet_chart.empty() )
-{
-  if ( num_players == 1 )
+  if ( ! p -> action_dpet_chart.empty() )
   {
-    action_dpet_str = "<img src=\"" + p -> action_dpet_chart + "\" alt=\"Action DPET Chart\" />\n";
-  }
-  else
-  {
-    action_dpet_str = "<span class=\"chart-action-dpet\" title=\"Action DPET Chart\">" + p -> action_dpet_chart + "</span>\n";
-  }
-}
-if ( ! p -> action_dmg_chart.empty() )
-{
-  if ( num_players == 1 )
-  {
-    action_dmg_str = "<img src=\"" + p -> action_dmg_chart + "\" alt=\"Action Damage Chart\" />\n";
-  }
-  else
-  {
-    action_dmg_str = "<span class=\"chart-action-dmg\" title=\"Action Damage Chart\">" + p -> action_dmg_chart + "</span>\n";
-  }
-}
-
-if ( ! p -> scaling_dps_chart.empty() )
-{
-  if ( num_players == 1 )
-  {
-    scaling_dps_str = "<img src=\"" + p -> scaling_dps_chart + "\" alt=\"Scaling DPS Chart\" />\n";
-  }
-  else
-  {
-    scaling_dps_str = "<span class=\"chart-scaling-dps\" title=\"Scaling DPS Chart\">" + p -> scaling_dps_chart + "</span>\n";
-  }
-}
-if ( ! p -> reforge_dps_chart.empty() )
-{
-  if ( p -> sim -> reforge_plot -> reforge_plot_stat_indices.size() == 2 )
-  {
+    const char* fmt;
     if ( num_players == 1 )
+      fmt = "\t\t\t\t\t\t\t<img src=\"%s\" alt=\"Action DPET Chart\" />\n";
+    else
+      fmt = "\t\t\t\t\t\t\t<span class=\"chart-action-dpet\" title=\"Action DPET Chart\">%s</span>\n";
+    fprintf( file, fmt, p -> action_dpet_chart.c_str() );
+  }
+
+  if ( ! p -> action_dmg_chart.empty() )
+  {
+    const char* fmt;
+    if ( num_players == 1 )
+      fmt = "\t\t\t\t\t\t\t<img src=\"%s\" alt=\"Action Damage Chart\" />\n";
+    else
+      fmt = "\t\t\t\t\t\t\t<span class=\"chart-action-dmg\" title=\"Action Damage Chart\">%s</span>\n";
+    fprintf( file, fmt, p -> action_dmg_chart.c_str() );
+  }
+
+  if ( ! p -> scaling_dps_chart.empty() )
+  {
+    const char* fmt;
+    if ( num_players == 1 )
+      fmt = "\t\t\t\t\t\t\t<img src=\"%s\" alt=\"Scaling DPS Chart\" />\n";
+    else
+      fmt = "\t\t\t\t\t\t\t<span class=\"chart-scaling-dps\" title=\"Scaling DPS Chart\">%s</span>\n";
+    fprintf( file, fmt, p -> scaling_dps_chart.c_str() );
+  }
+
+  fputs( "\t\t\t\t\t\t</div>\n"
+         "\t\t\t\t\t\t<div class=\"charts\">\n", file );
+
+  if ( ! p -> reforge_dps_chart.empty() )
+  {
+    const char* fmt;
+    if ( p -> sim -> reforge_plot -> reforge_plot_stat_indices.size() == 2 )
     {
-      reforge_dps_str = "<img src=\"" + p -> reforge_dps_chart + "\" alt=\"Reforge DPS Chart\" />\n";
+      if ( num_players == 1 )
+        fmt = "\t\t\t\t\t\t\t<img src=\"%s\" alt=\"Reforge DPS Chart\" />\n";
+      else
+        fmt = "\t\t\t\t\t\t\t<span class=\"chart-reforge-dps\" title=\"Reforge DPS Chart\">%s</span>\n";
     }
     else
     {
-      reforge_dps_str = "<span class=\"chart-reforge-dps\" title=\"Reforge DPS Chart\">" + p -> reforge_dps_chart + "</span>\n";
+      if ( true )
+        fmt = "\t\t\t\t\t\t\t%s";
+      else
+      {
+        if ( num_players == 1 )
+          fmt = "\t\t\t\t\t\t\t<iframe>%s</iframe>\n";
+        else
+          fmt = "\t\t\t\t\t\t\t<span class=\"chart-reforge-dps\" title=\"Reforge DPS Chart\">%s</span>\n";
+      }
     }
+    fprintf( file, fmt, p -> reforge_dps_chart.c_str() );
   }
-  else
+
+  if ( ! p -> scale_factors_chart.empty() )
   {
+    const char* fmt;
     if ( num_players == 1 )
-    {
-//        reforge_dps_str = "<iframe>";
-      reforge_dps_str = p -> reforge_dps_chart;
-//        reforge_dps_str += "</iframe>\n";
-    }
+      fmt = "\t\t\t\t\t\t\t<img src=\"%s\" alt=\"Scale Factors Chart\" />\n";
     else
-    {
-//        reforge_dps_str = "<span class=\"chart-reforge-dps\" title=\"Reforge DPS Chart\">";
-      reforge_dps_str = p -> reforge_dps_chart;
-//        reforge_dps_str += "</span>\n";
-    }
+      fmt = "\t\t\t\t\t\t\t<span class=\"chart-scale-factors\" title=\"Scale Factors Chart\">%s</span>\n";
+    fprintf( file, fmt, p -> scale_factors_chart.c_str() );
   }
-}
-if ( ! p -> timeline_resource_health_chart.empty() && healer_in_the_raid )
-{
-  if ( num_players == 1 )
-  {
-    timeline_resource_health_str = "<img src=\"" + p ->timeline_resource_health_chart + "\" alt=\"Health Timeline Chart\" />\n";
-  }
-  else
-  {
-    timeline_resource_health_str = "<span class=\"chart-health-timeline-resource\" title=\"Health Timeline Chart\">" + p -> timeline_resource_health_chart + "</span>\n";
-  }
-}
-if ( ! p -> timeline_dps_chart.empty() )
-{
-  if ( num_players == 1 )
-  {
-    timeline_dps_str = "<img src=\"" + p -> timeline_dps_chart + "\" alt=\"DPS Timeline Chart\" />\n";
-  }
-  else
-  {
-    timeline_dps_str = "<span class=\"chart-timeline-dps\" title=\"DPS Timeline Chart\">" + p -> timeline_dps_chart + "</span>\n";
-  }
-}
-if ( ! p -> distribution_dps_chart.empty() )
-{
-  if ( num_players == 1 )
-  {
-    distribution_dps_str = "<img src=\"" + p -> distribution_dps_chart + "\" alt=\"DPS Distribution Chart\" />\n";
-  }
-  else
-  {
-    distribution_dps_str = "<span class=\"chart-distribution-dps\" title=\"DPS Distribution Chart\">" + p -> distribution_dps_chart + "%s</span>\n";
-  }
-}
-if ( ! p -> scale_factors_chart.empty() )
-{
-  if ( num_players == 1 )
-  {
-    scale_factors_str = "<img src=\"" + p -> scale_factors_chart + "\" alt=\"Scale Factors Chart\" />\n";
-  }
-  else
-  {
-    scale_factors_str = "<span class=\"chart-scale-factors\" title=\"Scale Factors Chart\">" + p -> scale_factors_chart + "</span>\n";
-  }
-}
-if ( ! sim -> timeline_chart.empty() )
-{
-  if ( num_players == 1 )
-  {
-    distribution_encounter_timeline_str = "<img src=\"" + sim -> timeline_chart + "\" alt=\"Encounter Timeline Distribution Chart\" />\n";
-  }
-}
 
-util_t::fprintf( file,
-                 "\t\t\t\t<div class=\"player-section\">\n"
-                 "\t\t\t\t\t<h3 class=\"toggle open\">Charts</h3>\n"
-                 "\t\t\t\t\t<div class=\"toggle-content\">\n"
-                 "\t\t\t\t\t\t<div class=\"charts charts-left\">\n"
-                 "              %s"
-                 "              %s"
-                 "              %s"
-                 "\t\t\t\t\t\t</div>\n"
-                 "\t\t\t\t\t\t<div class=\"charts\">\n"
-                 "              %s"
-                 "              %s"
-                 "              %s"
-                 "              %s"
-                 "              %s"
-                 "              %s"
-                 "\t\t\t\t\t\t</div>\n"
-                 "\t\t\t\t\t\t<div class=\"clear\"></div>\n"
-                 "\t\t\t\t\t</div>\n"
-                 "\t\t\t\t</div>\n",
-                 action_dpet_str.c_str(),
-                 action_dmg_str.c_str(),
-                 scaling_dps_str.c_str(),
-                 reforge_dps_str.c_str(),
-                 scale_factors_str.c_str(),
-                 timeline_resource_health_str.c_str(),
-                 timeline_dps_str.c_str(),
-                 distribution_dps_str.c_str(),
-                 distribution_encounter_timeline_str.c_str() );
+  if ( ! p -> timeline_dps_chart.empty() )
+  {
+    const char* fmt;
+    if ( num_players == 1 )
+      fmt = "\t\t\t\t\t\t\t<img src=\"%s\" alt=\"DPS Timeline Chart\" />\n";
+    else
+      fmt = "\t\t\t\t\t\t\t<span class=\"chart-timeline-dps\" title=\"DPS Timeline Chart\">%s</span>\n";
+    fprintf( file, fmt, p -> timeline_dps_chart.c_str() );
+  }
+
+  if ( ! p -> distribution_dps_chart.empty() )
+  {
+    const char* fmt;
+    if ( num_players == 1 )
+      fmt = "\t\t\t\t\t\t\t<img src=\"%s\" alt=\"DPS Distribution Chart\" />\n";
+    else
+      fmt = "\t\t\t\t\t\t\t<span class=\"chart-distribution-dps\" title=\"DPS Distribution Chart\">%s</span>\n";
+    fprintf( file, fmt, p -> distribution_dps_chart.c_str() );
+  }
+
+  if ( ! p -> time_spent_chart.empty() )
+  {
+    const char* fmt;
+    if ( num_players == 1 )
+      fmt = "\t\t\t\t\t\t\t<img src=\"%s\" alt=\"Time Spent Chart\" />\n";
+    else
+      fmt = "\t\t\t\t\t\t\t<span class=\"chart-time-spent\" title=\"Time Spent Chart\">%s</span>\n";
+    fprintf( file, fmt, p -> time_spent_chart.c_str() );
+  }
+
+  fputs( "\t\t\t\t\t\t</div>\n"
+         "\t\t\t\t\t\t<div class=\"clear\"></div>\n"
+         "\t\t\t\t\t</div>\n"
+         "\t\t\t\t</div>\n", file );
 }
 
 
-// print_html_player_buffs =========================================================
+// print_html_player_buffs ==================================================
 
 static void print_html_player_buffs( FILE* file, player_t* p )
 {
@@ -3385,7 +3578,7 @@ static void print_html_player_buffs( FILE* file, player_t* p )
 }
 
 
-// print_html_player =========================================================
+// print_html_player ========================================================
 
 static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
 {
@@ -3483,6 +3676,7 @@ static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
                    "\t\t\t\t\t\t\t\t<th>Resource</th>\n"
                    "\t\t\t\t\t\t\t\t<th><a href=\"#help-waiting\" class=\"help\">Waiting</a></th>\n"
                    "\t\t\t\t\t\t\t\t<th><a href=\"#help-apm\" class=\"help\">APM</a></th>\n"
+                   "\t\t\t\t\t\t\t\t<th>Active</th>\n"
                    "\t\t\t\t\t\t\t</tr>\n"
                    "\t\t\t\t\t\t\t<tr>\n"
                    "\t\t\t\t\t\t\t\t<td>%.1f</td>\n"
@@ -3494,6 +3688,7 @@ static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
                    "\t\t\t\t\t\t\t\t<td>%s</td>\n"
                    "\t\t\t\t\t\t\t\t<td>%.2f%%</td>\n"
                    "\t\t\t\t\t\t\t\t<td>%.1f</td>\n"
+                   "\t\t\t\t\t\t\t\t<td>%.1f%%</td>\n"
                    "\t\t\t\t\t\t\t</tr>\n"
                    "\t\t\t\t\t\t</table>\n",
                    p -> dps,
@@ -3505,7 +3700,8 @@ static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
                    p -> rps_gain,
                    util_t::resource_type_string( p -> primary_resource() ),
                    p -> total_seconds ? 100.0 * p -> total_waiting / p -> total_seconds : 0,
-                   p -> total_seconds ? 60.0 * p -> total_foreground_actions / p -> total_seconds : 0 );
+                   p -> total_seconds ? 60.0 * p -> total_foreground_actions / p -> total_seconds : 0,
+                   sim -> total_seconds ? p -> total_seconds / sim -> total_seconds * 100.0 : 0 );
 
   // Spec and gear
   if ( ! p -> is_pet() )
@@ -3610,7 +3806,7 @@ static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
   i = 0;
   for ( stats_t* s = p -> stats_list; s; s = s -> next )
   {
-    if ( s -> num_executes > 1 || s -> compound_dmg > 0 || sim -> debug )
+    if ( s -> num_executes > 1 || s -> compound_amount > 0 || sim -> debug )
     {
       print_html_action_damage( file, s, p, i );
       i++;
@@ -3624,7 +3820,7 @@ static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
     i = 0;
     for ( stats_t* s = pet -> stats_list; s; s = s -> next )
     {
-      if ( s -> num_executes || s -> compound_dmg > 0 || sim -> debug )
+      if ( s -> num_executes || s -> compound_amount > 0 || sim -> debug )
       {
         if ( first )
         {
@@ -3632,11 +3828,12 @@ static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
           util_t::fprintf( file,
                            "\t\t\t\t\t\t\t<tr>\n"
                            "\t\t\t\t\t\t\t\t<th class=\"left small\">pet - %s</th>\n"
-                           "\t\t\t\t\t\t\t\t<th class=\"right small\">%.0f</th>\n"
+                           "\t\t\t\t\t\t\t\t<th class=\"right small\">%.0f / %.0f</th>\n"
                            "\t\t\t\t\t\t\t\t<td colspan=\"18\" class=\"filler\"></td>\n"
                            "\t\t\t\t\t\t\t</tr>\n",
                            pet -> name_str.c_str(),
-                           pet -> dps );
+                           pet -> dps,
+                           pet -> dpse );
         }
         print_html_action_damage( file, s, p, i );
         i++;
@@ -3735,6 +3932,12 @@ static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
 
   if ( p -> death_count > 0 )
   {
+    std::string distribution_deaths_str                = "";
+    if ( ! p -> distribution_deaths_chart.empty() )
+    {
+      distribution_deaths_str = "<img src=\"" + p -> distribution_deaths_chart + "\" alt=\"Deaths Distribution Chart\" />\n";
+    }
+
     util_t::fprintf( file,
                      "\t\t\t\t\t<div class=\"player-section gains\">\n"
                      "\t\t\t\t\t\t<h3 class=\"toggle\">Deaths</h3>\n"
@@ -3770,11 +3973,32 @@ static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
                      "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
                      "\t\t\t\t\t\t\t\t</tr>\n",
                      p -> min_death_time );
+    util_t::fprintf( file,
+                     "\t\t\t\t\t\t\t\t<tr>\n"
+                     "\t\t\t\t\t\t\t\t\t<td class=\"left\">max death time</td>\n"
+                     "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
+                     "\t\t\t\t\t\t\t\t</tr>\n",
+                     p -> max_death_time );
+    util_t::fprintf( file,
+                     "\t\t\t\t\t\t\t\t<tr>\n"
+                     "\t\t\t\t\t\t\t\t\t<td class=\"left\">dmg taken</td>\n"
+                     "\t\t\t\t\t\t\t\t\t<td class=\"right\">%.2f</td>\n"
+                     "\t\t\t\t\t\t\t\t</tr>\n",
+                     p -> total_dmg_taken );
 
     util_t::fprintf( file,
-                     "\t\t\t\t\t\t\t\t</table>\n"
-                     "\t\t\t\t\t\t\t</div>\n"
-                     "\t\t\t\t\t\t</div>\n" );
+                     "\t\t\t\t\t\t\t\t</table>\n" );
+
+    util_t::fprintf ( file,
+                      "\t\t\t\t\t\t\t\t\t<div class=\"clear\"></div>\n" );
+
+    util_t::fprintf ( file,
+                      "\t\t\t\t\t\t\t\t\t%s\n",
+                      distribution_deaths_str.c_str() );
+
+    util_t::fprintf ( file,
+                      "\t\t\t\t\t\t\t</div>\n"
+                      "\t\t\t\t\t\t</div>\n" );
   }
 
 
@@ -3840,34 +4064,22 @@ static void print_html_player( FILE* file, sim_t* sim, player_t* p, int j )
                    "\t\t\t\t</div>\n\n" );
 }
 
+} // ANONYMOUS NAMESPACE ====================================================
 
-} // ANONYMOUS NAMESPACE =====================================================
-
-// ===========================================================================
+// ==========================================================================
 // Report
-// ===========================================================================
+// ==========================================================================
 
-// report_t::encode_html =============================================================
+// report_t::encode_html ====================================================
 
-static inline void replace_entity( std::string& str, char c, const char* text )
-{
-  std::size_t len = strlen( text );
-  std::string::size_type pos = 0;
-  while ( ( pos = str.find( c, pos ) ) != str.npos )
-  {
-    str.replace( pos, 1, text );
-    pos += len;
-  }
-}
-
-void report_t::encode_html ( std::string& buffer )
+void report_t::encode_html( std::string& buffer )
 {
   replace_entity( buffer, '&', "&amp;" );
   replace_entity( buffer, '<', "&lt;" );
   replace_entity( buffer, '>', "&gt;" );
 }
 
-// report_t::print_text ======================================================
+// report_t::print_text =====================================================
 
 void report_t::print_text( FILE* file, sim_t* sim, bool detail )
 {
@@ -3961,7 +4173,7 @@ void report_t::print_text( FILE* file, sim_t* sim, bool detail )
   util_t::fprintf( file, "\n" );
 }
 
-// report_t::print_html ======================================================
+// report_t::print_html =====================================================
 void report_t::print_html( sim_t* sim )
 {
   int num_players = ( int ) sim -> players_by_name.size();
@@ -4356,6 +4568,9 @@ void report_t::print_html( sim_t* sim )
   // Auras
   print_html_auras_buffs( file, sim );
 
+  // Sim Summary
+  print_html_sim_summary( file, sim );
+
   // Report Targets
   if ( sim -> report_targets )
   {
@@ -4375,8 +4590,8 @@ void report_t::print_html( sim_t* sim )
     }
   }
 
+  // Help Boxes
   print_html_help_boxes( file, sim );
-
 
   // jQuery
   util_t::fprintf ( file,
@@ -4534,7 +4749,7 @@ void report_t::print_xml( sim_t* sim )
   sim -> errorf( "XML not currently supported.\n" );
 }
 
-// report_t::print_profiles ==================================================
+// report_t::print_profiles =================================================
 
 void report_t::print_profiles( sim_t* sim )
 {
@@ -4599,6 +4814,11 @@ void report_t::print_profiles( sim_t* sim )
     {
       file_name  = sim -> save_prefix_str;
       file_name += p -> name_str;
+      if ( sim -> save_talent_str != 0 )
+      {
+        file_name += "_";
+        file_name += p -> primary_tree_name();
+      }
       file_name += sim -> save_suffix_str;
       file_name += ".simc";
       util_t::urlencode( util_t::format_text( file_name, sim -> input_is_utf8 ) );
@@ -4620,7 +4840,7 @@ void report_t::print_profiles( sim_t* sim )
   }
 }
 
-// report_t::print_spell_query ===============================================
+// report_t::print_spell_query ==============================================
 
 void report_t::print_spell_query( sim_t* sim )
 {
@@ -4654,7 +4874,7 @@ void report_t::print_spell_query( sim_t* sim )
   }
 }
 
-// report_t::print_suite =====================================================
+// report_t::print_suite ====================================================
 
 void report_t::print_suite( sim_t* sim )
 {

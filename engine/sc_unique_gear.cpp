@@ -73,7 +73,7 @@ struct stat_proc_callback_t : public action_callback_t
   }
 };
 
-// cost_reduction_proc_callback =======================================================
+// cost_reduction_proc_callback =============================================
 
 struct cost_reduction_proc_callback_t : public action_callback_t
 {
@@ -83,8 +83,8 @@ struct cost_reduction_proc_callback_t : public action_callback_t
   cost_reduction_buff_t* buff;
 
   cost_reduction_proc_callback_t( const std::string& n, player_t* p, int s, int max_stacks, double a,
-                                double proc_chance, double duration, double cooldown,
-                                bool refreshes=false, bool reverse=false, int rng_type=RNG_DEFAULT, bool activated=true ) :
+                                  double proc_chance, double duration, double cooldown,
+                                  bool refreshes=false, bool reverse=false, int rng_type=RNG_DEFAULT, bool activated=true ) :
     action_callback_t( p -> sim, p ),
     name_str( n ), school( s ), amount( a )
   {
@@ -129,7 +129,7 @@ struct discharge_proc_callback_t : public action_callback_t
   discharge_proc_callback_t( const std::string& n, player_t* p, int ms,
                              const school_type school, double amount, double scaling,
                              double pc, double cd, bool no_crit, bool no_buffs, bool no_debuffs, int rng_type=RNG_DEFAULT ) :
-                             action_callback_t( p -> sim, p ),
+    action_callback_t( p -> sim, p ),
     name_str( n ), stacks( 0 ), max_stacks( ms ), proc_chance( pc ), cooldown( 0 ), discharge_action( 0 ), proc( 0 ), rng( 0 )
   {
     if ( rng_type == RNG_DEFAULT ) rng_type = RNG_DISTRIBUTED;
@@ -236,7 +236,7 @@ struct discharge_proc_callback_t : public action_callback_t
   }
 };
 
-// chance_discharge_proc_callback ==================================================
+// chance_discharge_proc_callback ===========================================
 
 struct chance_discharge_proc_callback_t : public action_callback_t
 {
@@ -249,8 +249,8 @@ struct chance_discharge_proc_callback_t : public action_callback_t
   rng_t* rng;
 
   chance_discharge_proc_callback_t( const std::string& n, player_t* p, int ms,
-                             const school_type school, double amount, double scaling,
-                             double pc, double cd, bool no_crit, bool no_buffs, bool no_debuffs, int rng_type=RNG_DEFAULT ) :
+                                    const school_type school, double amount, double scaling,
+                                    double pc, double cd, bool no_crit, bool no_buffs, bool no_debuffs, int rng_type=RNG_DEFAULT ) :
     action_callback_t( p -> sim, p ),
     name_str( n ), stacks( 0 ), max_stacks( ms ), proc_chance( pc )
   {
@@ -447,7 +447,7 @@ struct stat_discharge_proc_callback_t : public action_callback_t
   }
 };
 
-// register_apparatus_of_khazgoroth ====================================
+// register_apparatus_of_khazgoroth =========================================
 
 static void register_apparatus_of_khazgoroth( item_t* item )
 {
@@ -1101,7 +1101,7 @@ static void register_shard_of_woe( item_t* item )
 
   item -> unique = true;
 
-  for ( int i = 0; i <= SCHOOL_MAX; i++ )
+  for ( int i = 0; i < SCHOOL_MAX; i++ )
   {
     p -> initial_resource_reduction[ i ] += 205;
   }
@@ -1302,7 +1302,7 @@ static void register_tyrandes_favorite_doll( item_t* item )
   p -> register_resource_loss_callback( RESOURCE_MANA, new tyrandes_callback_t( p ) );
 }
 
-// register_dragonwrath_tarecgosas_rest ===================================================
+// register_dragonwrath_tarecgosas_rest =====================================
 
 static void register_dragonwrath_tarecgosas_rest( item_t* item )
 {
@@ -1338,6 +1338,40 @@ static void register_dragonwrath_tarecgosas_rest( item_t* item )
     }
   };
 
+  struct dragonwrath_tarecgosas_rest_dd_callback_t : public action_callback_t
+  {
+    rng_t* rng;
+    double chance;
+
+    dragonwrath_tarecgosas_rest_dd_callback_t( player_t* p, double pc ) :
+      action_callback_t( p -> sim, p ), rng( 0 ), chance( pc )
+    {
+      rng = p -> get_rng( "dragonwrath_tarecgosas_rest_dd" );
+    }
+
+    virtual void trigger( action_t* a, void* /* call_data */ )
+    {
+      if ( a -> is_dtr_action )
+        return;
+
+      if ( ! a -> dtr_action )
+        return;
+
+      if ( chance <= 0 )
+        return;
+
+      if ( rng -> roll( chance ) )
+      {
+        if ( sim -> log )
+        {
+          log_t::output( sim, "%s action %s procs Dragonwrath Tarecgosas Rest.", a -> player -> name(), a -> name() );
+        }
+        new ( sim ) action_execute_event_t( sim, a -> dtr_action, 0 /* Add DTR Proc Delay here */ );
+      }
+
+    }
+  };
+
   double chance = 0.10;
 
   if ( p -> sim -> dtr_proc_chance >= 0.0 )
@@ -1363,9 +1397,9 @@ static void register_dragonwrath_tarecgosas_rest( item_t* item )
     // Should probably be re-done when all the Tier 12 sets are available.
     case TREE_BALANCE:      chance *= 1.004; break;
     case TREE_ARCANE:       chance *= 1.009; break;
-    case TREE_FIRE:         chance *= 1.020; break;
-    case TREE_FROST:        chance *= 1.063; break;
-    case TREE_SHADOW:       chance *= 1.010; break;
+    case TREE_FIRE:         chance *= 1.021; break;
+    case TREE_FROST:        chance *= 1.023; break;
+    case TREE_SHADOW:       chance *= 1.360; break;
     case TREE_ELEMENTAL:    chance *= 1.029; break;
     case TREE_AFFLICTION:   chance *= 1.061; break;
     case TREE_DEMONOLOGY:   chance *= 1.089; break;
@@ -1387,119 +1421,194 @@ static void register_dragonwrath_tarecgosas_rest( item_t* item )
   }
 
   action_callback_t* cb = new dragonwrath_tarecgosas_rest_callback_t( p, chance );
+  action_callback_t* cb_dd = new dragonwrath_tarecgosas_rest_dd_callback_t( p, chance );
 
   p -> register_tick_damage_callback( SCHOOL_SPELL_MASK, cb );
-  p -> register_direct_damage_callback( SCHOOL_SPELL_MASK, cb );
+  p -> register_direct_damage_callback( SCHOOL_SPELL_MASK, DTR_DD_ENABLED ? cb_dd : cb );
 }
 
-// register_blazing_power ======================================================
+// register_blazing_power ===================================================
 
 static void register_blazing_power( item_t* item )
 {
-    player_t* p = item -> player;
+  player_t* p = item -> player;
 
-    item -> unique = true;
+  item -> unique = true;
 
-    struct blazing_power_heal_t : public heal_t
+  struct blazing_power_heal_t : public heal_t
+  {
+    blazing_power_heal_t( player_t* p, bool heroic ) :
+      heal_t( "blaze_of_life", p, heroic ? 97136 : 96966 )
     {
-      blazing_power_heal_t( player_t* p, bool heroic ) :
-        heal_t( "blaze_of_life", p, heroic ? 97136 : 96966 )
-      {
-        trigger_gcd = 0;
-        background  = true;
-        may_miss = false;
-        may_crit = true;
-        callbacks = false;
-        init();
-      }
-    };
+      trigger_gcd = 0;
+      background  = true;
+      may_miss = false;
+      may_crit = true;
+      callbacks = false;
+      init();
+    }
+  };
 
-    struct blazing_power_callback_t : public action_callback_t
+  struct blazing_power_callback_t : public action_callback_t
+  {
+    heal_t* heal;
+    cooldown_t* cd;
+    proc_t* proc;
+    rng_t* rng;
+
+    blazing_power_callback_t( player_t* p, heal_t* s ) :
+      action_callback_t( p -> sim, p ), heal( s ), proc( 0 ), rng( 0 )
     {
-      heal_t* heal;
-      cooldown_t* cd;
-      proc_t* proc;
-      rng_t* rng;
+      proc = p -> get_proc( "blazing_power" );
+      rng  = p -> get_rng ( "blazing_power" );
+      cd = p -> get_cooldown( "blazing_power_callback" );
+      cd -> duration = 45.0;
+    }
 
-      blazing_power_callback_t( player_t* p, heal_t* s ) :
-        action_callback_t( p -> sim, p ), heal( s )
+    virtual void trigger( action_t* a, void* /* call_data */ )
+    {
+      if (   a -> aoe      ||
+             a -> proc     ||
+             a -> dual     ||
+             ! a -> harmful   )
+        return;
+
+      if ( cd -> remains() > 0 )
+        return;
+
+      if ( rng -> roll( 0.10 ) )
       {
-        proc = p -> get_proc( "blazing_power" );
-        rng  = p -> get_rng ( "blazing_power" );
-        cd = p -> get_cooldown( "blazing_power_callback" );
-        cd -> duration = 45.0;
+        heal -> heal_target.clear();
+        heal -> heal_target.push_back( heal -> find_lowest_player() );
+        heal -> execute();
+        proc -> occur();
+        cd -> start();
       }
-
-      virtual void trigger( action_t* a, void* /* call_data */ )
-      {
-        if (   a -> aoe      ||
-               a -> proc     ||
-               a -> dual     ||
-               ! a -> harmful   )
-          return;
-
-        if ( cd -> remains() > 0 )
-          return;
-
-        if ( rng -> roll( 0.10 ) )
-        {
-          heal -> execute();
-          proc -> occur();
-          cd -> start();
-        }
-      }
-    };
+    }
+  };
 
   // FIXME: Observe if it procs of non-direct healing spells
   p -> register_heal_callback( RESULT_ALL_MASK, new blazing_power_callback_t( p, new blazing_power_heal_t( p, item -> heroic() ) )  );
 }
 
-// register_valanyr ======================================================
+// register_valanyr =========================================================
 
 static void register_valanyr( item_t* item )
 {
-    player_t* p = item -> player;
+  player_t* p = item -> player;
 
-    item -> unique = true;
+  item -> unique = true;
 
-    struct valanyr_callback_t : public action_callback_t
+  struct valanyr_callback_t : public action_callback_t
+  {
+    proc_t* proc;
+    rng_t* rng;
+    cooldown_t* cd;
+
+    valanyr_callback_t( player_t* p ) :
+      action_callback_t( p -> sim, p )
     {
-      proc_t* proc;
-      rng_t* rng;
-      cooldown_t* cd;
+      proc = p -> get_proc( "valanyr" );
+      rng  = p -> get_rng ( "valanyr" );
+      cd = p -> get_cooldown( "valanyr_callback" );
+      cd -> duration = 45.0;
+    }
 
-      valanyr_callback_t( player_t* p ) :
-        action_callback_t( p -> sim, p )
+    virtual void trigger( action_t* a, void* /* call_data */ )
+    {
+      if (   a -> aoe      ||
+             a -> proc     ||
+             a -> dual     ||
+             ! a -> harmful   )
+        return;
+
+      if ( cd -> remains() > 0 )
+        return;
+
+      if ( rng -> roll( 0.10 ) )
       {
-        proc = p -> get_proc( "valanyr" );
-        rng  = p -> get_rng ( "valanyr" );
-        cd = p -> get_cooldown( "valanyr_callback" );
-        cd -> duration = 45.0;
+        listener -> buffs.blessing_of_ancient_kings -> trigger();
+        proc -> occur();
+        cd -> start();
       }
 
-      virtual void trigger( action_t* a, void* /* call_data */ )
-      {
-        if (   a -> aoe      ||
-               a -> proc     ||
-               a -> dual     ||
-               ! a -> harmful   )
-          return;
-
-        if ( cd -> remains() > 0 )
-          return;
-
-        if ( rng -> roll( 0.10 ) )
-        {
-          listener -> buffs.blessing_of_ancient_kings -> trigger();
-          proc -> occur();
-          cd -> start();
-        }
-
-      }
-    };
+    }
+  };
 
   // FIXME: Observe if it procs of non-direct healing spells
   p -> register_heal_callback( RESULT_ALL_MASK, new valanyr_callback_t( p )  );
+}
+
+// register_symbiotic_worm ======================================================
+
+static void register_symbiotic_worm( item_t* item )
+{
+  player_t* p = item -> player;
+
+  item -> unique = true;
+
+  struct symbiotic_worm_callback_t : public stat_proc_callback_t
+  {
+    symbiotic_worm_callback_t( player_t* p, bool h ) :
+      stat_proc_callback_t( "symbiotic_worm", p, STAT_MASTERY_RATING, 1, h ? 1089 : 963, 1.0, 10.0, 30.0, 0, false, RNG_DEFAULT, false )
+    {}
+
+    virtual void trigger( action_t* a, void* call_data )
+    {
+      if ( a -> player -> health_percentage() < 35 )
+      {
+        stat_proc_callback_t::trigger( a, call_data );
+      }
+    }
+  };
+
+  stat_proc_callback_t* cb = new symbiotic_worm_callback_t( p, item -> heroic() );
+  p -> register_tick_damage_callback( RESULT_ALL_MASK, cb );
+  p -> register_direct_damage_callback( RESULT_ALL_MASK, cb  );
+}
+
+// register_symbiotic_worm ======================================================
+
+static void register_spidersilk_spindle( item_t* item )
+{
+  player_t* p = item -> player;
+
+  item -> unique = true;
+
+  struct spidersilk_spindle_callback_t : public action_callback_t
+  {
+    buff_t* buff;
+    bool heroic;
+    cooldown_t* cd;
+    stats_t* stats;
+    spidersilk_spindle_callback_t( player_t* p, bool h ) :
+      action_callback_t( p -> sim, p ), heroic( h ), cd ( 0 ), stats( 0 )
+    {
+      buff = new buff_t( p, heroic ? 97129 : 96945, "loom_of_fate" );
+      buff -> activated = false;
+      cd = listener -> get_cooldown( "spidersilk_spindle" );
+      cd -> duration = 60.0;
+      p -> absorb_buffs.push_back( buff );
+      stats = listener -> get_stats( "loom_of_fate" );
+      stats -> type = STATS_ABSORB;
+    }
+
+    virtual void trigger( action_t* a, void* /* call_data */ )
+    {
+      if ( cd -> remains() <= 0 && a -> player -> health_percentage() < 35 )
+      {
+        cd -> start();
+        double amount = buff -> effect1().base_value();
+        buff -> trigger( 1, amount );
+        stats -> add_result( amount, amount, ABSORB, RESULT_HIT );
+        stats -> add_execute( 0 );
+      }
+    }
+  };
+
+  action_callback_t* cb = new spidersilk_spindle_callback_t( p, item -> heroic() );
+  p -> register_tick_damage_callback( RESULT_ALL_MASK, cb );
+  p -> register_direct_damage_callback( RESULT_ALL_MASK, cb  );
 }
 
 // ==========================================================================
@@ -1557,6 +1666,8 @@ void unique_gear_t::init( player_t* p )
     if ( ! strcmp( item.name(), "dragonwrath_tarecgosas_rest"         ) ) register_dragonwrath_tarecgosas_rest       ( &item );
     if ( ! strcmp( item.name(), "eye_of_blazing_power"                ) ) register_blazing_power                     ( &item );
     if ( ! strcmp( item.name(), "valanyr_hammer_of_ancient_kings"     ) ) register_valanyr                           ( &item );
+    if ( ! strcmp( item.name(), "symbiotic_worm"                      ) ) register_symbiotic_worm                    ( &item );
+    if ( ! strcmp( item.name(), "spidersilk_spindle"                  ) ) register_spidersilk_spindle                ( &item );
   }
 }
 
@@ -2070,7 +2181,7 @@ bool unique_gear_t::get_equip_encoding( std::string&       encoding,
   else if ( name == "bryntroll_the_bone_arbiter"          ) e = ( heroic ? "OnAttackHit_2538Drain_11%" : "OnAttackHit_2250Drain_11%" );
 
   // Variable Stack Discharge Procs
-  else if ( name == "variable_pulse_lightning_capacitor"  ) e = ( heroic ? "OnSpellCrit_1269.5Nature_15%_10Stack_2.5Cd_chance" : "OnSpellCrit_1125.5Nature_15%_10Stack_2.5Cd_chance" );
+  else if ( name == "variable_pulse_lightning_capacitor"  ) e = ( heroic ? "OnSpellCrit_3300.7Nature_15%_10Stack_2.5Cd_chance" : "OnSpellCrit_2926.3Nature_15%_10Stack_2.5Cd_chance" );
 
   // Some Normal/Heroic items have same name
   else if ( name == "reign_of_the_unliving"               ) e = ( heroic ? "OnSpellDirectCrit_2117Fire_3Stack_2.0Cd" : "OnSpellDirectCrit_1882Fire_3Stack_2.0Cd" );

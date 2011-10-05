@@ -107,7 +107,7 @@ static xml_node_t* download_character_sheet( sim_t* sim,
                                              cache::behavior_t  caching )
 {
   std::string url = "http://" + region + ".wowarmory.com/character-sheet.xml?locale=en_US&r=" + server + "&n=" + name;
-  xml_node_t* node = xml_t::get( sim, url, "</characterTab>", caching, sim -> current_throttle );
+  xml_node_t* node = xml_t::get( sim, url, caching, "</characterTab>", sim -> current_throttle );
 
   if ( ! node )
   {
@@ -132,7 +132,7 @@ static xml_node_t* download_character_talents( sim_t* sim,
                                                cache::behavior_t  caching )
 {
   std::string url = "http://" + region + ".wowarmory.com/character-talents.xml?locale=en_US&r=" + server + "&n=" + name;
-  xml_node_t* node = xml_t::get( sim, url, "</talentGroup>", caching, sim -> current_throttle );
+  xml_node_t* node = xml_t::get( sim, url, caching, "</talentGroup>", sim -> current_throttle );
 
   if ( ! node )
   {
@@ -165,7 +165,7 @@ static xml_node_t* download_item_tooltip( player_t* p,
 
   xml_node_t* node;
 
-  node = xml_t::get( sim, url, "</itemTooltip>", caching, sim -> current_throttle );
+  node = xml_t::get( sim, url, caching, "</itemTooltip>", sim -> current_throttle );
   if ( caching != cache::ONLY )
   {
     if ( ! node )
@@ -194,7 +194,7 @@ static xml_node_t* download_item_tooltip( player_t* p,
   std::string url = "http://" + p -> region_str + ".wowarmory.com/item-tooltip.xml?i=" + id_str;
   xml_node_t* node;
 
-  node = xml_t::get( sim, url, "</itemTooltip>", caching, sim -> current_throttle );
+  node = xml_t::get( sim, url, caching, "</itemTooltip>", sim -> current_throttle );
   if ( caching != cache::ONLY )
   {
     if ( ! node )
@@ -322,7 +322,7 @@ static bool parse_item_stats( item_t& item,
   return true;
 }
 
-// parse_item_reforge =========================================================
+// parse_item_reforge =======================================================
 
 static bool parse_item_reforge( item_t& item,
                                 xml_node_t* /* xml */ )
@@ -672,7 +672,7 @@ bool armory_t::download_guild( sim_t* sim,
 {
   std::string url = "http://" + region + ".wowarmory.com/guild-info.xml?r=" + server + "&gn=" + name;
 
-  xml_node_t* guild_info = xml_t::get( sim, url, "</members>", caching, sim -> current_throttle );
+  xml_node_t* guild_info = xml_t::get( sim, url, caching, "</members>", sim -> current_throttle );
   if ( ! guild_info )
   {
     sim -> current_throttle = sim -> current_throttle > 20 ? sim -> current_throttle : 20 ;
@@ -824,12 +824,6 @@ player_t* armory_t::download_player( sim_t* sim,
 
   p -> origin_str = "http://" + region + ".wowarmory.com/character-sheet.xml?r=" + server + "&n=" + name;
   http_t::format( p -> origin_str );
-
-  std::string last_modified;
-  if ( xml_t::get_value( last_modified, sheet_xml, "character/lastModified" ) )
-  {
-    p -> last_modified = util_t::parse_date( last_modified );
-  }
 
   p -> professions_str = "";
   std::vector<xml_node_t*> skill_nodes;
