@@ -2,6 +2,7 @@
 
 import os, sys
 from subprocess import Popen
+from datetime import date
 
 dname = os.path.dirname(__file__)
 
@@ -10,10 +11,24 @@ def RaidSim(outname, server, names, withStatScaling=True, *args, **kwargs):
     lname = "%s.log" % outname
     logfile = open(lname, 'w')
 
+    simc = []
     args = [exe]
     for name in names:
-        args.append("armory=us,%s,%s" % (server, name))
+        fname = "%s-%s.simc" % (date.today().isoformat(), name)
+        while not os.path.exists(fname):
+            armory = list(args)
+            armory.append("armory=us,%s,%s" % (server, name))
+            armory.append("save=%s" % fname)
+            proc = Popen(armory, stdout=logfile)
+            proc.wait()
+        simc.append(open(fname).read())
 
+    simcfname = outname + ".simc"
+    tmp = open(simcfname, 'w')
+    tmp.write('\n'.join(simc))
+    tmp.close()
+
+    args.append(simcfname)
     args.append("optimal_raid=0")
     args.append("threads=12")
     args.append("html=%s.html" % outname)
