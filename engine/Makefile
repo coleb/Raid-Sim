@@ -15,8 +15,8 @@ OS         = UNIX
 OPENSSL_PATH =
 
 CXX        = g++
-CPP_FLAGS  = -Wall -Woverloaded-virtual -W -Wswitch
-OPTS       = -O3
+CPP_FLAGS  = -Wall -Woverloaded-virtual -W
+OPTS       = -O3 -fomit-frame-pointer -ffast-math
 BITS       = 32
 
 ifeq (64,${BITS})
@@ -26,9 +26,7 @@ endif
 
 # Any UNIX platform
 ifeq (UNIX,${OS})
-CPP_FLAGS += -D_stricmp=strcasecmp
 LINK_LIBS += -lpthread
-OPTS      += -ffast-math
 AR         = ar
 COPY       = cp
 REMOVE     = rm -f
@@ -46,15 +44,19 @@ endif
 # Windows platform with MinGW32
 ifeq (WINDOWS,${OS})
 MODULE_EXT = .exe
-CPP_FLAGS += -malign-double -DUNICODE
+CPP_FLAGS += -DUNICODE
 LINK_LIBS  = -lws2_32 -lwininet
 COPY       = copy
 REMOVE     = del /f
 PATHSEP    = \\
 AR         = ar
+# MinGW W32
+ifeq (32,${BITS})
+CPP_FLAGS += -malign-double
+endif
 # MinGW W64
 ifeq (64,${BITS})
-LINK_FLAGS = -static
+LINK_FLAGS += -static
 endif
 endif
 
@@ -67,15 +69,15 @@ endif
 
 SRC = \
 	simulationcraft.h \
-  data_definitions.hh \
-  data_enums.hh \
-  utf8.h \
+	data_definitions.hh \
+	data_enums.hh \
+	utf8.h \
 	sc_action.cpp \
 	sc_armory.cpp \
 	sc_attack.cpp \
 	sc_battle_net.cpp \
-  sc_bcp_api.cpp \
-  sc_buff.cpp \
+	sc_bcp_api.cpp \
+	sc_buff.cpp \
 	sc_chardev.cpp \
 	sc_chart.cpp \
 	sc_const_data.cpp \
@@ -108,9 +110,14 @@ SRC = \
 	sc_rating.cpp \
 	sc_rawr.cpp \
 	sc_reforge_plot.cpp \
+	sc_report_html_player.cpp \
+	sc_report_html_sim.cpp \
+	sc_report_text.cpp \
+	sc_report_xml.cpp \
 	sc_report.cpp \
 	sc_rng.cpp \
 	sc_rogue.cpp \
+	sc_sample_data.cpp \
 	sc_shaman.cpp \
 	sc_scaling.cpp \
 	sc_sequence.cpp \

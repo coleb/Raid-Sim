@@ -6,54 +6,63 @@
 #include "simulationcraft.h"
 #include "utf8.h"
 
+#ifdef SC_SIGACTION
+#include <signal.h>
+#endif
+
 namespace { // ANONYMOUS NAMESPACE ==========================================
 
-
+#ifdef SC_SIGACTION
 // POSIX-only signal handler ================================================
 
-#if SIGACTION
 struct sim_signal_handler_t
 {
   static sim_t* global_sim;
 
-  static void callback_func( int signal )
+  static void sigint( int )
   {
-    if ( signal == SIGSEGV ||
-         signal == SIGBUS  )
+    if ( global_sim )
     {
-      const char* name = ( signal == SIGSEGV ) ? "SIGSEGV" : "SIGBUS";
-      if ( global_sim )
-      {
-        fprintf( stderr, "sim_signal_handler:  %s!  Seed=%d  Iteration=%d\n", name, global_sim -> seed, global_sim -> current_iteration );
-        fflush( stderr );
-      }
-      exit( 0 );
-    }
-    else if ( signal == SIGINT )
-    {
-      if ( global_sim )
-      {
-        if ( global_sim -> canceled ) exit( 0 );
-        global_sim -> cancel();
-      }
+      if ( global_sim -> canceled ) exit( 0 );
+      global_sim -> cancel();
     }
   }
-  static void init( sim_t* sim )
+
+  static void callback( int signal )
   {
+    if ( global_sim )
+    {
+      const char* name = strsignal( signal );
+      fprintf( stderr, "sim_signal_handler: %s! Seed=%d Iteration=%d\n",
+               name, global_sim -> seed, global_sim -> current_iteration );
+      fflush( stderr );
+    }
+    exit( 0 );
+  }
+
+  sim_signal_handler_t( sim_t* sim )
+  {
+    assert ( ! global_sim );
     global_sim = sim;
     struct sigaction sa;
     sigemptyset( &sa.sa_mask );
     sa.sa_flags = 0;
-    sa.sa_handler = callback_func;
+
+    sa.sa_handler = callback;
     sigaction( SIGSEGV, &sa, 0 );
+
+    sa.sa_handler = sigint;
     sigaction( SIGINT,  &sa, 0 );
   }
+
+  ~sim_signal_handler_t()
+  { global_sim = 0; }
 };
 sim_t* sim_signal_handler_t::global_sim = 0;
 #else
 struct sim_signal_handler_t
 {
-  static void init( sim_t* ) {}
+  sim_signal_handler_t( sim_t* ) {}
 };
 #endif
 
@@ -78,12 +87,10 @@ static bool parse_ptr( sim_t*             sim,
 {
   if ( name != "ptr" ) return false;
 
-#if SC_USE_PTR
-  sim -> dbc.ptr = atoi( value.c_str() ) != 0;
-#else
-  sim -> errorf( "SimulationCraft has not been built with PTR data.  The 'ptr=' option is ignored.\n" );
-  if ( value.length() ) {}
-#endif
+  if ( SC_USE_PTR )
+    sim -> dbc.ptr = atoi( value.c_str() ) != 0;
+  else
+    sim -> errorf( "SimulationCraft has not been built with PTR data.  The 'ptr=' option is ignored.\n" );
 
   return true;
 }
@@ -387,6 +394,9 @@ static bool parse_armory( sim_t*             sim,
     if ( ! option_t::parse( sim, "guild", options, guild_options ) )
       return false;
 
+    // Save Raid Summary file when guilds are downloaded
+    sim -> save_raid_summary = 1;
+
     std::vector<int> ranks_list;
     if ( ! ranks_str.empty() )
     {
@@ -620,7 +630,7 @@ sim_t::sim_t( sim_t* p, int index ) :
   gcd_lag( 0.150 ), gcd_lag_stddev( 0 ),
   channel_lag( 0.250 ), channel_lag_stddev( 0 ),
   queue_gcd_reduction( 0.032 ), strict_gcd_queue( 0 ),
-  confidence( 0.95),
+  confidence( 0.95), confidence_estimator( 0.0 ),
   world_lag( 0.1 ), world_lag_stddev( -1.0 ),
   travel_variance( 0 ), default_skill( 1.0 ), reaction_time( 0.5 ), regen_periodicity( 0.25 ),
   current_time( 0 ), max_time( 450 ), expected_time( 0 ), vary_combat_length( 0.2 ),
@@ -632,18 +642,19 @@ sim_t::sim_t( sim_t* p, int index ) :
   optimal_raid( 0 ), log( 0 ), debug( 0 ), save_profiles( 0 ), default_actions( 0 ),
   normalized_stat( STAT_NONE ),
   default_region_str( "us" ),
-  save_prefix_str( "save_" ), save_suffix_str( "" ),
+  save_prefix_str( "save_" ),
   save_talent_str( 0 ),
-  input_is_utf8( false ), main_target_str( "" ),
+  input_is_utf8( false ),
   dtr_proc_chance( -1.0 ),
-  target_death_pct( 0 ), target_level( -1 ), target_race( "" ), target_adds( 0 ),
+  target_death_pct( 0 ), target_level( -1 ), target_adds( 0 ),
   rng( 0 ), deterministic_rng( 0 ), rng_list( 0 ),
   smooth_rng( 0 ), deterministic_roll( 0 ), average_range( 1 ), average_gauss( 0 ), convergence_scale( 2 ),
   timing_wheel( 0 ), wheel_seconds( 0 ), wheel_size( 0 ), wheel_mask( 0 ), timing_slice( 0 ), wheel_granularity( 0.0 ),
-  fight_style( "Patchwerk" ), buff_list( 0 ), aura_delay( 0.15 ), default_aura_delay( 0.3 ), default_aura_delay_stddev( 0.05 ),
+  fight_style( "Patchwerk" ), overrides( overrides_t() ), auras( auras_t() ),
+  buff_list( 0 ), aura_delay( 0.15 ), default_aura_delay( 0.3 ), default_aura_delay_stddev( 0.05 ),
   cooldown_list( 0 ), replenishment_targets( 0 ),
-  raid_dps( 0 ), total_dmg( 0 ), raid_hps( 0 ), total_heal( 0 ),
-  total_seconds( 0 ), elapsed_cpu_seconds( 0 ), max_fight_length( 0 ),
+  elapsed_cpu_seconds( 0 ), iteration_dmg( 0 ), iteration_heal( 0 ),
+  raid_dps(), total_dmg(), raid_hps(), total_heal(), simulation_length( false ),
   report_progress( 1 ),
   bloodlust_percent( 25 ), bloodlust_time( -60 ),
   path_str( "." ), output_file( stdout ),
@@ -651,22 +662,66 @@ sim_t::sim_t( sim_t* p, int index ) :
   // Report
   report_precision( 4 ),report_pets_separately( 0 ), report_targets( 1 ), report_details( 1 ),
   report_rng( 0 ), hosted_html( 0 ), print_styles( false ), report_overheal( 0 ),
+  save_raid_summary( 0 ), statistics_level( 1 ),
   // Multi-Threading
   threads( 0 ), thread_index( index ),
   spell_query( 0 )
 {
+
   path_str += "|profiles";
   path_str += "|profiles_heal";
+  path_str += "|profiles";
+  path_str += DIRECTORY_DELIMITER;
+  path_str += "Tier13H";
+  path_str += "|profiles";
+  path_str += DIRECTORY_DELIMITER;
+  path_str += "Tier13N";
+  path_str += "|profiles";
+  path_str += DIRECTORY_DELIMITER;
+  path_str += "Tier12H";
+  path_str += "|profiles";
+  path_str += DIRECTORY_DELIMITER;
+  path_str += "Tier12N";
+  path_str += "|profiles";
+  path_str += DIRECTORY_DELIMITER;
+  path_str += "Tier11H";
+
+
   path_str += "|..";
   path_str += DIRECTORY_DELIMITER;
   path_str += "profiles";
   path_str += "|..";
   path_str += DIRECTORY_DELIMITER;
   path_str += "profiles_heal";
+  path_str += "|..";
+  path_str += DIRECTORY_DELIMITER;
+  path_str += "profiles";
+  path_str += DIRECTORY_DELIMITER;
+  path_str += "Tier13H";
+  path_str += "|..";
+  path_str += DIRECTORY_DELIMITER;
+  path_str += "profiles";
+  path_str += DIRECTORY_DELIMITER;
+  path_str += "Tier13N";
+  path_str += "|..";
+  path_str += DIRECTORY_DELIMITER;
+  path_str += "profiles";
+  path_str += DIRECTORY_DELIMITER;
+  path_str += "Tier12H";
+  path_str += "|..";
+  path_str += DIRECTORY_DELIMITER;
+  path_str += "profiles";
+  path_str += DIRECTORY_DELIMITER;
+  path_str += "Tier12N";
+  path_str += "|..";
+  path_str += DIRECTORY_DELIMITER;
+  path_str += "profiles";
+  path_str += DIRECTORY_DELIMITER;
+  path_str += "Tier11H";
 
   // Initialize the default item database source order
-  const char* dbsources[] = { "local", "wowhead", "mmoc", "armory", "ptrhead" };
-  item_db_sources = std::vector<std::string>( dbsources, dbsources + sizeof( dbsources ) / sizeof( const char* ) );
+  static const char* const dbsources[] = { "local", "bcpapi", "wowhead", "mmoc", "armory", "ptrhead" };
+  item_db_sources.assign( range::begin( dbsources ), range::end( dbsources ) );
 
   scaling = new scaling_t( this );
   plot    = new    plot_t( this );
@@ -738,17 +793,8 @@ sim_t::~sim_t()
   delete plot;
   delete reforge_plot;
 
-  int num_events = ( int ) raid_events.size();
-  for ( int i=0; i < num_events; i++ )
-  {
-    delete raid_events[ i ];
-  }
-
-  int num_children = ( int ) children.size();
-  for ( int i=0; i < num_children; i++ )
-  {
-    delete children[ i ];
-  }
+  range::dispose( raid_events );
+  range::dispose( children );
 
   delete[] timing_wheel;
   delete spell_query;
@@ -1031,10 +1077,15 @@ void sim_t::combat_begin()
 
   reset();
 
+  iteration_dmg = iteration_heal = 0;
+
   for ( player_t* t = target_list; t; t = t -> next )
   {
     t -> combat_begin();
   }
+
+  for ( buff_t* b = buff_list; b; b = b -> next )
+    b -> combat_begin();
 
   player_t::combat_begin( this );
 
@@ -1091,17 +1142,13 @@ void sim_t::combat_end()
   if ( debug ) log_t::output( this, "Combat End" );
 
   iteration_timeline.push_back( current_time );
+  simulation_length.add( current_time );
 
-  if ( current_time > max_fight_length )
-    max_fight_length = current_time;
-
-  total_seconds += current_time;
   total_events_processed += events_processed;
-
-  flush_events();
 
   for ( player_t* t = target_list; t; t = t -> next )
   {
+    if ( t -> is_add() ) continue;
     t -> combat_end();
   }
   player_t::combat_end( this );
@@ -1110,13 +1157,22 @@ void sim_t::combat_end()
 
   for ( player_t* p = player_list; p; p = p -> next )
   {
+    if ( p -> is_pet() ) continue;
     p -> combat_end();
   }
 
   for ( buff_t* b = buff_list; b; b = b -> next )
   {
     b -> expire();
+    b -> combat_end();
   }
+
+  total_dmg.add( iteration_dmg );
+  raid_dps.add( current_time ? iteration_dmg / current_time : 0 );
+  total_heal.add( iteration_heal );
+  raid_hps.add( current_time ? iteration_heal / current_time : 0 );
+
+  flush_events();
 }
 
 // sim_t::init ==============================================================
@@ -1153,11 +1209,10 @@ bool sim_t::init()
   wheel_mask--;
 
   // The timing wheel represents an array of event lists: Each time slice has an event list.
-  if ( timing_wheel ) delete [] timing_wheel;
+  delete[] timing_wheel;
   timing_wheel= new event_t*[wheel_size];
   memset( timing_wheel,0,sizeof( event_t* )*wheel_size );
 
-  total_seconds = 0;
 
   if (   queue_lag_stddev == 0 )   queue_lag_stddev =   queue_lag * 0.25;
   if (     gcd_lag_stddev == 0 )     gcd_lag_stddev =     gcd_lag * 0.25;
@@ -1181,12 +1236,6 @@ bool sim_t::init()
   else
     target = player_t::create( this, "enemy", "Fluffy_Pillow" );
 
-  // Target overrides
-  for ( player_t* t = target_list; t; t = t -> next )
-  {
-    if ( target_level >= 0 )
-      t -> level = target_level;
-  }
 
   if ( max_player_level < 0 )
   {
@@ -1215,6 +1264,12 @@ bool sim_t::init()
 
   if ( report_precision < 0 ) report_precision = 3;
 
+  raid_dps.reserve( iterations );
+  total_dmg.reserve( iterations );
+  raid_hps.reserve( iterations );
+  total_heal.reserve( iterations );
+  simulation_length.reserve( iterations );
+
   return canceled ? false : true;
 }
 
@@ -1224,7 +1279,17 @@ struct compare_dps
 {
   bool operator()( player_t* l, player_t* r ) SC_CONST
   {
-    return l -> dps > r -> dps;
+    return l -> dps.mean > r -> dps.mean;
+  }
+};
+
+// compare_hps ==============================================================
+
+struct compare_hps
+{
+  bool operator()( player_t* l, player_t* r ) SC_CONST
+  {
+    return l -> hps.mean > r -> hps.mean;
   }
 };
 
@@ -1254,41 +1319,75 @@ void sim_t::analyze_player( player_t* p )
 
   p -> pre_analyze_hook();
 
+  // Sample Data Analysis ========================================================
+
+  // sample_data_t::analyze(calc_basics,calc_variance,sort )
+
+  p -> deaths.analyze( true, true, true, 50 );
+
+  p -> fight_length.analyze( true, true );
+  p -> waiting_time.analyze();
+  p -> executed_foreground_actions.analyze();
+
+  p -> dmg.analyze( true, true );
+  p -> compound_dmg.analyze();
+  p -> dps.analyze( true, true, true, 50 );
+  p -> dpse.analyze();
+
+  p -> dmg_taken.analyze();
+  p -> dtps.analyze( true, true );
+
+  p -> heal.analyze();
+  p -> compound_heal.analyze();
+  p -> hps.analyze( true, true, true, 50 );
+  p -> hpse.analyze();
+
+  p -> heal_taken.analyze();
+  p -> htps.analyze( true, true );
+
+  p -> deaths_error = p -> deaths.mean_std_dev * confidence_estimator;
+  p -> dps_error = p -> dps.mean_std_dev * confidence_estimator;
+  p -> dtps_error = p -> dtps.mean_std_dev * confidence_estimator;
+  p -> hps_error = p -> hps.mean_std_dev * confidence_estimator;
+
+
+
   for ( buff_t* b = p -> buff_list; b; b = b -> next )
     b -> analyze();
 
-  p -> total_seconds /= iterations;
-  p -> total_waiting /= iterations;
-  p -> total_foreground_actions /= iterations;
-  p -> total_dmg_taken /= iterations;
-  p -> total_dmg /= iterations;
-  p -> total_heal /= iterations;
+  for ( benefit_t* u = p -> benefit_list; u; u = u -> next )
+    u -> analyze();
 
-  std::vector<stats_t*> stats_list;
+  for ( uptime_t* u = p -> uptime_list; u; u = u -> next )
+    u -> analyze();
+
+
+
+  if ( p -> quiet ) return;
+  if ( p -> fight_length.mean == 0 ) return;
+
+
 
   // Pet Chart Adjustment ===================================================
-  int max_buckets = ( int ) p -> max_fight_length;
+  int max_buckets = ( int ) p -> fight_length.max;
 
   // Make the pet graphs the same length as owner's
   if ( p -> is_pet() )
   {
     player_t* o = p -> cast_pet() -> owner;
-    max_buckets = ( int ) o -> max_fight_length;
+    max_buckets = ( int ) o -> fight_length.max;
   }
+
 
   // Stats Analysis =========================================================
+  std::vector<stats_t*> stats_list;
+
   for ( stats_t* s = p -> stats_list; s; s = s -> next )
-  {
     stats_list.push_back( s );
-  }
 
   for ( pet_t* pet = p -> pet_list; pet; pet = pet -> next_pet )
-  {
     for ( stats_t* s = pet -> stats_list; s; s = s -> next )
-    {
       stats_list.push_back( s );
-    }
-  }
 
   int num_stats = ( int ) stats_list.size();
 
@@ -1298,71 +1397,39 @@ void sim_t::analyze_player( player_t* p )
     {
       stats_t* s = stats_list[ i ];
       s -> analyze();
+
+      // Create Stats Timeline Chart
       s -> timeline_aps.clear();
       s -> timeline_aps.reserve( max_buckets );
       s -> timeline_amount.resize( max_buckets );
-      sliding_window_average<10>( s -> timeline_amount.begin(), s -> timeline_amount.end(),
-                                  std::back_inserter( s -> timeline_aps ) );
+      range::sliding_window_average<10>( s -> timeline_amount, std::back_inserter( s -> timeline_aps ) );
       assert( s -> timeline_aps.size() == ( std::size_t ) max_buckets );
+
+      chart_t::timeline( s -> timeline_aps_chart, p, s -> timeline_aps, s -> name_str + " APS", s -> aps );
+      chart_t::distribution( s -> aps_distribution_chart,this, s -> portion_aps.distribution, s -> name_str + " APS", s -> portion_aps.mean, s -> portion_aps.min, s -> portion_aps.max );
+
+      if ( s -> type == STATS_DMG )
+      {
+        s -> portion_amount = s -> compound_amount / p -> compound_dmg.mean;
+      }
+      else
+      {
+        s -> portion_amount = s -> compound_amount / p -> compound_heal.mean;
+      }
     }
   }
 
-  // DPS Calculation ========================================================
-
-  assert( p -> iteration_dps.size()  == ( std::size_t ) iterations );
-  assert( p -> iteration_dtps.size() == ( std::size_t ) iterations );
-  assert( p -> iteration_dpse.size() == ( std::size_t ) iterations );
-
-  p -> dps = p -> dpse = p -> dtps = 0;
-
-  for ( int i=0; i < iterations; i++ )
-  {
-    p -> dps  += p -> iteration_dps[ i ];
-    p -> dpse += p -> iteration_dpse[ i ];
-    p -> dtps += p -> iteration_dtps[ i ];
-  }
-  p -> dps  /= iterations;
-  p -> dpse /= iterations;
-  p -> dtps /= iterations;
-
-
-  if ( p -> quiet ) return;
-
-  if ( p -> total_seconds == 0 ) return;
-
-  for ( int i=0; i < num_stats; i++ )
-  {
-    stats_t* s = stats_list[ i ];
-
-    s -> portion_amount = s -> compound_amount / ( ( s -> type == STATS_DMG ) ? p -> total_dmg : p -> total_heal );
-    if ( ( s -> type == STATS_DMG && p -> primary_role() != ROLE_HEAL ) || ( s -> type != STATS_DMG && p -> primary_role() == ROLE_HEAL ) )
-      s -> portion_aps = s -> portion_amount * p -> dps;
-    else
-      s -> portion_aps = ( s -> portion_amount > 0 ) ? -1.0 : 0;
-
-    chart_t::timeline_stat_dps( s -> timeline_aps_chart, p, s );
-  }
-
-  // Avoid double-counting of pet damage
-  if ( ! p -> is_pet() )
-  {
-    if ( ! p -> is_enemy() && ! p -> is_add() )
-    {
-      total_heal += p -> total_heal;
-      total_dmg  += p -> total_dmg;
-      raid_dps   += ( p -> primary_role() == ROLE_HEAL ) ? 0 : p -> dpse;
-      raid_hps   += ( p -> primary_role() == ROLE_HEAL ) ? p -> dpse : 0;
-    }
-  }
 
   // Actor Lists ============================================================
   if (  ! p -> quiet && ! p -> is_enemy() && ! p -> is_add() && ! ( p -> is_pet() && report_pets_separately ) )
   {
-    players_by_rank.push_back( p );
+    players_by_dps.push_back( p );
+    players_by_hps.push_back( p );
     players_by_name.push_back( p );
   }
   if ( ! p -> quiet && ( p -> is_enemy() || p -> is_add() ) && ! ( p -> is_pet() && report_pets_separately ) )
     targets_by_name.push_back( p );
+
 
   // Resources & Gains ======================================================
   for ( int i = RESOURCE_NONE; i < RESOURCE_MAX; i++ )
@@ -1384,10 +1451,11 @@ void sim_t::analyze_player( player_t* p )
   }
 
   double rl = p -> resource_lost[ p -> primary_resource() ];
-  p -> dpr = ( rl > 0 ) ? ( ( p -> primary_role() == ROLE_HEAL ) ? p -> total_heal : p -> total_dmg ) / rl : -1.0;
+  p -> dpr = ( rl > 0 ) ? ( p -> dmg.mean / rl ) : -1.0;
+  p -> hpr = ( rl > 0 ) ? ( p -> heal.mean / rl ) : -1.0;
 
-  p -> rps_loss = p -> resource_lost  [ p -> primary_resource() ] / p -> total_seconds;
-  p -> rps_gain = p -> resource_gained[ p -> primary_resource() ] / p -> total_seconds;
+  p -> rps_loss = p -> resource_lost  [ p -> primary_resource() ] / p -> fight_length.mean;
+  p -> rps_gain = p -> resource_gained[ p -> primary_resource() ] / p -> fight_length.mean;
 
   for ( gain_t* g = p -> gain_list; g; g = g -> next )
     g -> analyze( this );
@@ -1418,46 +1486,9 @@ void sim_t::analyze_player( player_t* p )
   }
 
   p -> timeline_dps.reserve( max_buckets );
-  sliding_window_average<10>( p -> timeline_dmg.begin(), p -> timeline_dmg.end(),
-                              std::back_inserter( p -> timeline_dps ) );
+  range::sliding_window_average<10>( p -> timeline_dmg,
+                                     std::back_inserter( p -> timeline_dps ) );
   assert( p -> timeline_dps.size() == ( std::size_t ) max_buckets );
-
-  // DPS Error ==============================================================
-
-  p -> dps_min = +1.0E+50;
-  p -> dps_max = -1.0E+50;
-  p -> dps_std_dev = 0.0;
-
-  for ( int i=0; i < iterations; i++ )
-  {
-    double i_dps = p -> iteration_dps[ i ];
-    if ( p -> dps_min > i_dps ) p -> dps_min = i_dps;
-    if ( p -> dps_max < i_dps ) p -> dps_max = i_dps;
-    double delta = i_dps - p -> dps;
-    p -> dps_std_dev += delta * delta;
-  }
-
-  if ( p -> dps_min >= 1.0E+50 ) p -> dps_min = 0.0;
-  if ( p -> dps_max < 0.0      ) p -> dps_max = 0.0;
-
-  if ( iterations > 1 ) p -> dps_std_dev /= ( iterations - 1 );
-  p -> dps_std_dev = sqrt( p -> dps_std_dev );
-  p -> dps_error = rng -> stdnormal_inv( 1.0 - ( 1.0 - confidence ) / 2.0 ) * p -> dps_std_dev / sqrt( ( float ) iterations );
-
-  // DTPS Error ==============================================================
-
-  p -> dtps_error = 0.0;
-
-  for ( int i=0; i < iterations; i++ )
-  {
-    double i_dtps = p -> iteration_dtps[ i ];
-    double delta = i_dtps - p -> dtps;
-    p -> dtps_error += delta * delta;
-  }
-
-  if ( iterations > 1 ) p -> dtps_error /= ( iterations - 1 );
-  p -> dtps_error = sqrt( p -> dtps_error );
-  p -> dtps_error = rng -> stdnormal_inv( 1.0 - ( 1.0 - confidence ) / 2.0 ) * p -> dtps_error / sqrt( ( float ) iterations );
 
   // Error Convergence ======================================================
 
@@ -1467,11 +1498,11 @@ void sim_t::analyze_player( player_t* p )
   double convergence_max = -1.0E+50;
   double convergence_std_dev = 0;
 
-  if ( iterations > 1 && convergence_scale > 1 )
+  if ( iterations > 1 && convergence_scale > 1 && !p -> dps.simple )
   {
     for ( int i=0; i < iterations; i += convergence_scale )
     {
-      double i_dps = p -> iteration_dps[ i ];
+      double i_dps = p -> dps.data[ i ];
       convergence_dps += i_dps;
       if ( convergence_min > i_dps ) convergence_min = i_dps;
       if ( convergence_max < i_dps ) convergence_max = i_dps;
@@ -1486,9 +1517,9 @@ void sim_t::analyze_player( player_t* p )
 
     for ( int i=0; i < iterations; i++ )
     {
-      p -> dps_convergence_error.push_back( rng -> stdnormal_inv( 1.0 - ( 1.0 - confidence ) / 2.0 ) * sqrt( sum_of_squares / i ) / sqrt( ( float ) i ) );
+      p -> dps_convergence_error.push_back( confidence_estimator * sqrt( sum_of_squares / i ) / sqrt( ( float ) i ) );
 
-      double delta = p -> iteration_dps[ i ] - convergence_dps;
+      double delta = p -> dps.data[ i ] - convergence_dps;
       double delta_squared = delta * delta;
 
       sum_of_squares += delta_squared;
@@ -1500,148 +1531,102 @@ void sim_t::analyze_player( player_t* p )
 
   if ( convergence_iterations > 1 ) convergence_std_dev /= convergence_iterations;
   convergence_std_dev = sqrt( convergence_std_dev );
-  double convergence_error = rng -> stdnormal_inv( 1.0 - ( 1.0 - confidence ) / 2.0 ) * convergence_std_dev;
+  double convergence_error = confidence_estimator * convergence_std_dev;
   if ( convergence_iterations > 1 ) convergence_error /= sqrt( ( float ) convergence_iterations );
 
   if ( convergence_error > 0 )
     p -> dps_convergence = convergence_error / ( p -> dps_error * convergence_scale );
 
-  // DPS Statistics =========================================================
-
-  if ( p -> dps_max > p -> dps_min )
-  {
-    int num_buckets = 50;
-    double min = p -> dps_min - 1;
-    double max = p -> dps_max + 1;
-    double range = max - min;
-
-    p -> distribution_dps.assign( num_buckets, 0 );
-
-    for ( int i=0; i < iterations; i++ )
-    {
-      double i_dps = p -> iteration_dps[ i ];
-      int index = ( int ) ( num_buckets * ( i_dps - min ) / range );
-      p -> distribution_dps[ index ]++;
-    }
-  }
-
-  std::sort( p -> iteration_dps.begin(), p -> iteration_dps.end() );
-
-  p -> dps_10_percentile = p -> iteration_dps[ p -> iteration_dps.size() / 10 ];
-  p -> dps_90_percentile = p -> iteration_dps[ 9 * p -> iteration_dps.size() / 10 ];
-
-  // Death Analysis =========================================================
-
-  assert ( p -> death_time.size() == ( std::size_t ) p -> death_count );
-  if ( p -> death_count > 0 )
-  {
-    double avg = 0;
-    for ( int i = 0; i < p -> death_count; i++ )
-    {
-      if ( p -> death_time[ i ] < p -> min_death_time )
-        p -> min_death_time = p -> death_time[ i ];
-      if ( p -> death_time[ i ] > p -> max_death_time )
-        p -> max_death_time = p -> death_time[ i ];
-      avg += p -> death_time[ i ];
-    }
-    p -> avg_death_time = avg / p -> death_count;
-    p -> death_count_pct = 100.0 * p -> death_count / iterations;
-
-    if ( p -> max_death_time > p -> min_death_time )
-    {
-      int num_buckets = 50;
-      double min = p -> min_death_time - 1;
-      double max = p -> max_death_time + 1;
-      double range = max - min;
-
-      p -> distribution_deaths.assign( num_buckets, 0 );
-
-      for ( int i=0; i < p -> death_count; i++ )
-      {
-        int index = ( int ) ( num_buckets * ( p -> death_time[ i ] - min ) / range );
-        p -> distribution_deaths[ index ]++;
-      }
-      assert ( p -> distribution_deaths.size() == ( std::size_t ) num_buckets );
-    }
-    std::sort( p -> death_time.begin(), p -> death_time.end() );
-  }
 
   // Charts =================================================================
 
-  chart_t::action_dpet        ( p -> action_dpet_chart,               p );
-  chart_t::action_dmg         ( p -> action_dmg_chart,                p );
-  chart_t::time_spent         ( p -> time_spent_chart,                p );
+  chart_t::action_dpet       ( p -> action_dpet_chart,               p );
+  chart_t::action_dmg        ( p -> action_dmg_chart,                p );
+  chart_t::time_spent        ( p -> time_spent_chart,                p );
+
+  std::string encoded_name;
+  http_t::format( encoded_name, p -> name_str );
+
   for ( int i = RESOURCE_NONE; i < RESOURCE_MAX; i++ )
   {
-    chart_t::timeline_resource( p -> timeline_resource_chart[i],      p, i );
+    chart_t::timeline        ( p -> timeline_resource_chart[i],      p,
+                               p -> timeline_resource[i],
+                               encoded_name + ' ' + util_t::resource_type_string( i ),
+                               0,
+                               chart_t::resource_color( i ) );
   }
-  chart_t::timeline_dps       ( p -> timeline_dps_chart,              p );
-  chart_t::timeline_dps_error ( p -> timeline_dps_error_chart,        p );
-  chart_t::dps_error          ( p -> dps_error_chart,                 p );
-  chart_t::distribution_dps   ( p -> distribution_dps_chart,          p );
-  chart_t::distribution_deaths( p -> distribution_deaths_chart,       p );
+
+  chart_t::timeline          ( p -> timeline_dps_chart,              p,
+                               p -> timeline_dps,
+                               encoded_name + " DPS",
+                               p -> dps.mean );
+
+  chart_t::timeline_dps_error( p -> timeline_dps_error_chart,        p );
+  chart_t::dps_error         ( p -> dps_error_chart,                 p );
+
+  chart_t::distribution      ( p -> distribution_dps_chart,          this,
+                               p -> dps.distribution, encoded_name + " DPS",
+                               p -> dps.mean,
+                               p -> dps.min,
+                               p -> dps.max );
+
+  chart_t::distribution      ( p -> distribution_deaths_chart,       this,
+                               p -> deaths.distribution, encoded_name + " Death",
+                               p -> deaths.mean,
+                               p -> deaths.min,
+                               p -> deaths.max );
 }
 
 // sim_t::analyze ===========================================================
 
 void sim_t::analyze()
 {
-  if ( total_seconds == 0 ) return;
+  simulation_length.analyze( true, true, true, 50 );
+  if ( simulation_length.mean == 0 ) return;
 
   // divisor_timeline is necessary because not all iterations go the same length of time
 
-  int max_buckets = ( int ) max_fight_length + 1;
+  int max_buckets = ( int ) simulation_length.max + 1;
   divisor_timeline.assign( max_buckets, 0 );
 
-  int num_timelines = iteration_timeline.size();
-  for ( int i=0; i < num_timelines; i++ )
+  size_t num_timelines = iteration_timeline.size();
+  for ( size_t i=0; i < num_timelines; i++ )
   {
     int last = ( int ) floor( iteration_timeline[ i ] );
-    int num_buckets = divisor_timeline.size();
-    if ( 1 + last > num_buckets ) divisor_timeline.resize( 1 + last, 0 );
+    size_t num_buckets = divisor_timeline.size();
+    if ( 1 + last > (int) num_buckets ) divisor_timeline.resize( 1 + last, 0 );
     for ( int j=0; j <= last; j++ ) divisor_timeline[ j ] += 1;
   }
-
-  // buff_t::analyze must be called before total_seconds is normalized via iteration count
 
   for ( buff_t* b = buff_list; b; b = b -> next )
     b -> analyze();
 
-  total_dmg = 0;
-  total_heal = 0;
-  total_seconds /= iterations;
+  total_dmg.analyze();
+  raid_dps.analyze();
+  total_heal.analyze();
+  raid_hps.analyze();
+
+  confidence_estimator = rng -> stdnormal_inv( 1.0 - ( 1.0 - confidence ) / 2.0 );
 
   for ( unsigned int i = 0; i < actor_list.size(); i++ )
     analyze_player( actor_list[i] );
 
-  if ( num_timelines > 2 )
-  {
-    std::sort( iteration_timeline.begin(), iteration_timeline.end() );
 
-    // Throw out the first and last sample.
-    int num_buckets = 50;
-    double min = iteration_timeline[ 1 ] - 1;
-    double max = iteration_timeline[ num_timelines-2 ] + 1;
-    double range = max - min;
+  range::sort( players_by_dps, compare_dps() );
+  range::sort( players_by_hps, compare_hps() );
+  range::sort( players_by_name, compare_name() );
+  range::sort( targets_by_name, compare_name() );
 
-    distribution_timeline.assign( num_buckets, 0 );
-
-    for ( int i=1; i < num_timelines-1; i++ )
-    {
-      int index = ( int ) ( num_buckets * ( iteration_timeline[ i ] - min ) / range );
-      distribution_timeline[ index ]++;
-    }
-  }
-
-  std::sort( players_by_rank.begin(), players_by_rank.end(), compare_dps()  );
-  std::sort( players_by_name.begin(), players_by_name.end(), compare_name() );
-  std::sort( targets_by_name.begin(), targets_by_name.end(), compare_name() );
-
-  chart_t::raid_dps     ( dps_charts,     this );
+  chart_t::raid_aps     ( dps_charts,     this, players_by_dps, true );
+  chart_t::raid_aps     ( hps_charts,     this, players_by_hps, false );
   chart_t::raid_dpet    ( dpet_charts,    this );
   chart_t::raid_gear    ( gear_charts,    this );
   chart_t::raid_downtime( downtime_chart, this );
-  chart_t::raid_timeline( timeline_chart, this );
+  chart_t::distribution( timeline_chart, this,
+                         simulation_length.distribution, "Timeline",
+                         simulation_length.mean,
+                         simulation_length.min,
+                         simulation_length.max );
 }
 
 // sim_t::iterate ===========================================================
@@ -1680,13 +1665,17 @@ bool sim_t::iterate()
 void sim_t::merge( sim_t& other_sim )
 {
   iterations             += other_sim.iterations;
-  total_seconds          += other_sim.total_seconds;
   total_events_processed += other_sim.total_events_processed;
+
+  simulation_length.merge( other_sim.simulation_length );
+  total_dmg.merge( other_sim.total_dmg );
+  raid_dps.merge( other_sim.raid_dps );
+  total_heal.merge( other_sim.total_heal );
+  raid_hps.merge( other_sim.raid_hps );
 
   if ( max_events_remaining < other_sim.max_events_remaining ) max_events_remaining = other_sim.max_events_remaining;
 
-  std::copy( other_sim.iteration_timeline.begin(), other_sim.iteration_timeline.end(),
-             std::back_inserter( iteration_timeline ) );
+  range::copy( other_sim.iteration_timeline, std::back_inserter( iteration_timeline ) );
 
   for ( buff_t* b = buff_list; b; b = b -> next )
   {
@@ -2074,7 +2063,6 @@ void sim_t::create_options()
     { "ptr",                              OPT_FUNC,   ( void* ) ::parse_ptr                         },
     { "threads",                          OPT_INT,    &( threads                                  ) },
     { "confidence",                       OPT_FLT,    &( confidence                               ) },
-
     { "spell_query",                      OPT_FUNC,   ( void* ) ::parse_spell_query                 },
     { "item_db_source",                   OPT_FUNC,   ( void* ) ::parse_item_sources                },
     { "proxy",                            OPT_FUNC,   ( void* ) ::parse_proxy                       },
@@ -2102,10 +2090,12 @@ void sim_t::create_options()
     { "hosted_html",                      OPT_BOOL,   &( hosted_html                              ) },
     { "print_styles",                     OPT_BOOL,   &( print_styles                             ) },
     { "xml",                              OPT_STRING, &( xml_file_str                             ) },
+    { "xml_style",                        OPT_STRING, &( xml_stylesheet_file_str                  ) },
     { "log",                              OPT_BOOL,   &( log                                      ) },
     { "output",                           OPT_STRING, &( output_file_str                          ) },
     { "path",                             OPT_STRING, &( path_str                                 ) },
     { "path+",                            OPT_APPEND, &( path_str                                 ) },
+    { "save_raid_summary",                OPT_BOOL,   &( save_raid_summary                        ) },
     // Overrides"
     { "override.abominations_might",      OPT_BOOL,   &( overrides.abominations_might             ) },
     { "override.arcane_brilliance",       OPT_BOOL,   &( overrides.arcane_brilliance              ) },
@@ -2267,6 +2257,7 @@ void sim_t::create_options()
     { "report_details",                   OPT_BOOL,   &( report_details                           ) },
     { "report_rng",                       OPT_BOOL,   &( report_rng                               ) },
     { "report_overheal",                  OPT_BOOL,   &( report_overheal                          ) },
+    { "statistics_level",                 OPT_INT,    &( statistics_level                         ) },
     { NULL, OPT_UNKNOWN, NULL }
   };
 
@@ -2416,12 +2407,10 @@ double sim_t::progress( std::string& phase )
 
 int sim_t::main( int argc, char** argv )
 {
-  sim_signal_handler_t::init( this );
+  sim_signal_handler_t handler( this );
 
   thread_t::init();
-
   http_t::cache_load();
-
   dbc_t::init();
 
   if ( ! parse_options( argc, argv ) )
@@ -2456,7 +2445,7 @@ int sim_t::main( int argc, char** argv )
       util_t::fprintf( output_file, "simulationcraft: One of -max_time or -target_health must be specified.\n" );
       exit( 0 );
     }
-    if ( abs( vary_combat_length) >= 1.0 )
+    if ( abs( vary_combat_length ) >= 1.0 )
     {
       util_t::fprintf( output_file, "\n |vary_combat_length| >= 1.0, overriding to 0.0.\n" );
       vary_combat_length = 0.0;
@@ -2487,9 +2476,6 @@ int sim_t::main( int argc, char** argv )
   if ( output_file != stdout ) fclose( output_file );
 
   http_t::cache_save();
-
-  sim_signal_handler_t::init( 0 );
-
   thread_t::de_init();
   dbc_t::de_init();
 
@@ -2521,20 +2507,3 @@ int sim_t::errorf( const char* format, ... )
   error_list.push_back( buffer );
   return retcode;
 }
-
-// ==========================================================================
-// Utility to make sure memory allocation not happening during iteration.
-// ==========================================================================
-
-#if 0
-void* operator new ( std::size_t size )
-{
-  if ( iterating ) assert( 0 );
-  return malloc( size );
-}
-
-void operator delete ( void *p )
-{
-  free( p );
-}
-#endif

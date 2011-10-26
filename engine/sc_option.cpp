@@ -164,9 +164,7 @@ bool option_t::parse( sim_t*             sim,
                       const std::string& n,
                       const std::string& v )
 {
-  if ( ! name ) return false;
-
-  if ( n == name )
+  if ( name && n == name )
   {
     switch ( type )
     {
@@ -191,8 +189,11 @@ bool option_t::parse( sim_t*             sim,
     case OPT_DEPRECATED:
       sim -> errorf( "Option '%s' has been deprecated.\n", name );
       if ( address ) sim -> errorf( "Please use option '%s' instead.\n", ( char* ) address );
-      exit( 0 );
-    default: assert( 0 );
+      sim -> cancel();
+      break;
+    default:
+      assert( 0 );
+      return false;
     }
     return true;
   }
@@ -276,7 +277,7 @@ bool option_t::parse_file( sim_t* sim,
     if ( first )
     {
       // Skip the Windows UTF-8 magic cookie.
-      uint32_t len = strlen( b );
+      size_t len = strlen( b );
       if ( ( len >= 3 ) && ( ( unsigned char ) b[ 0 ] == 0xEF ) && ( ( unsigned char ) b[ 1 ] == 0xBB ) && ( ( unsigned char ) b[ 2 ] == 0xBF ) )
       {
         b += 3;
@@ -321,7 +322,7 @@ bool option_t::parse_token( sim_t*       sim,
     return true;
   }
 
-  std::string::size_type cut_pt = token.find_first_of( "=" );
+  std::string::size_type cut_pt = token.find( '=' );
 
   if ( cut_pt == token.npos )
   {
@@ -331,42 +332,37 @@ bool option_t::parse_token( sim_t*       sim,
       sim -> errorf( "Unexpected parameter '%s'.  Expected format: name=value\n", token.c_str() );
       return false;
     }
-    sim -> active_files.push_back( token );
+    sim -> active_files.push( token );
     parse_file( sim, file );
     fclose( file );
-    sim -> active_files.pop_back();
+    sim -> active_files.pop();
     return true;
   }
 
-  std::string name, value;
-
-  name  = token.substr( 0, cut_pt );
-  value = token.substr( cut_pt + 1 );
+  std::string name( token, 0, cut_pt ), value( token, cut_pt + 1, token.npos );
 
   std::string::size_type start=0;
-
   while ( ( start = value.find( "$(", start ) ) != std::string::npos )
   {
-    std::string::size_type end = value.find( ")", start );
+    std::string::size_type end = value.find( ')', start );
     if ( end == std::string::npos )
     {
       sim -> errorf( "Variable syntax error: %s\n", token.c_str() );
       return false;
     }
 
-    std::string var_name = value.substr( start+2, ( end - start ) - 2 );
-
-    value.replace( start, ( end - start ) + 1, sim -> var_map[ var_name ] );
+    value.replace( start, ( end - start ) + 1,
+                   sim -> var_map[ value.substr( start+2, ( end - start ) - 2 ) ] );
   }
 
-  if ( name[ 0 ] == '$' )
+  if ( name.size() >= 1 && name[ 0 ] == '$' )
   {
-    if ( name[ 1 ] != '(' || name[ name.size()-1 ] != ')' )
+    if ( name.size() < 3 || name[ 1 ] != '(' || name[ name.size()-1 ] != ')' )
     {
       sim -> errorf( "Variable syntax error: %s\n", token.c_str() );
       return false;
     }
-    std::string var_name = name.substr( 2, name.size()-3 );
+    std::string var_name( name, 2, name.size() - 3 );
     sim -> var_map[ var_name ] = value;
     if ( sim -> debug ) log_t::output( sim, "%s = %s", var_name.c_str(), value.c_str() );
     return true;
@@ -380,10 +376,10 @@ bool option_t::parse_token( sim_t*       sim,
       sim -> errorf( "Unable to open input parameter file '%s'\n", value.c_str() );
       return false;
     }
-    sim -> active_files.push_back( token );
+    sim -> active_files.push( value );
     parse_file( sim, file );
     fclose( file );
-    sim -> active_files.pop_back();
+    sim -> active_files.pop();
   }
   else if ( ! sim -> parse_option( name, value ) )
   {
@@ -392,4 +388,26 @@ bool option_t::parse_token( sim_t*       sim,
   }
 
   return true;
+}
+
+// option_t::merge ==========================================================
+
+namespace {
+inline void merge_some( std::vector<option_t>& out, const option_t* in )
+{
+  if ( ! in ) return;
+  while ( in -> name )
+    out.push_back( *in++ );
+}
+}
+
+option_t* option_t::merge( std::vector<option_t>& merged_options,
+                           const option_t*        options1,
+                           const option_t*        options2 )
+{
+  merged_options.clear();
+  merge_some( merged_options, options1 );
+  merge_some( merged_options, options2 );
+  merged_options.push_back( option_t() );
+  return &merged_options[ 0 ];
 }

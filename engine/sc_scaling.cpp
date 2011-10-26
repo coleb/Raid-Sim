@@ -74,9 +74,9 @@ static bool parse_normalize_scale_factors( sim_t* sim,
 
 struct compare_scale_factors
 {
-  player_t* player;
-  compare_scale_factors( player_t* p ) : player( p ) {}
-  bool operator()( const int& l, const int& r ) SC_CONST
+  const player_t* player;
+  compare_scale_factors( const player_t* p ) : player( p ) {}
+  bool operator()( int l, int r ) const
   {
     return( player -> scaling.get_stat( l ) >
             player -> scaling.get_stat( r ) );
@@ -169,11 +169,21 @@ void scaling_t::init_deltas()
     stats.expertise_rating =  scale_delta_multiplier * ( smooth_scale_factors ? -100 : -200 );
     if ( positive_scale_delta ) stats.expertise_rating *= -1;
   }
+  if ( stats.expertise_rating2 == 0 )
+  {
+    stats.expertise_rating2 =  scale_delta_multiplier * ( smooth_scale_factors ? 100 : 200 );
+    if ( positive_scale_delta ) stats.expertise_rating2 *= -1;
+  }
 
   if ( stats.hit_rating == 0 )
   {
     stats.hit_rating = scale_delta_multiplier * ( smooth_scale_factors ? -150 : -300 );
     if ( positive_scale_delta ) stats.hit_rating *= -1;
+  }
+  if ( stats.hit_rating2 == 0 )
+  {
+    stats.hit_rating2 = scale_delta_multiplier * ( smooth_scale_factors ? 150 : 300 );
+    if ( positive_scale_delta ) stats.hit_rating2 *= -1;
   }
 
   if ( stats.crit_rating  == 0 ) stats.crit_rating  = scale_delta_multiplier * ( smooth_scale_factors ?  150 :  300 );
@@ -295,8 +305,8 @@ void scaling_t::analyze_stats()
       double delta_score = scale_over_function( delta_sim, delta_p );
       double   ref_score = scale_over_function(   ref_sim,   ref_p );
 
-      double delta_error = scale_over_function_error( delta_sim, delta_p );
-      double   ref_error = scale_over_function_error(   ref_sim,   ref_p );
+      double delta_error = scale_over_function_error( delta_sim, delta_p ) * delta_sim -> confidence_estimator;
+      double   ref_error = scale_over_function_error(   ref_sim,   ref_p ) * ref_sim -> confidence_estimator;
 
       p -> scaling_delta_dps.set_stat( i, delta_score );
 
@@ -490,7 +500,7 @@ void scaling_t::analyze()
         if ( s > 0 ) p -> scaling_stats.push_back( i );
       }
     }
-    std::sort( p -> scaling_stats.begin(), p -> scaling_stats.end(), compare_scale_factors( p ) );
+    range::sort( p -> scaling_stats, compare_scale_factors( p ) );
 
   }
 
@@ -563,7 +573,7 @@ bool scaling_t::has_scale_factors()
 
 double scaling_t::scale_over_function( sim_t* s, player_t* p )
 {
-  if ( scale_over == "raid_dps"       ) return s -> raid_dps;
+  if ( scale_over == "raid_dps"       ) return s -> raid_dps.mean;
 
   player_t* q = 0;
   if ( ! scale_over_player.empty() )
@@ -571,12 +581,17 @@ double scaling_t::scale_over_function( sim_t* s, player_t* p )
   if ( !q )
     q = p;
 
-  if ( scale_over == "deaths"         ) return -100 * q -> death_count_pct;
-  if ( scale_over == "min_death_time" ) return q -> min_death_time * 1000;
-  if ( scale_over == "avg_death_time" ) return q -> avg_death_time * 1000;
-  if ( scale_over == "dmg_taken"      ) return -1.0 * q -> total_dmg_taken;
-  if ( scale_over == "dtps"           ) return -1.0 * q -> dtps;
-  return p -> dps;
+  if ( scale_over == "deaths"         ) return -100 * q -> deaths.size() / s -> iterations;
+  if ( scale_over == "min_death_time" ) return q -> deaths.min * 1000;
+  if ( scale_over == "avg_death_time" ) return q -> deaths.mean * 1000;
+  if ( scale_over == "dmg_taken"      ) return -1.0 * q -> dmg_taken.mean;
+  if ( scale_over == "dtps"           ) return -1.0 * q -> dtps.mean;
+  if ( scale_over == "stddev"         ) return q -> dps.std_dev;
+
+  if ( ( q -> primary_role() == ROLE_HEAL || scale_over =="hps" ) && scale_over != "dps" )
+    return p -> hps.mean;
+
+  return p -> dps.mean;
 }
 
 
@@ -584,19 +599,23 @@ double scaling_t::scale_over_function( sim_t* s, player_t* p )
 
 double scaling_t::scale_over_function_error( sim_t* s, player_t* p )
 {
-  if ( scale_over == "raid_dps"       ) return 0;
-  if ( scale_over == "deaths"         ) return 0;
+  if ( scale_over == "raid_dps"       ) return s -> raid_dps.mean_std_dev;
   if ( scale_over == "min_death_time" ) return 0;
   if ( scale_over == "avg_death_time" ) return 0;
-  if ( scale_over == "dmg_taken"      ) return 0;
+  if ( scale_over == "stddev"         ) return 0;
 
   player_t* q = 0;
   if ( ! scale_over_player.empty() )
     q = s -> find_player( scale_over_player );
   if ( !q )
     q = p;
-  if ( scale_over == "dtps" ) return q -> dtps_error;
+  if ( scale_over == "dtps"   ) return q -> dtps.mean_std_dev;
+  if ( scale_over == "deaths" ) return q -> deaths.mean_std_dev;
+  if ( scale_over == "dmg_taken"      ) return q -> dmg_taken.mean_std_dev;
 
-  return q -> dps_error;
+  if ( ( q -> primary_role() == ROLE_HEAL || scale_over =="hps" ) && scale_over != "dps" )
+    return p -> hps.mean_std_dev;
+
+  return q -> dps.mean_std_dev;
 }
 

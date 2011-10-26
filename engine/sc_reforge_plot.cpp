@@ -134,7 +134,7 @@ void reforge_plot_t::analyze_stats()
   generate_stat_mods( stat_mods, reforge_plot_stat_indices, 0,
                       cur_stat_mods );
 
-  num_stat_combos = stat_mods.size();
+  num_stat_combos = static_cast<int>(stat_mods.size());
 
   if ( reforge_plot_debug )
   {
@@ -195,7 +195,7 @@ void reforge_plot_t::analyze_stats()
       if ( delta_sim )
       {
         player_t* delta_p = delta_sim -> find_player( p -> name() );
-        delta_result[ stat_mods[ i ].size() ] = delta_p -> dps;
+        delta_result[ stat_mods[ i ].size() ] = delta_p -> dps.mean;
         p -> reforge_plot_data.push_back( delta_result );
       }
     }

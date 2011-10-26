@@ -209,11 +209,11 @@ void heal_t::execute()
   }
 }
 
-// heal_t::travel ===========================================================
+// heal_t::impact ===========================================================
 
-void heal_t::travel( player_t* t, int travel_result, double travel_heal=0 )
+void heal_t::impact( player_t* t, int impact_result, double travel_heal=0 )
 {
-  assess_damage( t, travel_heal, HEAL_DIRECT, travel_result );
+  assess_damage( t, travel_heal, HEAL_DIRECT, impact_result );
 
   if ( num_ticks > 0 )
   {
@@ -637,13 +637,13 @@ void absorb_t::execute()
   }
 }
 
-// absorb_t::travel =========================================================
+// absorb_t::impact =========================================================
 
-void absorb_t::travel( player_t* t, int travel_result, double travel_dmg=0 )
+void absorb_t::impact( player_t* t, int impact_result, double travel_dmg=0 )
 {
   if ( travel_dmg > 0 )
   {
-    assess_damage( t, travel_dmg, ABSORB, travel_result );
+    assess_damage( t, travel_dmg, ABSORB, impact_result );
   }
 }
 

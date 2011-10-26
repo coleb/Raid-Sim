@@ -37,7 +37,7 @@ struct hymn_of_hope_buff_t : public buff_t
 
     // Extra Mana is only added at the start, not on refresh. Tested 20/01/2011.
     // Extra Mana is set by current max_mana, doesn't change when max_mana changes.
-    mana_gain = player -> resource_max[ RESOURCE_MANA ] * 0.15;
+    mana_gain = player -> resource_max[ RESOURCE_MANA ] * effect2().percent();
     player -> stat_gain( STAT_MAX_MANA, mana_gain, player -> gains.hymn_of_hope );
   }
 
@@ -217,14 +217,14 @@ static bool parse_talent_url( sim_t* sim,
 
   if ( url.find( "worldofwarcraft" ) != url.npos )
   {
-    if ( ( cut_pt = url.find_first_of( "=" ) ) != url.npos )
+    if ( ( cut_pt = url.find_first_of( '=' ) ) != url.npos )
     {
       return p -> parse_talents_armory( url.substr( cut_pt + 1 ) );
     }
   }
   else if ( url.find( "wowarmory" ) != url.npos )
   {
-    if ( ( cut_pt = url.find_last_of( "=" ) ) != url.npos )
+    if ( ( cut_pt = url.find_last_of( '=' ) ) != url.npos )
     {
       return p -> parse_talents_armory( url.substr( cut_pt + 1 ) );
     }
@@ -233,7 +233,7 @@ static bool parse_talent_url( sim_t* sim,
   {
     if ( ( cut_pt = url.find_first_of( "#=" ) ) != url.npos )
     {
-      std::string::size_type cut_pt2 = url.find_first_of( "-", cut_pt + 1 );
+      std::string::size_type cut_pt2 = url.find_first_of( '-', cut_pt + 1 );
       // Add support for http://www.wowhead.com/talent#priest-033211000000000000000000000000000000000000322032210201222100231
       if ( cut_pt2 != url.npos )
         return p -> parse_talents_armory( url.substr( cut_pt2 + 1 ) );
@@ -244,7 +244,7 @@ static bool parse_talent_url( sim_t* sim,
   else
   {
     bool all_digits = true;
-    for( int i=url.size()-1; i >= 0 && all_digits; i-- )
+    for( size_t i=0; i < url.size() && all_digits; i++ )
       if( ! isdigit( url[ i ] ) )
         all_digits = false;
 
@@ -373,7 +373,7 @@ player_t::player_t( sim_t*             s,
   pet_list( 0 ), bugs( true ), specialization( TALENT_TAB_NONE ), invert_scaling( 0 ),
   vengeance_enabled( false ), vengeance_damage( 0.0 ), vengeance_value( 0.0 ), vengeance_max( 0.0 ),
   active_pets( 0 ), dtr_proc_chance( -1.0 ), dtr_base_proc_chance( -1.0 ),
-  reaction_mean( 0.5 ), reaction_stddev( 0.0 ), reaction_nu( 0.5 ), scale_player( 1 ), has_dtr( false ),
+  reaction_mean( 0.5 ), reaction_stddev( 0.0 ), reaction_nu( 0.5 ), scale_player( 1 ), has_dtr( false ), avg_ilvl( 0 ),
   // Latency
   world_lag( 0.1 ), world_lag_stddev( -1.0 ),
   brain_lag( -1.0 ), brain_lag_stddev( -1.0 ),
@@ -441,16 +441,28 @@ player_t::player_t( sim_t*             s,
   action_list( 0 ), action_list_default( 0 ), cooldown_list( 0 ), dot_list( 0 ),
   // Reporting
   quiet( 0 ), last_foreground_action( 0 ),
-  current_time( 0 ), iteration_seconds( 0 ), total_seconds( 0 ), max_fight_length( 0 ), arise_time( 0 ),
-  total_waiting( 0 ), total_foreground_actions( 0 ),
-  iteration_dmg( 0 ), total_dmg( 0 ), iteration_heal( 0 ), total_heal( 0 ),
-  dps( 0 ), dpse( 0 ), dps_min( 0 ), dps_max( 0 ),
-  dps_std_dev( 0 ), dps_error( 0 ), dps_convergence( 0 ),
-  dps_10_percentile( 0 ),dps_90_percentile( 0 ),
-  dpr( 0 ), rps_gain( 0 ), rps_loss( 0 ),
-  death_count( 0 ), avg_death_time( 0.0 ), death_count_pct( 0.0 ), min_death_time( 1.0E+50 ), max_death_time( 0 ),
-  dmg_taken( 0.0 ), total_dmg_taken( 0.0 ), dtps( 0.0 ), dtps_error( 0.0 ),
-  buff_list( 0 ), proc_list( 0 ), gain_list( 0 ), stats_list( 0 ), uptime_list( 0 ),
+  current_time( 0 ), iteration_fight_length( 0 ), arise_time( 0 ),
+  fight_length( s -> statistics_level < 2, true ), waiting_time( true ), executed_foreground_actions( s -> statistics_level < 3 ),
+  iteration_waiting_time( 0 ), iteration_executed_foreground_actions( 0 ),
+  rps_gain( 0 ), rps_loss( 0 ),
+  deaths(), deaths_error( 0 ),
+  buff_list( 0 ), proc_list( 0 ), gain_list( 0 ), stats_list( 0 ), benefit_list( 0 ), uptime_list( 0 ),
+
+    // Damage
+    iteration_dmg( 0 ), iteration_dmg_taken( 0 ),
+    dps_error( 0 ), dpr( 0 ), dtps_error( 0 ),
+    dmg( s -> statistics_level < 2 ), compound_dmg( s -> statistics_level < 2 ),
+    dps( s -> statistics_level < 1 ), dpse( s -> statistics_level < 2 ),
+    dtps( s -> statistics_level < 2), dmg_taken( s -> statistics_level < 2 ),
+    dps_convergence( 0 ),
+
+    // Heal
+    iteration_heal( 0 ),iteration_heal_taken( 0 ),
+    hps_error( 0 ), hpr( 0 ),
+    heal( s -> statistics_level < 2 ), compound_heal( s -> statistics_level < 2 ),
+    hps( s -> statistics_level < 1), hpse( s -> statistics_level < 2),
+    htps( s -> statistics_level < 2), heal_taken(s -> statistics_level < 2 ),
+
   // Gear
   sets( 0 ),
   meta_gem( META_GEM_NONE ), matching_gear( false ),
@@ -458,8 +470,7 @@ player_t::player_t( sim_t*             s,
   scaling_lag( 0 ), scaling_lag_error( 0 ),
   // Movement & Position
   base_movement_speed( 7.0 ), x_position( 0.0 ), y_position( 0.0 ),
-
-  rng_list( 0 )
+  buffs( buffs_t() ), debuffs( debuffs_t() ), gains( gains_t() ), procs( procs_t() ), rng_list( 0 ), rngs( rngs_t() )
 {
   sim -> actor_list.push_back( this );
 
@@ -481,40 +492,36 @@ player_t::player_t( sim_t*             s,
 
   if ( is_pet() ) skill = 1.0;
 
-  for ( int i=0; i < SCHOOL_MAX; i++ ) spell_resistance[ i ] = 0;
+  range::fill( spell_resistance, 0 );
 
-  for ( int i=0; i < ATTRIBUTE_MAX; i++ )
-  {
-    attribute[ i ] = attribute_base[ i ] = attribute_initial[ i ] = 0;
-    attribute_multiplier[ i ] = attribute_multiplier_initial[ i ] = 1.0;
-    attribute_buffed[ i ] = 0;
-  }
+  range::fill( attribute, 0 );
+  range::fill( attribute_base, 0 );
+  range::fill( attribute_initial, 0 );
+  range::fill( attribute_buffed, 0 );
 
-  for ( int i=0; i < RESOURCE_MAX; i++ )
-  {
-    infinite_resource[ i ] = false;
-  }
+  range::fill( attribute_multiplier, 1 );
+  range::fill( attribute_multiplier_initial, 1 );
+
+  range::fill( infinite_resource, false );
   infinite_resource[ RESOURCE_HEALTH ] = true;
 
-  for ( int i=0; i < SCHOOL_MAX; i++ )
-  {
-    initial_spell_power[ i ] = spell_power[ i ] = 0;
-    initial_resource_reduction[ i ] = resource_reduction[ i ] = 0;
-  }
+  range::fill( initial_spell_power, 0 );
+  range::fill( spell_power, 0 );
+  range::fill( resource_reduction, 0 );
+  range::fill( initial_resource_reduction, 0 );
 
-  for ( int i=0; i < RESOURCE_MAX; i++ )
-  {
-    resource_base[ i ] = resource_initial[ i ] = resource_max[ i ] = resource_current[ i ] = 0;
-    resource_lost[ i ] = resource_gained[ i ] = 0;
-    resource_buffed[ i ] = 0;
-  }
+  range::fill( resource_base, 0 );
+  range::fill( resource_initial, 0 );
+  range::fill( resource_max, 0 );
+  range::fill( resource_current, 0 );
+  range::fill( resource_lost, 0 );
+  range::fill( resource_gained, 0 );
+  range::fill( resource_buffed, 0 );
 
-  for ( int i=0; i < PROFESSION_MAX; i++ ) profession[ i ] = 0;
-  for ( int i=0; i < STAT_MAX; i++ )
-  {
-    scales_with[ i ] = 0;
-    over_cap[ i ] = 0;
-  }
+  range::fill( profession, 0 );
+
+  range::fill( scales_with, 0 );
+  range::fill( over_cap, 0 );
 
   items.resize( SLOT_MAX );
   for ( int i=0; i < SLOT_MAX; i++ )
@@ -528,15 +535,12 @@ player_t::player_t( sim_t*             s,
   off_hand_weapon.slot = SLOT_OFF_HAND;
   ranged_weapon.slot = SLOT_RANGED;
 
-  if ( ! sim -> active_files.empty() ) origin_str = sim -> active_files.back();
+  if ( ! sim -> active_files.empty() ) origin_str = sim -> active_files.top();
 
-  for ( int i=0; i < MAX_TALENT_TREES; i++ )
-  {
-    talent_tab_points[ i ] = 0;
-    tree_type[ i ] = TREE_NONE;
-  }
+  range::fill( talent_tab_points, 0 );
+  range::fill( tree_type, TREE_NONE );
 
-  if ( reaction_stddev == 0 ) reaction_stddev =   reaction_mean * 0.25;
+  if ( reaction_stddev == 0 ) reaction_stddev = reaction_mean * 0.25;
 }
 
 // player_t::~player_t ======================================================
@@ -568,6 +572,11 @@ player_t::~player_t()
     uptime_list = u -> next;
     delete u;
   }
+  while ( benefit_t* u = benefit_list )
+  {
+    benefit_list = u -> next;
+    delete u;
+  }
   while ( rng_t* r = rng_list )
   {
     rng_list = r -> next;
@@ -588,54 +597,21 @@ player_t::~player_t()
     cooldown_list = d -> next;
     delete d;
   }
-  for ( int i=0; i < RESOURCE_MAX; i++ )
-  {
-    resource_gain_callbacks[ i ].clear();
-    resource_loss_callbacks[ i ].clear();
-  }
-  for ( int i=0; i < RESULT_MAX; i++ )
-  {
-    attack_callbacks[ i ].clear();
-    spell_callbacks[ i ].clear();
-    tick_callbacks[ i ].clear();
-  }
-  for ( int i=0; i < SCHOOL_MAX; i++ )
-  {
-    tick_damage_callbacks[ i ].clear();
-    tick_heal_callbacks  [ i ].clear();
-
-    direct_damage_callbacks[ i ].clear();
-    direct_heal_callbacks  [ i ].clear();
-  }
 
   if ( false )
   {
     // FIXME! This cannot be done until we use refcounts.
     // FIXME! I see the same callback pointer being registered multiple times.
-    for( int i=all_callbacks.size()-1; i >= 0; i-- )
-      delete all_callbacks[ i ];
-  }
-  all_callbacks.clear();
-
-  for( int i=0; i < MAX_TALENT_TREES; i++ )
-  {
-    for( int j=talent_trees[ i ].size()-1; j >= 0; j-- )
-      delete talent_trees[ i ][ j ];
-    talent_trees[ i ].clear();
+    range::dispose( all_callbacks );
   }
 
-  for( int i=glyphs.size()-1; i >= 0; i-- )
-    delete glyphs[ i ];
-  glyphs.clear();
+  for( size_t i=0; i < sizeof_array( talent_trees ); i++ )
+    range::dispose( talent_trees[ i ] );
 
-  while ( spell_list.size() )
-  {
-    spell_id_t* s = spell_list.back();
-    spell_list.pop_back();
-    delete s;
-  }
-  if ( sets )
-    delete sets;
+  range::dispose( glyphs );
+  range::dispose( spell_list );
+
+  delete sets;
 }
 
 // player_t::init ===========================================================
@@ -788,6 +764,7 @@ void player_t::init()
   init_gains();
   init_procs();
   init_uptimes();
+  init_benefits();
   init_rng();
   init_stats();
 }
@@ -867,6 +844,8 @@ void player_t::init_items()
       return;
     }
 
+    avg_ilvl += item.ilevel;
+
     slots[ item.slot ] = item.matching_type();
 
     for ( int j=0; j < STAT_MAX; j++ )
@@ -874,6 +853,8 @@ void player_t::init_items()
       item_stats.add_stat( j, item.stats.get_stat( j ) );
     }
   }
+
+  avg_ilvl /= num_items;
 
   switch ( type )
   {
@@ -1304,11 +1285,9 @@ struct execute_pet_action_t : public action_t
   std::string action_str;
 
   execute_pet_action_t( player_t* player, pet_t* p, const std::string& as, const std::string& options_str ) :
-    action_t( ACTION_OTHER, "execute_pet_action", player )
+    action_t( ACTION_OTHER, "execute_pet_action", player ), pet_action( 0 ), pet( p ), action_str( as )
   {
     parse_options( NULL, options_str );
-    pet = p;
-    action_str = as;
     trigger_gcd = 0;
   }
 
@@ -1577,7 +1556,8 @@ void player_t::init_talents()
   {
     talent_tab_points[ i ] = 0;
 
-    for( int j=talent_trees[ i ].size()-1; j >= 0; j-- )
+    size_t size=talent_trees[ i ].size();
+    for( size_t j=0; j < size; j++ )
     {
       talent_tab_points[ i ] += talent_trees[ i ][ j ] -> rank();
     }
@@ -1647,6 +1627,9 @@ void player_t::init_buffs()
   buffs.wild_magic_potion_sp   = new stat_buff_t( this, "wild_magic_potion_sp",   STAT_SPELL_POWER,   200.0,            1, 15.0, 60.0 );
   buffs.wild_magic_potion_crit = new stat_buff_t( this, "wild_magic_potion_crit", STAT_CRIT_RATING,   200.0,            1, 15.0, 60.0 );
 
+  buffs.mongoose_mh = NULL;
+  buffs.mongoose_oh = NULL;
+
   // Infinite-Stacking Buffs and De-Buffs
 
   buffs.stunned        = new   buff_t( this, "stunned",      -1 );
@@ -1691,7 +1674,14 @@ void player_t::init_procs()
 
 void player_t::init_uptimes()
 {
+
+  primary_resource_cap = get_uptime( util_t::resource_type_string( primary_resource() ) + (std::string) "_cap" );
 }
+
+// player_t::init_benefits ===================================================
+
+void player_t::init_benefits()
+{ }
 
 // player_t::init_rng =======================================================
 
@@ -1710,14 +1700,24 @@ void player_t::init_rng()
 
 void player_t::init_stats()
 {
-  for ( int i=0; i < RESOURCE_MAX; i++ )
-  {
-    resource_lost[ i ] = resource_gained[ i ] = 0;
-  }
+  range::fill( resource_lost, 0 );
+  range::fill( resource_gained, 0 );
 
-  iteration_dps.reserve( sim -> iterations );
-  iteration_dtps.reserve( sim -> iterations );
-  iteration_dpse.reserve( sim -> iterations );
+  fight_length.reserve( sim -> iterations );
+  waiting_time.reserve( sim -> iterations );
+  executed_foreground_actions.reserve( sim -> iterations );
+
+  dmg.reserve( sim -> iterations );
+  compound_dmg.reserve( sim -> iterations );
+  dps.reserve( sim -> iterations );
+  dpse.reserve( sim -> iterations );
+  dtps.reserve( sim -> iterations );
+
+  heal.reserve( sim -> iterations );
+  compound_heal.reserve( sim -> iterations );
+  hps.reserve( sim -> iterations );
+  hpse.reserve( sim -> iterations );
+  htps.reserve( sim -> iterations );
 }
 
 // player_t::init_values ====================================================
@@ -1760,6 +1760,7 @@ void player_t::init_scaling()
 
     scales_with[ STAT_ATTACK_POWER             ] = attack;
     scales_with[ STAT_EXPERTISE_RATING         ] = attack || tank;
+    scales_with[ STAT_EXPERTISE_RATING2        ] = ( attack || tank ) && position == POSITION_FRONT;
 
     scales_with[ STAT_HIT_RATING                ] = 1;
     scales_with[ STAT_CRIT_RATING               ] = 1;
@@ -1796,9 +1797,14 @@ void player_t::init_scaling()
       case STAT_MP5:               initial_mp5                       += v; break;
 
       case STAT_ATTACK_POWER:             initial_attack_power       += v;                            break;
-      case STAT_EXPERTISE_RATING:         initial_attack_expertise   += v / rating.expertise;         break;
+
+      case STAT_EXPERTISE_RATING:
+      case STAT_EXPERTISE_RATING2:
+        initial_attack_expertise   += v / rating.expertise;
+        break;
 
       case STAT_HIT_RATING:
+      case STAT_HIT_RATING2:
         initial_attack_hit += v / rating.attack_hit;
         initial_spell_hit  += v / rating.spell_hit;
         break;
@@ -1950,7 +1956,8 @@ double player_t::composite_attack_haste() SC_CONST
       if ( buffs.mongoose_mh && buffs.mongoose_mh -> up() ) h *= 1.0 / ( 1.0 + 30 / rating.attack_haste );
       if ( buffs.mongoose_oh && buffs.mongoose_oh -> up() ) h *= 1.0 / ( 1.0 + 30 / rating.attack_haste );
     }
-    if ( ( race == RACE_GOBLIN ) )
+
+    if ( race == RACE_GOBLIN )
     {
       h *= 1.0 / ( 1.0 + 0.01 );
     }
@@ -2356,7 +2363,9 @@ double player_t::composite_attack_power_multiplier() SC_CONST
   {
     if ( ( sim -> auras.trueshot -> up() && ! is_enemy() && ! is_add() ) || buffs.blessing_of_might -> up() )
     {
-      m *= 1.10;
+      //FIXME: Since we don't currently model the difference between ranged and melee
+      //       attack power, this ugly hack just checks if the player is a hunter instead.
+      m *= ( ptr && type != HUNTER ) ? 1.20 : 1.10;
     }
     else if ( ! is_enemy() && ! is_add() )
     {
@@ -2695,7 +2704,6 @@ void player_t::combat_begin()
 {
   if ( sim -> debug ) log_t::output( sim, "Combat begins for player %s", name() );
 
-  iteration_seconds = 0;
 
   if ( ! is_pet() && ! is_add() )
   {
@@ -2739,6 +2747,20 @@ void player_t::combat_begin()
     new ( sim ) vengeance_t( this );
 
   action_sequence = "";
+
+  iteration_fight_length = 0;
+  iteration_waiting_time = 0;
+  iteration_executed_foreground_actions = 0;
+  iteration_dmg = 0;
+  iteration_heal = 0;
+  iteration_dmg_taken = 0;
+  iteration_heal_taken = 0;
+
+  for ( buff_t* b = buff_list; b; b = b -> next )
+    b -> combat_begin();
+
+  for ( stats_t* s = stats_list; s; s = s -> next )
+    s -> combat_begin();
 }
 
 // player_t::combat_end =====================================================
@@ -2761,7 +2783,10 @@ void player_t::combat_end( sim_t* sim )
 
 void player_t::combat_end()
 {
-  if ( sim -> debug ) log_t::output( sim, "Combat ends for player %s", name() );
+  for ( pet_t* pet = pet_list; pet; pet = pet -> next_pet )
+  {
+    pet -> combat_end();
+  }
 
   if ( ! is_pet() )
   {
@@ -2770,49 +2795,77 @@ void player_t::combat_end()
   else if ( is_pet() )
     cast_pet() -> dismiss();
 
-  total_seconds += iteration_seconds;
+  fight_length.add( iteration_fight_length );
 
-  if ( iteration_seconds > max_fight_length )
-    max_fight_length = iteration_seconds;
+  executed_foreground_actions.add( iteration_executed_foreground_actions );
+  waiting_time.add( iteration_waiting_time );
 
+  for ( stats_t* s = stats_list; s; s = s -> next )
+    s -> combat_end();
+
+  // DMG
+  dmg.add( iteration_dmg );
+  sim -> iteration_dmg += iteration_dmg;
   for ( pet_t* pet = pet_list; pet; pet = pet -> next_pet )
   {
-    iteration_dmg  += pet -> iteration_dmg;
+    iteration_dmg += pet -> iteration_dmg;
+  }
+  compound_dmg.add( iteration_dmg );
+
+  dps.add( iteration_fight_length ? iteration_dmg / iteration_fight_length : 0 );
+  dpse.add( sim -> current_time ? iteration_dmg / sim -> current_time : 0 );
+
+  if ( sim -> debug ) log_t::output( sim, "Combat ends for player %s at time %.4f fight_length=%.4f", name(), sim -> current_time, iteration_fight_length );
+
+  // Heal
+  heal.add( iteration_heal );
+  sim -> iteration_heal += iteration_heal;
+  for ( pet_t* pet = pet_list; pet; pet = pet -> next_pet )
+  {
     iteration_heal += pet -> iteration_heal;
   }
-  bool is_hps = ( primary_role() == ROLE_HEAL );
-  iteration_dps.push_back( iteration_seconds ? ( ( is_hps ? iteration_heal : iteration_dmg ) / iteration_seconds ): 0 );
-  iteration_dpse.push_back( sim -> current_time ? ( ( is_hps ? iteration_heal : iteration_dmg ) / sim -> current_time ): 0 );
-  iteration_dtps.push_back( iteration_seconds ? dmg_taken / iteration_seconds : 0 );
+  compound_heal.add( iteration_heal );
 
-  total_dmg += iteration_dmg;
-  total_heal += iteration_heal;
+  hps.add( iteration_fight_length ? iteration_heal / iteration_fight_length : 0 );
+  hpse.add( sim -> current_time ? iteration_heal / current_time : 0 );
+
+
+  dmg_taken.add( iteration_dmg_taken );
+  dtps.add( iteration_fight_length ? iteration_dmg_taken / iteration_fight_length : 0 );
+
+  heal_taken.add( iteration_heal_taken );
+  htps.add( iteration_fight_length ? iteration_heal_taken / iteration_fight_length : 0 );
 
   for ( buff_t* b = buff_list; b; b = b -> next )
   {
-    b -> uptime_pct += 100.0 * b -> uptime_sum / iteration_seconds;
+    b -> combat_end();
   }
+
 }
 
 // player_t::merge ==========================================================
 
 void player_t::merge( player_t& other )
 {
-  total_dmg += other.total_dmg;
-  total_heal += other.total_heal;
-  total_seconds += other.total_seconds;
-  total_waiting += other.total_waiting;
-  total_foreground_actions += other.total_foreground_actions;
-  death_count += other.death_count;
+  fight_length.merge( other.fight_length );
+  waiting_time.merge( other.waiting_time );
+  executed_foreground_actions.merge( other.executed_foreground_actions );
 
-  iteration_dps.insert( iteration_dps.end(),
-                        other.iteration_dps.begin(), other.iteration_dps.end() );
-  iteration_dtps.insert( iteration_dtps.end(),
-                        other.iteration_dtps.begin(), other.iteration_dtps.end() );
-  iteration_dpse.insert( iteration_dpse.end(),
-                         other.iteration_dpse.begin(), other.iteration_dpse.end() );
-  death_time.insert( death_time.end(),
-                     other.death_time.begin(), other.death_time.end() );
+  dmg.merge( other.dmg );
+  compound_dmg.merge( other.compound_dmg );
+  dps.merge( other.dps );
+  dtps.merge( other.dtps );
+  dpse.merge( other.dpse );
+  dmg_taken.merge( other.dmg_taken );
+
+  heal.merge( other.heal );
+  compound_heal.merge( other.compound_heal );
+  hps.merge( other.hps );
+  htps.merge( other.htps );
+  hpse.merge( other.hpse );
+  heal_taken.merge( other.heal_taken );
+
+  deaths.merge( other.deaths );
 
   for ( int i = RESOURCE_NONE; i < RESOURCE_MAX; i++ )
   {
@@ -2823,10 +2876,7 @@ void player_t::merge( player_t& other )
     {
       timeline_resource[i][ j ] += other.timeline_resource[i][ j ];
     }
-  }
 
-  for ( int i=0; i < RESOURCE_MAX; i++ )
-  {
     resource_lost  [ i ] += other.resource_lost  [ i ];
     resource_gained[ i ] += other.resource_gained[ i ];
   }
@@ -2853,7 +2903,12 @@ void player_t::merge( player_t& other )
 
   for ( uptime_t* uptime = uptime_list; uptime; uptime = uptime -> next )
   {
-    uptime -> merge( other.get_uptime( uptime -> name_str ) );
+    uptime -> merge( *other.get_uptime( uptime -> name_str ) );
+  }
+
+  for ( benefit_t* benefit = benefit_list; benefit; benefit = benefit -> next )
+  {
+    benefit -> merge( other.get_benefit( benefit -> name_str ) );
   }
 
   for ( std::map<std::string,int>::const_iterator it = other.action_map.begin(),
@@ -2874,8 +2929,6 @@ void player_t::reset()
 
   sleeping = 1;
   events = 0;
-
-  dmg_taken = 0;
 
   stats = initial_stats;
 
@@ -2946,7 +2999,6 @@ void player_t::reset()
   channeling = 0;
   readying = 0;
   in_combat = false;
-  iteration_dmg = 0;
   iteration_heal = 0;
 
   cast_delay_reaction = 0;
@@ -3022,7 +3074,7 @@ void player_t::schedule_ready( double delta_time,
 
   if ( waiting )
   {
-    total_waiting += delta_time;
+    iteration_waiting_time += delta_time;
   }
   else
   {
@@ -3134,12 +3186,13 @@ void player_t::demise()
   if ( sim -> log )
     log_t::output( sim, "%s demises.", name() );
 
-  sleeping = 1;
-  readying = 0;
 
   assert( arise_time >= 0 );
-  iteration_seconds += ( sim -> current_time - arise_time );
+  iteration_fight_length += ( sim -> current_time - arise_time );
   arise_time = -1;
+
+  sleeping = 1;
+  readying = 0;
 
   for( buff_t* b = buff_list; b; b = b -> next )
   {
@@ -3271,7 +3324,7 @@ action_t* player_t::execute_action()
   if ( action )
   {
     action -> schedule_execute();
-    total_foreground_actions++;
+    iteration_executed_foreground_actions++;
     if ( action -> marker ) action_sequence += action -> marker;
     if ( ! action -> label_str.empty() )
       action_map[ action -> label_str ] += 1;
@@ -3376,6 +3429,9 @@ double player_t::resource_loss( int       resource,
   if ( sleeping )
     return 0;
 
+  if ( resource == primary_resource() )
+    primary_resource_cap -> update( false );
+
   double actual_amount;
 
   if ( infinite_resource[ resource ] == 0 || is_enemy() )
@@ -3422,6 +3478,9 @@ double player_t::resource_gain( int       resource,
     resource_current[ resource ] += actual_amount;
     resource_gained [ resource ] += actual_amount;
   }
+
+  if ( resource == primary_resource() && resource_max[ resource ] <= resource_current[ resource ] )
+    primary_resource_cap -> update( true );
 
   if ( source )
   {
@@ -3598,7 +3657,7 @@ double player_t::time_to_die() SC_CONST
   // expressions
   if ( resource_base[ RESOURCE_HEALTH ] > 0 && sim -> current_time >= 1.0 )
   {
-    return sim -> current_time * resource_current[ RESOURCE_HEALTH ] / dmg_taken;
+    return sim -> current_time * resource_current[ RESOURCE_HEALTH ] / iteration_dmg_taken;
   }
   else
   {
@@ -3849,11 +3908,11 @@ double player_t::assess_damage( double            amount,
 {
   double mitigated_amount = target_mitigation( amount, school, dmg_type, result, action );
 
-  int num_absorbs = absorb_buffs.size();
+  size_t num_absorbs = absorb_buffs.size();
   double absorbed_amount = 0;
   if ( num_absorbs > 0 )
   {
-    for ( int i = 0; i < num_absorbs; i++ )
+    for ( size_t i = 0; i < num_absorbs; i++ )
     {
       double buff_value = absorb_buffs[ i ] -> value();
       double value = std::min( mitigated_amount - absorbed_amount, buff_value );
@@ -3866,8 +3925,7 @@ double player_t::assess_damage( double            amount,
   }
   mitigated_amount -= absorbed_amount;
 
-  dmg_taken += mitigated_amount;
-  total_dmg_taken += mitigated_amount;
+  iteration_dmg_taken += mitigated_amount;
 
   double actual_amount = resource_loss( RESOURCE_HEALTH, mitigated_amount );
 
@@ -3875,8 +3933,7 @@ double player_t::assess_damage( double            amount,
   {
     if ( !sleeping )
     {
-      death_count++;
-      death_time.push_back( current_time );
+      deaths.add( current_time );
     }
     if ( sim -> log ) log_t::output( sim, "%s has died.", name() );
     demise();
@@ -3950,6 +4007,8 @@ player_t::heal_info_t player_t::assess_heal(  double            amount,
 
   heal.amount = resource_gain( RESOURCE_HEALTH, amount, 0, action );
   heal.actual = amount;
+
+  iteration_heal_taken += amount;
 
   return heal;
 
@@ -4352,6 +4411,33 @@ stats_t* player_t::get_stats( const std::string& n, action_t* a )
   return stats;
 }
 
+// player_t::get_benefit =====================================================
+
+benefit_t* player_t::get_benefit( const std::string& name )
+{
+  benefit_t* u=0;
+
+  for ( u = benefit_list; u; u = u -> next )
+  {
+    if ( u -> name_str == name )
+      return u;
+  }
+
+  u = new benefit_t( name );
+
+  benefit_t** tail = &benefit_list;
+
+  while ( *tail && name > ( ( *tail ) -> name_str ) )
+  {
+    tail = &( ( *tail ) -> next );
+  }
+
+  u -> next = *tail;
+  *tail = u;
+
+  return u;
+}
+
 // player_t::get_uptime =====================================================
 
 uptime_t* player_t::get_uptime( const std::string& name )
@@ -4364,7 +4450,7 @@ uptime_t* player_t::get_uptime( const std::string& name )
       return u;
   }
 
-  u = new uptime_t( name );
+  u = new uptime_t( sim, name );
 
   uptime_t** tail = &uptime_list;
 
@@ -4408,37 +4494,25 @@ rng_t* player_t::get_rng( const std::string& n, int type )
   return rng;
 }
 
-// player_t::get_player_distance ============================================
-
-double player_t::get_player_distance( player_t* p )
-{
-  // Euclidean Distance *Squared* as sqrt() is slow
-  double distance = 0;
-
-  distance = ( ( p -> x_position - this -> x_position ) * ( p -> x_position - this -> x_position ) + ( p -> y_position - this -> y_position ) * ( p -> y_position - this -> y_position ) );
-
-  return distance;
-}
-
 // player_t::get_position_distance ==========================================
 
-double player_t::get_position_distance( double m, double v )
+double player_t::get_position_distance( double m, double v ) const
 {
-  // Euclidean Distance *Squared* as sqrt() is slow
-  double distance = 0;
-
-  distance = ( ( this -> x_position - m ) * ( this -> x_position - m ) + ( this -> y_position - v ) * ( this -> y_position - v ) );
-
-  return distance;
+  // Square of Euclidean distance since sqrt() is slow
+  double delta_x = this -> x_position - m;
+  double delta_y = this -> y_position - v;
+  return delta_x * delta_x + delta_y * delta_y;
 }
 
-// player_t::get_action_priority_list( const std::string& name ) ============
+// player_t::get_player_distance ============================================
 
-action_priority_list_t* player_t::get_action_priority_list( const std::string& name )
+double player_t::get_player_distance( const player_t* p ) const
+{ return get_position_distance( p -> x_position, p -> y_position ); }
+
+// player_t::find_action_priority_list( const std::string& name ) ===========
+
+action_priority_list_t* player_t::find_action_priority_list( const std::string& name )
 {
-
-  action_priority_list_t* a;
-
   for ( unsigned int i = 0; i < action_priority_list.size(); i++ )
   {
     action_priority_list_t* a = action_priority_list[i];
@@ -4446,28 +4520,20 @@ action_priority_list_t* player_t::get_action_priority_list( const std::string& n
       return a;
   }
 
-  a = new action_priority_list_t( name, this );
-
-  action_priority_list.push_back( a );
-
-  return a;
+  return 0;
 }
 
-// player_t::find_action_priority_list( const std::string& name ) ===========
+// player_t::get_action_priority_list( const std::string& name ) ============
 
-action_priority_list_t* player_t::find_action_priority_list( const std::string& name )
+action_priority_list_t* player_t::get_action_priority_list( const std::string& name )
 {
-
-  action_priority_list_t* a;
-
-  for ( unsigned int i = 0; i < action_priority_list.size(); i++ )
+  action_priority_list_t* a = find_action_priority_list( name );
+  if ( !a )
   {
-    a = action_priority_list[i];
-    if ( a -> name_str == name )
-      return a;
+    a = new action_priority_list_t( name, this );
+    action_priority_list.push_back( a );
   }
-
-  return 0;
+  return a;
 }
 
 // player_t::debuffs_t::snared ==============================================
@@ -4573,7 +4639,7 @@ struct arcane_torrent_t : public action_t
       break;
     }
 
-    if( gain > 0 )
+    if ( gain > 0 )
       player -> resource_gain( resource, gain, player -> gains.arcane_torrent );
 
     update_ready();
@@ -4581,7 +4647,7 @@ struct arcane_torrent_t : public action_t
 
   virtual bool ready()
   {
-    if( ! action_t::ready() )
+    if ( ! action_t::ready() )
       return false;
 
     if ( player -> race != RACE_BLOOD_ELF )
@@ -5110,6 +5176,9 @@ struct use_item_t : public action_t
       return;
     }
 
+    name_str = name_str + "_" + item_name;
+    stats = player ->  get_stats( name_str, this );
+
     item_t::special_effect_t& e = item -> use;
 
     use_name = e.name_str.empty() ? item_name : e.name_str;
@@ -5234,6 +5303,9 @@ struct use_item_t : public action_t
       lockout( buff -> buff_duration );
     }
     else assert( false );
+
+    // Enable to report use_item ability
+    //if ( ! dual ) stats -> add_execute( time_to_execute );
 
     update_ready();
   }
@@ -5360,9 +5432,9 @@ bool player_t::parse_talent_trees( const int encoding[ MAX_TALENT_SLOTS ] )
 
   for( int i=0; i < MAX_TALENT_TREES; i++ )
   {
-    int tree_size = talent_trees[ i ].size();
+    size_t tree_size = talent_trees[ i ].size();
 
-    for( int j=0; j < tree_size; j++ )
+    for( size_t j=0; j < tree_size; j++ )
     {
       talent_trees[ i ][ j ] -> set_rank( encoding[ index++ ] );
     }
@@ -5377,7 +5449,8 @@ bool player_t::parse_talents_armory( const std::string& talent_string )
 {
   int encoding[ MAX_TALENT_SLOTS ];
 
-  unsigned int i, i_max = std::min( talent_string.size(),
+  size_t i;
+  size_t i_max = std::min( talent_string.size(),
                                     static_cast< size_t >( MAX_TALENT_SLOTS ) );
   for ( i = 0; i < i_max; i++ )
   {
@@ -5425,7 +5498,7 @@ bool player_t::parse_talents_wowhead( const std::string& talent_string )
   for( int i=0; i < MAX_TALENT_TREES; i++ ) tree_count[ i ] = 0;
 
   int tree = 0;
-  int count = 0;
+  size_t count = 0;
 
   for ( unsigned int i=1; i < talent_string.length(); i++ )
   {
@@ -5482,7 +5555,7 @@ bool player_t::parse_talents_wowhead( const std::string& talent_string )
   if ( sim -> debug )
   {
     std::string str_out;
-    for ( int i = 0; i < count; i++ ) str_out += ( char )encoding[i];
+    for ( size_t i = 0; i < count; i++ ) str_out += ( char )encoding[i];
     util_t::fprintf( sim -> output_file, "%s Wowhead talent string translation: %s\n", name(), str_out.c_str() );
   }
 
@@ -5491,9 +5564,11 @@ bool player_t::parse_talents_wowhead( const std::string& talent_string )
 
 // player_t::create_talents =================================================
 
+namespace {
+
 struct compare_talents
 {
-  bool operator()( const talent_t* left, const talent_t* right ) SC_CONST
+  bool operator()( const talent_t* left, const talent_t* right ) const
   {
     const talent_data_t* l = left  -> t_data;
     const talent_data_t* r = right -> t_data;
@@ -5513,6 +5588,8 @@ struct compare_talents
     return ( l -> tab_page() < r -> tab_page() );
   }
 };
+
+}
 
 void player_t::create_talents()
 {
@@ -5549,7 +5626,7 @@ void player_t::create_talents()
   for( int i=0; i < MAX_TALENT_TREES; i++ )
   {
     std::vector<talent_t*>& tree = talent_trees[ i ];
-    if( ! tree.empty() ) std::sort( tree.begin(), tree.end(), compare_talents() );
+    if( ! tree.empty() ) range::sort( tree, compare_talents() );
   }
 }
 
@@ -5563,7 +5640,8 @@ talent_t* player_t::find_talent( const std::string& n,
     if( tree != TALENT_TAB_NONE && tree != i )
       continue;
 
-    for( int j=talent_trees[ i ].size()-1; j >= 0; j-- )
+    size_t size=talent_trees[ i ].size();
+    for( size_t j=0; j < size; j++ )
     {
       talent_t* t = talent_trees[ i ][ j ];
 
@@ -5583,20 +5661,19 @@ talent_t* player_t::find_talent( const std::string& n,
 
 void player_t::create_glyphs()
 {
-  std::vector<unsigned> glyph_ids;
-  int num_glyphs = dbc_t::glyphs( glyph_ids, util_t::class_id( type ), ptr );
+  std::vector<unsigned> glyph_ids = dbc_t::glyphs( util_t::class_id( type ), ptr );
 
-  for( int i=0; i < num_glyphs; i++ )
-  {
+  size_t size=glyph_ids.size();
+  for( size_t i=0; i < size; i++ )
     glyphs.push_back( new glyph_t( this, spell_data_t::find( glyph_ids[ i ], ptr ) ) );
-  }
 }
 
 // player_t::find_glyph =====================================================
 
 glyph_t* player_t::find_glyph( const std::string& n )
 {
-  for( int i=glyphs.size()-1; i >= 0; i-- )
+  size_t size=glyphs.size();
+  for( size_t i=0; i < size; i++ )
   {
     glyph_t* g = glyphs[ i ];
     if( n == g -> sd -> name_cstr() ) return g;

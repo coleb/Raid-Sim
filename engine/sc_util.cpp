@@ -15,21 +15,6 @@ bool pred_ci ( char a, char b )
   return std::tolower( a ) == std::tolower( b );
 }
 
-// vfprintf_helper ==========================================================
-
-int vfprintf_helper( FILE *stream, const char *format, va_list args )
-{
-  char *p_locale = util_t::dup( setlocale( LC_CTYPE, NULL ) );
-  setlocale( LC_CTYPE, "" );
-
-  int retcode = vfprintf( stream, format, args );
-
-  setlocale( LC_CTYPE, p_locale );
-  free( p_locale );
-
-  return retcode;
-}
-
 } // ANONYMOUS namespace ====================================================
 
 // util_t::str_compare_ci ===================================================
@@ -199,29 +184,20 @@ char* util_t::dup( const char *value )
 }
 
 #ifdef _MSC_VER
-#undef snprintf
-// snprintf =================================================================
+// vsnprintf ================================================================
 
-int snprintf( char* buf, size_t size, const char* fmt, ... )
+int vsnprintf_simc( char* buf, size_t size, const char* fmt, va_list ap )
 {
   if ( buf && size )
   {
-    va_list ap;
-    va_start( ap, fmt );
     int rval = _vsnprintf( buf, size, fmt, ap );
-    va_end( ap );
-    if ( rval < 0 || static_cast<unsigned>( rval ) < size )
+    if ( rval < 0 || static_cast<size_t>( rval ) < size )
       return rval;
 
     buf[ size - 1 ] = '\0';
   }
 
-  va_list ap;
-  va_start( ap, fmt );
-  int rval = _vscprintf( fmt, ap );
-  va_end( ap );
-
-  return rval;
+  return _vscprintf( fmt, ap );
 }
 #endif
 
@@ -1326,8 +1302,10 @@ const char* util_t::stat_type_string( int stat )
 
   case STAT_ATTACK_POWER:             return "attack_power";
   case STAT_EXPERTISE_RATING:         return "expertise_rating";
+  case STAT_EXPERTISE_RATING2:        return "inverse_expertise_rating";
 
   case STAT_HIT_RATING:   return "hit_rating";
+  case STAT_HIT_RATING2:  return "inverse_hit_rating";
   case STAT_CRIT_RATING:  return "crit_rating";
   case STAT_HASTE_RATING: return "haste_rating";
 
@@ -1377,8 +1355,10 @@ const char* util_t::stat_type_abbrev( int stat )
 
   case STAT_ATTACK_POWER:             return "AP";
   case STAT_EXPERTISE_RATING:         return "Exp";
+  case STAT_EXPERTISE_RATING2:        return "InvExp";
 
   case STAT_HIT_RATING:   return "Hit";
+  case STAT_HIT_RATING2:  return "InvHit";
   case STAT_CRIT_RATING:  return "Crit";
   case STAT_HASTE_RATING: return "Haste";
 
@@ -1555,7 +1535,7 @@ bool util_t::parse_origin( std::string& region_str,
   return true;
 }
 
-// util_t::class_id_max =====================================================
+// util_t::class_id_mask ====================================================
 
 int util_t::class_id_mask( int type )
 {
@@ -2003,13 +1983,33 @@ void util_t::string_strip_quotes( std::string& str )
   str.resize( dst - str.begin() );
 }
 
-// util_t::to_string ========================================================
+// util_t::replace_all ======================================================
 
-std::string util_t::to_string( int i )
+void util_t::replace_all_( std::string& s, const char* from, char to )
 {
-  char buffer[ 64 ];
-  snprintf( buffer, sizeof( buffer ), "%d", i );
-  return std::string( buffer );
+  std::string::size_type pos = s.find( from );
+  if ( pos != s.npos )
+  {
+    std::size_t len = std::strlen( from );
+    do
+      s.replace( pos, len, 1, to );
+    while ( ( pos = s.find( from, pos ) ) != s.npos );
+  }
+}
+
+void util_t::replace_all_( std::string& s, char from, const char* to )
+{
+  std::string::size_type pos;
+  if ( ( pos = s.find( from ) ) != s.npos )
+  {
+    std::size_t len = std::strlen( to );
+    do
+    {
+      s.replace( pos, 1, to, len );
+      pos += len;
+    }
+    while ( ( pos = s.find( from, pos ) ) != s.npos );
+  }
 }
 
 // util_t::to_string ========================================================
@@ -2078,6 +2078,21 @@ int64_t util_t::parse_date( const std::string& month_day_year )
   return atoi( buffer.c_str() );
 }
 
+// util_t::vfprintf_helper ==================================================
+
+int util_t::vfprintf_helper( FILE *stream, const char *format, va_list args )
+{
+  char *p_locale = util_t::dup( setlocale( LC_CTYPE, NULL ) );
+  setlocale( LC_CTYPE, "" );
+
+  int retcode = ::vfprintf( stream, format, args );
+
+  setlocale( LC_CTYPE, p_locale );
+  free( p_locale );
+
+  return retcode;
+}
+
 // util_t::fprintf ==========================================================
 
 int util_t::fprintf( FILE *stream, const char *format,  ... )
@@ -2105,6 +2120,20 @@ int util_t::printf( const char *format,  ... )
 
   return retcode;
 }
+
+// util_t::snprintf =========================================================
+
+int util_t::snprintf( char* buf, size_t size, const char* fmt, ... )
+{
+  va_list ap;
+  va_start( ap, fmt );
+  int rval = ::vsnprintf( buf, size, fmt, ap );
+  va_end( ap );
+  if ( rval >= 0 )
+    assert( static_cast<size_t>( rval ) < size );
+  return rval;
+}
+
 
 // util_t::str_to_utf8_ =====================================================
 

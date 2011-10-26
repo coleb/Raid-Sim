@@ -20,7 +20,7 @@ talent_t::talent_t( player_t* player, talent_data_t* _td ) :
   spell_id_t* default_rank = new spell_id_t;
   t_default_rank = default_rank;
   default_rank -> s_enabled = false;
-  std::fill_n( t_rank_spells, sizeof_array( t_rank_spells ), default_rank );
+  range::fill( t_rank_spells, default_rank );
 
   t_data = player -> dbc.talent( td -> id() );
   t_enabled = t_data -> is_enabled();
@@ -29,7 +29,7 @@ talent_t::talent_t( player_t* player, talent_data_t* _td ) :
 
 talent_t::~talent_t()
 {
-  for ( int i = 0; i < MAX_RANK; i++ )
+  for ( size_t i = 0; i < sizeof_array( t_rank_spells ); i++ )
   {
     if ( t_rank_spells[ i ] != this && t_rank_spells[ i ] != t_default_rank )
       delete t_rank_spells[ i ];
@@ -180,17 +180,11 @@ uint32_t talent_t::rank() SC_CONST
 
 spell_id_t::spell_id_t( player_t* player, const char* t_name ) :
   s_type( T_SPELL ), s_id( 0 ), s_data( 0 ), s_enabled( false ), s_player( player ),
-  s_overridden( false ), s_required_talent( 0 ), s_single( 0 ), s_tree( -1 )
+  s_overridden( false ), s_token( t_name ? t_name : "" ),
+  s_required_talent( 0 ), s_single( 0 ), s_tree( -1 )
 {
-  if ( ! t_name )
-    s_token = "";
-  else
-    s_token = t_name;
-
   armory_t::format( s_token, FORMAT_ASCII_MASK );
-
-  // Dummy constructor for old-style
-  memset( s_effects, 0, sizeof( s_effects ) );
+  range::fill( s_effects, 0 );
 }
 
 spell_id_t::spell_id_t( player_t* player, const char* t_name, const uint32_t id, talent_t* talent ) :
@@ -209,41 +203,25 @@ spell_id_t::spell_id_t( player_t* player, const char* t_name, const char* s_name
   armory_t::format( s_token, FORMAT_ASCII_MASK );
 }
 
-spell_id_t::spell_id_t( const spell_id_t& copy ) :
-  s_type( copy.s_type ), s_id( copy.s_id ), s_data( copy.s_data ), s_enabled( copy.s_enabled ),
-  s_player( copy.s_player ), s_overridden( copy.s_overridden ),
-  s_token( copy.s_token ), s_required_talent( copy.s_required_talent ), s_single( copy.s_single ),
-  s_tree( copy.s_tree )
-{
-  memcpy( s_effects, copy.s_effects, sizeof( s_effects ) );
-}
-
 spell_id_t::~spell_id_t()
 {
   if ( s_player )
-  {
     s_player -> spell_list.remove( this );
-  }
 }
 
 bool spell_id_t::initialize( const char* s_name )
 {
-  player_type player_class;
-  uint32_t n_effects       = 0;
+  range::fill( s_effects, 0 );
 
   assert( s_player && s_player -> sim );
 
-  memset( s_effects, 0, sizeof( s_effects ) );
-
-  player_class = s_player -> type;
-
   // For pets, find stuff based on owner class, as that's how our spell lists
   // are structured
+  player_type player_class;
   if ( s_player -> is_pet() )
-  {
-    const pet_t* pet = s_player -> cast_pet();
-    player_class = pet -> owner -> type;
-  }
+    player_class = s_player -> cast_pet() -> owner -> type;
+  else
+    player_class = s_player -> type;
 
   // Search using spell name to find the spell type
   if ( ! s_id )
@@ -307,7 +285,7 @@ bool spell_id_t::initialize( const char* s_name )
     break;
   }
 
-  s_enabled = s_data -> is_enabled() & s_data -> is_level( s_player -> level );
+  s_enabled = s_data -> is_enabled() && s_data -> is_level( s_player -> level );
 
   // Warn if the player is enabling a spell that the player has no level for
   /*
@@ -327,6 +305,7 @@ bool spell_id_t::initialize( const char* s_name )
   }
 
   // Map s_effects, figure out if this is a s_single-effect spell
+  uint32_t n_effects = 0;
   for ( int i = 0; i < MAX_EFFECTS; i++ )
   {
     if ( ! s_data -> _effect[ i ] )

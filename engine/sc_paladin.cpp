@@ -75,6 +75,7 @@ struct paladin_t : public player_t
   gain_t* gains_hp_pursuit_of_justice;
   gain_t* gains_hp_tower_of_radiance;
   gain_t* gains_hp_zealotry;
+  gain_t* gains_hp_judgement;
 
   // Cooldowns
   cooldown_t* cooldowns_avengers_shield;
@@ -556,6 +557,10 @@ struct paladin_attack_t : public attack_t
     {
       player_multiplier *= 1.0 + p -> buffs_inquisition -> value();
     }
+    if ( p -> set_bonus.tier13_4pc_melee() && p -> buffs_zealotry -> check() )
+    {
+      player_multiplier *= 1.12;
+    }
   }
 
   virtual double cost() SC_CONST
@@ -684,9 +689,9 @@ static void trigger_tier12_2pc_melee( attack_t* s, double dmg )
       dot_behavior  = DOT_REFRESH;
       init();
     }
-    virtual void travel( player_t* t, int travel_result, double total_dot_dmg )
+    virtual void impact( player_t* t, int impact_result, double total_dot_dmg )
     {
-      paladin_attack_t::travel( t, travel_result, 0 );
+      paladin_attack_t::impact( t, impact_result, 0 );
       int nticks = dot -> num_ticks;
       base_td = total_dot_dmg / nticks;
     }
@@ -760,6 +765,7 @@ struct ancient_fury_t : public paladin_attack_t
   {
     // TODO meteor stuff
     background = true;
+    callbacks  = false;
   }
 
   virtual void execute()
@@ -858,9 +864,9 @@ struct crusader_strike_t : public paladin_attack_t
     }
   }
 
-  virtual void travel( player_t* t, int travel_result, double travel_dmg )
+  virtual void impact( player_t* t, int impact_result, double travel_dmg )
   {
-    paladin_attack_t::travel( t, travel_result, travel_dmg );
+    paladin_attack_t::impact( t, impact_result, travel_dmg );
     trigger_tier12_2pc_melee( this, direct_dmg );
   }
 
@@ -1285,14 +1291,14 @@ struct seal_of_truth_dot_t : public paladin_attack_t
     player_multiplier *= p() -> buffs_censure -> stack();
   }
 
-  virtual void travel( player_t* t, int travel_result, double travel_dmg=0 )
+  virtual void impact( player_t* t, int impact_result, double travel_dmg=0 )
   {
-    if ( result_is_hit( travel_result ) )
+    if ( result_is_hit( impact_result ) )
     {
       p() -> buffs_censure -> trigger();
       player_buff(); // update with new stack of the debuff
     }
-    paladin_attack_t::travel( t, travel_result, travel_dmg );
+    paladin_attack_t::impact( t, impact_result, travel_dmg );
   }
 
   virtual void last_tick( dot_t* d )
@@ -1353,7 +1359,7 @@ struct seal_of_truth_judgement_t : public paladin_attack_t
   {
     paladin_t* p = player -> cast_paladin();
     paladin_attack_t::player_buff();
-    player_multiplier *= 1.0 + p -> buffs_censure -> stack() * 0.10;
+    player_multiplier *= 1.0 + p -> buffs_censure -> stack() * ( p -> ptr ? 0.20 : 0.10 );
   }
 };
 
@@ -1437,6 +1443,11 @@ struct judgement_t : public paladin_attack_t
       p -> buffs_divine_purpose -> trigger();
       p -> buffs_judgements_of_the_pure -> trigger();
       p -> buffs_sacred_duty-> trigger();
+
+      if ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_melee() )
+      {
+        p -> resource_gain( RESOURCE_HOLY_POWER, 1, p -> gains_hp_judgement );
+      }
     }
 
     p -> buffs_judgements_of_the_bold -> trigger();
@@ -1585,6 +1596,10 @@ struct paladin_spell_t : public spell_t
     if ( school == SCHOOL_HOLY )
     {
       player_multiplier *= 1.0 + p -> buffs_inquisition -> value();
+    }
+    if ( p -> set_bonus.tier13_4pc_melee() && p -> buffs_zealotry -> check() )
+    {
+      player_multiplier *= 1.12;
     }
   }
 
@@ -2250,6 +2265,7 @@ void paladin_t::init_gains()
   gains_hp_pursuit_of_justice       = get_gain( "holy_power_pursuit_of_justice" );
   gains_hp_tower_of_radiance        = get_gain( "holy_power_tower_of_radiance" );
   gains_hp_zealotry                 = get_gain( "holy_power_zealotry" );
+  gains_hp_judgement                = get_gain( "holy_power_judgement" );
 }
 
 // paladin_t::init_procs ====================================================
@@ -2342,13 +2358,33 @@ int paladin_t::decode_set( item_t& item )
     if ( is_tank   ) return SET_T12_TANK;
   }
 
-  // PVP Season 9-10 Heal
-  if ( strstr( s, "vicious_gladiators_ornamented"  ) ) return SET_PVP_HEAL;
-  if ( strstr( s, "ruthless_gladiators_ornamented" ) ) return SET_PVP_HEAL;
+  if ( strstr( s, "_of_radiant_glory" ) )
+  {
+    bool is_melee = ( strstr( s, "helmet"        ) ||
+                      strstr( s, "pauldrons"     ) ||
+                      strstr( s, "battleplate"   ) ||
+                      strstr( s, "legplates"     ) ||
+                      strstr( s, "gauntlets"     ) );
 
-  // PVP Season 9-10 Hybrid
-  if ( strstr( s, "vicious_gladiators_scaled"  ) ) return SET_PVP_MELEE;
-  if ( strstr( s, "ruthless_gladiators_scaled" ) ) return SET_PVP_MELEE;
+    bool is_tank = ( strstr( s, "faceguard"      ) ||
+                     strstr( s, "shoulderguards" ) ||
+                     strstr( s, "chestguard"     ) ||
+                     strstr( s, "legguards"      ) ||
+                     strstr( s, "handguards"     ) );
+
+    bool is_heal = ( strstr( s, "headguard"      ) ||
+                     strstr( s, "mantle"         ) ||
+                     strstr( s, "breastplate"    ) ||
+                     strstr( s, "greaves"        ) ||
+                     strstr( s, "gloves"         ) );
+
+    if ( is_melee  ) return SET_T13_MELEE;
+    if ( is_tank   ) return SET_T13_TANK;
+    if ( is_heal   ) return SET_T13_HEAL;
+  }
+
+  if ( strstr( s, "gladiators_ornamented_"  ) ) return SET_PVP_HEAL;
+  if ( strstr( s, "gladiators_scaled_"      ) ) return SET_PVP_MELEE;
 
   return SET_NONE;
 }
@@ -2445,10 +2481,15 @@ void paladin_t::init_actions()
       if ( level >= 81 )
         action_list_str += "/inquisition,if=(buff.inquisition.down|buff.inquisition.remains<5)&(holy_power=3|buff.divine_purpose.react)";
       action_list_str += "/crusader_strike,if=holy_power<3";  // CS before TV if <3 power, even with DP up
+      if ( ptr )
+        action_list_str += "/judgement,if=set_bonus.tier13_2pc_melee&holy_power<3";
       action_list_str += "/templars_verdict,if=buff.divine_purpose.react";
       action_list_str += "/templars_verdict,if=holy_power=3";
-      action_list_str += "/hammer_of_wrath";
+      if ( ! ptr )
+        action_list_str += "/hammer_of_wrath";
       action_list_str += "/exorcism,if=buff.the_art_of_war.react";
+      if ( ptr )
+        action_list_str += "/hammer_of_wrath";
       action_list_str += "/judgement";
       action_list_str += "/holy_wrath";
       action_list_str += "/consecration,if=mana>17000";  // Consecration is expensive, only use if we have plenty of mana
@@ -2648,10 +2689,11 @@ void paladin_t::init_spells()
   // Tier Bonuses
   static const uint32_t set_bonuses[N_TIER][N_TIER_BONUS] =
   {
-    //  C2P    C4P    M2P    M4P    T2P    T4P    H2P    H4P
-    {     0,     0, 90298, 90299, 90301, 90306,     0,     0 }, // Tier11
-    {     0,     0, 99093, 99116, 99074, 99091, 99067, 99070 }, // Tier12
-    {     0,     0,     0,     0,     0,     0,     0,     0 },
+    //  C2P    C4P     M2P     M4P     T2P     T4P     H2P     H4P
+    {     0,     0,  90298,  90299,  90301,  90306,      0,      0 }, // Tier11
+    {     0,     0,  99093,  99116,  99074,  99091,  99067,  99070 }, // Tier12
+    {     0,     0, 105765, 105820, 105800, 105744, 105743, 105798 }, // Tier13
+    {     0,     0,      0,      0,      0,      0,      0,      0 },
   };
 
   sets = new set_bonus_array_t( this, set_bonuses );

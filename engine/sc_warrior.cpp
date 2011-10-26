@@ -121,6 +121,7 @@ struct warrior_t : public player_t
   buff_t* buffs_tier11_4pc_melee;
   buff_t* buffs_tier12_2pc_melee;
   buff_t* buffs_tier12_4pc_tank;
+  buff_t* buffs_tier13_2pc_tank;
 
   // Cooldowns
   cooldown_t* cooldowns_colossus_smash;
@@ -193,6 +194,7 @@ struct warrior_t : public player_t
   proc_t* procs_fiery_attack;
   proc_t* procs_munched_tier12_2pc_tank;
   proc_t* procs_rolled_tier12_2pc_tank;
+  proc_t* procs_tier13_4pc_melee;
 
   // Random Number Generation
   rng_t* rng_blood_frenzy;
@@ -282,7 +284,7 @@ struct warrior_t : public player_t
   talents_t talents;
 
   // Up-Times
-  uptime_t* uptimes_rage_cap;
+  benefit_t* uptimes_rage_cap;
 
   action_t* fiery_attack;
 
@@ -329,9 +331,10 @@ struct warrior_t : public player_t
   virtual void      init_base();
   virtual void      init_scaling();
   virtual void      init_buffs();
+  virtual void      init_values();
   virtual void      init_gains();
   virtual void      init_procs();
-  virtual void      init_uptimes();
+  virtual void      init_benefits();
   virtual void      init_rng();
   virtual void      init_actions();
   virtual void      combat_begin();
@@ -405,7 +408,7 @@ struct warrior_attack_t : public attack_t
   virtual double calculate_weapon_damage();
   virtual void   player_buff();
   virtual bool   ready();
-  virtual void   assess_damage( player_t* t, double amount, int dmg_type, int travel_result );
+  virtual void   assess_damage( player_t* t, double amount, int dmg_type, int impact_result );
   virtual void   parse_options( option_t* options, const std::string& options_str );
 };
 
@@ -494,20 +497,12 @@ static void trigger_deep_wounds( action_t* a )
         id = 12834;
         init(); // required since construction occurs after player_t::init()
       }
-      virtual void target_debuff( player_t* t, int dmg_type )
-      {
-        warrior_attack_t::target_debuff( t, dmg_type );
-        // Deep Wounds doesn't benefit from Blood Frenzy or Savage Combat despite being a Bleed so disable it.
-        if ( t -> debuffs.blood_frenzy_bleed  -> check() ||
-             t -> debuffs.savage_combat       -> check() )
-          target_multiplier /= 1.04;
-      }
       virtual double total_td_multiplier() SC_CONST { return target_multiplier; }
       virtual double travel_time() { return sim -> gauss( sim -> aura_delay, 0.25 * sim -> aura_delay ); }
-      virtual void travel( player_t* t, int travel_result, double deep_wounds_dmg )
+      virtual void impact( player_t* t, int impact_result, double deep_wounds_dmg )
       {
-        warrior_attack_t::travel( t, travel_result, 0 );
-        if ( result_is_hit( travel_result ) )
+        warrior_attack_t::impact( t, impact_result, 0 );
+        if ( result_is_hit( impact_result ) )
         {
           base_td = deep_wounds_dmg / dot -> num_ticks;
           trigger_blood_frenzy( this );
@@ -533,6 +528,9 @@ static void trigger_deep_wounds( action_t* a )
   double deep_wounds_dmg = ( p -> active_deep_wounds -> calculate_weapon_damage() *
                              p -> active_deep_wounds -> weapon_multiplier *
                              p -> active_deep_wounds -> player_multiplier );
+
+  if ( p -> primary_tree() == TREE_FURY )
+    deep_wounds_dmg *= 1.0 + p -> spec.precision -> effect_base_value( 3 ) / 100.0;
 
   dot_t* dot = p -> active_deep_wounds -> dot;
 
@@ -695,9 +693,9 @@ static void trigger_tier12_2pc_tank( attack_t* s, double dmg )
       init();
     }
 
-    virtual void travel( player_t* t, int travel_result, double total_dot_dmg )
+    virtual void impact( player_t* t, int impact_result, double total_dot_dmg )
     {
-      warrior_attack_t::travel( t, travel_result, 0 );
+      warrior_attack_t::impact( t, impact_result, 0 );
 
       base_td = total_dot_dmg / dot -> num_ticks;
     }
@@ -889,9 +887,9 @@ double warrior_attack_t::armor() SC_CONST
 
 // warrior_attack_t::assess_damage ==========================================
 
-void warrior_attack_t::assess_damage( player_t* t, double amount, int dmg_type, int travel_result )
+void warrior_attack_t::assess_damage( player_t* t, double amount, int dmg_type, int impact_result )
 {
-  attack_t::assess_damage( t, amount, dmg_type, travel_result );
+  attack_t::assess_damage( t, amount, dmg_type, impact_result );
 
   /* warrior_t* p = player -> cast_warrior();
 
@@ -901,7 +899,7 @@ void warrior_attack_t::assess_damage( player_t* t, double amount, int dmg_type, 
 
     if ( p -> buffs_sweeping_strikes -> up() && q -> adds_nearby )
     {
-      attack_t::additional_damage( q, amount, dmg_type, travel_result );
+      attack_t::additional_damage( q, amount, dmg_type, impact_result );
     }
   }*/
 }
@@ -989,7 +987,7 @@ void warrior_attack_t::parse_options( option_t* options, const std::string& opti
     { NULL, OPT_UNKNOWN, NULL }
   };
   std::vector<option_t> merged_options;
-  attack_t::parse_options( merge_options( merged_options, base_options, options ), options_str );
+  attack_t::parse_options( option_t::merge( merged_options, base_options, options ), options_str );
 }
 
 // warrior_attack_t::calculate_weapon_damage ================================
@@ -1029,23 +1027,23 @@ void warrior_attack_t::player_buff()
   if ( weapon && weapon -> group() == WEAPON_2H )
     player_multiplier *= 1.0 + p -> spec.two_handed_weapon_specialization -> effect_base_value( 1 ) / 100.0;
 
-  if ( p -> dual_wield() && school == SCHOOL_PHYSICAL )
+  if ( p -> dual_wield() && ( school == SCHOOL_PHYSICAL || SCHOOL_BLEED ) )
     player_multiplier *= 1.0 + p -> spec.dual_wield_specialization -> effect_base_value( 3 ) / 100.0;
 
   // --- Enrages ---
 
-  if ( school == SCHOOL_PHYSICAL )
+  if ( school == SCHOOL_PHYSICAL || SCHOOL_BLEED )
     player_multiplier *= 1.0 + p -> buffs_wrecking_crew -> value();
 
-  if ( school == SCHOOL_PHYSICAL )
+  if ( school == SCHOOL_PHYSICAL || SCHOOL_BLEED )
     player_multiplier *= 1.0 + p -> buffs_enrage -> value();
 
-  if ( school == SCHOOL_PHYSICAL && p -> buffs_bastion_of_defense -> up() )
+  if ( ( school == SCHOOL_PHYSICAL || SCHOOL_BLEED ) && p -> buffs_bastion_of_defense -> up() )
     player_multiplier *= 1.0 + p -> talents.bastion_of_defense -> rank() * 0.05;
 
   // --- Passive Talents ---
 
-  if ( school == SCHOOL_PHYSICAL )
+  if ( school == SCHOOL_PHYSICAL || SCHOOL_BLEED )
     player_multiplier *= 1.0 + p -> buffs_death_wish -> value();
 
   if ( p -> talents.single_minded_fury -> ok() && p -> dual_wield() )
@@ -1169,7 +1167,7 @@ struct melee_t : public warrior_attack_t
     warrior_t* p = player -> cast_warrior();
 
     if ( p -> primary_tree() == TREE_FURY )
-      player_multiplier *= 1.0 + p -> spec.precision -> effect_base_value( 3 ) / 100.0;
+      player_multiplier *= 1.0 + p -> spec.precision -> effect3().percent();
   }
 };
 
@@ -1251,8 +1249,6 @@ struct bladestorm_t : public warrior_attack_t
     check_talent( p -> talents.bladestorm -> rank() );
 
     parse_options( NULL, options_str );
-
-    //id = 46924;
 
     aoe       = -1;
     harmful   = false;
@@ -1416,9 +1412,7 @@ struct cleave_t : public warrior_attack_t
   {
     parse_options( NULL, options_str );
 
-    //id = 845;
-
-    direct_power_mod = 0.4496;
+    direct_power_mod = 0.45;
     base_dd_min      = 6;
     base_dd_max      = 6;
 
@@ -1450,7 +1444,7 @@ struct cleave_t : public warrior_attack_t
   {
     warrior_t* p = player -> cast_warrior();
 
-    cooldown -> duration = ( p -> buffs_inner_rage -> check() ? 1.5 : 3.0 );
+    cooldown -> duration = spell_id_t::cooldown() * ( 1.0 + p -> buffs_inner_rage -> effect1().percent() );
 
     warrior_attack_t::update_ready();
   }
@@ -1539,9 +1533,9 @@ struct devastate_t : public warrior_attack_t
     target_dd_adder = t -> debuffs.sunder_armor -> stack() * effect_average( 2 );
   }
 
-  virtual void travel( player_t* t, int travel_result, double dmg )
+  virtual void impact( player_t* t, int impact_result, double dmg )
   {
-    warrior_attack_t::travel( t, travel_result, dmg );
+    warrior_attack_t::impact( t, impact_result, dmg );
 
     t -> debuffs.sunder_armor -> trigger();
   }
@@ -1618,11 +1612,7 @@ struct execute_t : public warrior_attack_t
     // Can't be derived by parse_data() for now.
     direct_power_mod = 0.0437 * max_consumed;
 
-    if ( p -> buffs_lambs_to_the_slaughter -> up() )
-    {
-      int stack = p -> buffs_lambs_to_the_slaughter -> check();
-      player_multiplier *= 1.0 + stack * 0.10;
-    }
+    player_multiplier *= 1.0 + p -> buffs_lambs_to_the_slaughter -> stack() * 0.10;
   }
 
   virtual bool ready()
@@ -1650,6 +1640,34 @@ struct heroic_strike_t : public warrior_attack_t
     base_crit        += p -> talents.incite -> effect1().percent();
     base_dd_min       = base_dd_max = 8;
     direct_power_mod  = 0.6;
+  }
+
+  virtual double cost() SC_CONST
+  {
+    warrior_t* p = player -> cast_warrior();
+
+    double c = warrior_attack_t::cost();
+
+    // PTR
+    // Needs testing
+    if ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_melee() && p -> buffs_inner_rage -> check() )
+    {
+      c -= 10.0;
+    }
+
+    return c;
+  }
+
+  virtual void consume_resource()
+  {
+    warrior_attack_t::consume_resource();
+
+    warrior_t* p = player -> cast_warrior();
+
+    // PTR
+    // Needs testing
+    if ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_melee() )
+      p -> buffs_inner_rage -> up();
   }
 
   virtual void execute()
@@ -1680,7 +1698,7 @@ struct heroic_strike_t : public warrior_attack_t
   {
     warrior_t* p = player -> cast_warrior();
 
-    cooldown -> duration = ( p -> buffs_inner_rage -> check() ? 1.5 : 3.0 );
+    cooldown -> duration = spell_id_t::cooldown() * ( 1.0 + p -> buffs_inner_rage -> effect1().percent() );
 
     warrior_attack_t::update_ready();
   }
@@ -1729,6 +1747,12 @@ struct mortal_strike_t : public warrior_attack_t
         p -> dots_rend -> refresh_duration();
 
       trigger_tier12_4pc_melee( this );
+
+      if ( p -> dbc.ptr && p -> set_bonus.tier13_4pc_melee() && sim -> roll( 0.13 ) )
+      {
+        p -> buffs_colossus_smash -> trigger();
+        p -> procs_tier13_4pc_melee -> occur();
+      }
     }
   }
 
@@ -1826,8 +1850,6 @@ struct pummel_t : public warrior_attack_t
   {
     parse_options( NULL, options_str );
 
-    //id = 6552;
-
     base_cost *= 1.0 + p -> talents.drums_of_war -> effect1().percent();
 
     may_miss = may_resist = may_glance = may_block = may_dodge = may_parry = may_crit = false;
@@ -1862,7 +1884,7 @@ struct raging_blow_attack_t : public warrior_attack_t
     warrior_t* p = player -> cast_warrior();
 
     player_multiplier *= 1.0 + p -> composite_mastery() *
-                               p -> mastery.unshackled_fury -> effect_base_value( 3 ) / 10000.0;
+                               p -> mastery.unshackled_fury -> effect3().base_value() / 10000.0;
   }
 };
 
@@ -1911,6 +1933,13 @@ struct raging_blow_t : public warrior_attack_t
       if ( oh_attack )
       {
         oh_attack -> execute();
+      }
+
+      // PTR - is this triggered per attack or once
+      if ( p -> dbc.ptr && p -> set_bonus.tier13_4pc_melee() && sim -> roll( 0.13 ) )
+      {
+        p -> buffs_colossus_smash -> trigger();
+        p -> procs_tier13_4pc_melee -> occur();
       }
     }
     p -> buffs_tier11_4pc_melee -> trigger();
@@ -1962,7 +1991,9 @@ struct rend_dot_t : public warrior_attack_t
 
   virtual void execute()
   {
-    base_td = base_td_init + calculate_weapon_damage() * 0.25;
+    base_td = base_td_init;
+    if ( weapon )
+      base_td += sim -> range( weapon -> min_dmg, weapon -> max_dmg ) * 0.25 + weapon -> swing_time * weapon_power_mod * total_attack_power() / 6.0;
 
     warrior_attack_t::execute();
 
@@ -2011,8 +2042,10 @@ struct rend_t : public warrior_attack_t
 
 struct revenge_t : public warrior_attack_t
 {
+  stats_t* absorb_stats;
+
   revenge_t( warrior_t* p, const std::string& options_str ) :
-    warrior_attack_t( "revenge", "Revenge", p )
+    warrior_attack_t( "revenge", "Revenge", p ), absorb_stats( 0 )
   {
     parse_options( NULL, options_str );
 
@@ -2026,6 +2059,14 @@ struct revenge_t : public warrior_attack_t
       aoe = 1;
       base_add_multiplier = p -> talents.improved_revenge -> rank() * 0.50;
     }
+
+    // PTR
+    // Needs testing
+    if ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_tank() )
+    {
+      absorb_stats = p -> get_stats( name_str + "_tier13_2pc" );
+      absorb_stats -> type = STATS_ABSORB;
+    }
   }
 
   virtual void execute()
@@ -2037,6 +2078,26 @@ struct revenge_t : public warrior_attack_t
     p -> buffs_revenge -> expire();
 
     trigger_sword_and_board( this, result );
+  }
+
+  virtual void impact( player_t* t, int impact_result, double travel_dmg )
+  {
+    warrior_attack_t::impact( t, impact_result, travel_dmg );
+
+    warrior_t* p = player -> cast_warrior();
+
+    // PTR
+    // Needs testing
+    if ( absorb_stats )
+    {
+      if ( result_is_hit( impact_result ) )
+      {
+        double amount = 0.20 * travel_dmg;
+        p -> buffs_tier13_2pc_tank -> trigger(1, amount);
+        absorb_stats -> add_result( amount, amount, STATS_ABSORB, impact_result );
+        absorb_stats -> add_execute( 0 );
+      }
+    }
   }
 
   virtual bool ready()
@@ -2168,9 +2229,9 @@ struct shield_slam_t : public warrior_attack_t
     return warrior_attack_t::cost();
   }
 
-  virtual void travel( player_t* t, int travel_result, double travel_dmg )
+  virtual void impact( player_t* t, int impact_result, double travel_dmg )
   {
-    warrior_attack_t::travel( t, travel_result, travel_dmg );
+    warrior_attack_t::impact( t, impact_result, travel_dmg );
     trigger_tier12_2pc_tank( this, direct_dmg );
   }
 };
@@ -2508,7 +2569,7 @@ void warrior_spell_t::parse_options( option_t* options, const std::string& optio
     { NULL, OPT_UNKNOWN, NULL }
   };
   std::vector<option_t> merged_options;
-  spell_t::parse_options( merge_options( merged_options, base_options, options ), options_str );
+  spell_t::parse_options( option_t::merge( merged_options, base_options, options ), options_str );
 }
 
 // Battle Shout =============================================================
@@ -2529,10 +2590,12 @@ struct battle_shout_t : public warrior_spell_t
     cooldown = player -> get_cooldown( "shout" );
     cooldown -> duration = 10 + spell_id_t::cooldown() + p -> talents.booming_voice -> effect1().seconds();
 
-
-    uint32_t id = p -> sets -> set( SET_T12_2PC_MELEE ) -> effect_trigger_spell( 1 );
-    spell_data_t* s = spell_data_t::find( id, "Burning Rage", p -> dbc.ptr );
-    burning_rage_value = s -> effect1().percent();
+    if ( p -> set_bonus.tier12_2pc_melee() )
+    {
+      uint32_t id = p -> sets -> set( SET_T12_2PC_MELEE ) -> effect_trigger_spell( 1 );
+      spell_data_t* s = spell_data_t::find( id, "Burning Rage", p -> dbc.ptr );
+      burning_rage_value = s -> effect1().percent();
+    }
   }
 
   virtual void execute()
@@ -2576,9 +2639,12 @@ struct commanding_shout_t : public warrior_spell_t
     cooldown = player -> get_cooldown( "shout" );
     cooldown -> duration = spell_id_t::cooldown() + p -> talents.booming_voice -> effect1().seconds();
 
-    uint32_t id = p -> sets -> set( SET_T12_2PC_MELEE ) -> effect_trigger_spell( 1 );
-    spell_data_t* s = spell_data_t::find( id, "Burning Rage", p -> dbc.ptr );
-    burning_rage_value = s -> effect1().percent();
+    if ( p -> set_bonus.tier12_2pc_melee() )
+    {
+      uint32_t id = p -> sets -> set( SET_T12_2PC_MELEE ) -> effect_trigger_spell( 1 );
+      spell_data_t* s = spell_data_t::find( id, "Burning Rage", p -> dbc.ptr );
+      burning_rage_value = s -> effect1().percent();
+    }
   }
 
   virtual void execute()
@@ -3147,10 +3213,11 @@ void warrior_t::init_spells()
 
   static const uint32_t set_bonuses[N_TIER][N_TIER_BONUS] =
   {
-    //  C2P    C4P    M2P    M4P    T2P    T4P    H2P    H4P
-    {     0,     0, 90293, 90295, 90296, 90297,     0,     0 }, // Tier11
-    {     0,     0, 99234, 99238, 99239, 99242,     0,     0 }, // Tier12
-    {     0,     0,     0,     0,     0,     0,     0,     0 },
+    //  C2P    C4P     M2P     M4P     T2P     T4P    H2P    H4P
+    {     0,     0,  90293,  90295,  90296,  90297,     0,     0 }, // Tier11
+    {     0,     0,  99234,  99238,  99239,  99242,     0,     0 }, // Tier12
+    {     0,     0, 105797, 105907, 105908, 105911,     0,     0 }, // Tier13
+    {     0,     0,      0,      0,      0,      0,     0,     0 },
   };
 
   sets = new set_bonus_array_t( this, set_bonuses );
@@ -3217,6 +3284,7 @@ void warrior_t::init_scaling()
   {
     scales_with[ STAT_WEAPON_OFFHAND_DPS    ] = 1;
     scales_with[ STAT_WEAPON_OFFHAND_SPEED  ] = sim -> weapon_speed_scale_factors;
+    scales_with[ STAT_HIT_RATING2           ] = 1;
   }
 
   if ( primary_role() == ROLE_TANK )
@@ -3267,6 +3335,8 @@ void warrior_t::init_buffs()
   buffs_wrecking_crew             = new buff_t( this, "wrecking_crew",             1, 12.0,   0 );
   buffs_tier11_4pc_melee          = new buff_t( this, "tier11_4pc_melee",          3, 30.0,   0, set_bonus.tier11_4pc_melee() );
   buffs_tier12_4pc_tank           = new buff_t( this, 99243, "flame_wall", set_bonus.tier12_4pc_tank() );
+  buffs_tier13_2pc_tank           = new buff_t( this, "tier13_2pc_tank", 1, 15.0 /* assume some short duration */, set_bonus.tier13_2pc_tank() );
+  absorb_buffs.push_back( buffs_tier13_2pc_tank );
 
   buffs_shield_block              = new shield_block_buff_t( this );
   switch ( talents.booming_voice -> rank() )
@@ -3278,6 +3348,19 @@ void warrior_t::init_buffs()
   buffs_tier12_2pc_melee          = new buff_t( this, "tier12_2pc_melee",          1, duration,   0, set_bonus.tier12_2pc_melee() );
 
   // buff_t( sim, name, max_stack, duration, cooldown, proc_chance, quiet )
+}
+
+// warrior_t::init_values ====================================================
+
+void warrior_t::init_values()
+{
+  player_t::init_values();
+
+  if ( set_bonus.pvp_2pc_melee() )
+    attribute_initial[ ATTR_STRENGTH ]   += 70;
+
+  if ( set_bonus.pvp_4pc_melee() )
+    attribute_initial[ ATTR_STRENGTH ]   += 90;
 }
 
 // warrior_t::init_gains ====================================================
@@ -3314,15 +3397,16 @@ void warrior_t::init_procs()
   procs_fiery_attack            = get_proc( "fiery_attack"            );
   procs_munched_tier12_2pc_tank = get_proc( "munched_tier12_2pc_tank" );
   procs_rolled_tier12_2pc_tank  = get_proc( "rolled_tier12_2pc_tank"  );
+  procs_tier13_4pc_melee        = get_proc( "tier13_4pc_melee"        );
 }
 
 // warrior_t::init_uptimes ==================================================
 
-void warrior_t::init_uptimes()
+void warrior_t::init_benefits()
 {
-  player_t::init_uptimes();
+  player_t::init_benefits();
 
-  uptimes_rage_cap    = get_uptime( "rage_cap" );
+  uptimes_rage_cap    = get_benefit( "rage_cap" );
 }
 
 // warrior_t::init_rng ======================================================
@@ -3626,7 +3710,7 @@ double warrior_t::composite_player_multiplier( const school_type school, action_
     m *= 1.0 + buffs_berserker_stance -> effect1().percent();
   }
 
-  if ( school == SCHOOL_PHYSICAL && buffs_tier12_2pc_melee -> up() )
+  if ( ( school == SCHOOL_PHYSICAL || SCHOOL_BLEED ) && buffs_tier12_2pc_melee -> check() )
   {
     m *= 1.0 + buffs_tier12_2pc_melee -> value();
   }
@@ -3710,7 +3794,7 @@ void warrior_t::regen( double periodicity )
   }
 
   uptimes_rage_cap -> update( resource_current[ RESOURCE_RAGE ] ==
-                              resource_max    [ RESOURCE_RAGE] );
+                                     resource_max    [ RESOURCE_RAGE] );
 }
 
 // warrior_t::primary_role() ================================================
@@ -3859,6 +3943,26 @@ int warrior_t::decode_set( item_t& item )
     if ( is_melee ) return SET_T12_MELEE;
     if ( is_tank  ) return SET_T12_TANK;
   }
+
+  if ( strstr( s, "colossal_dragonplate" ) )
+  {
+    bool is_melee = ( strstr( s, "helmet"        ) ||
+                      strstr( s, "pauldrons"     ) ||
+                      strstr( s, "battleplate"   ) ||
+                      strstr( s, "legplates"     ) ||
+                      strstr( s, "gauntlets"     ) );
+
+    bool is_tank = ( strstr( s, "faceguard"      ) ||
+                     strstr( s, "shoulderguards" ) ||
+                     strstr( s, "chestguard"     ) ||
+                     strstr( s, "legguards"      ) ||
+                     strstr( s, "handguards"     ) );
+
+    if ( is_melee ) return SET_T13_MELEE;
+    if ( is_tank  ) return SET_T13_TANK;
+  }
+
+  if ( strstr( s, "_gladiators_plate_"   ) ) return SET_PVP_MELEE;
 
   return SET_NONE;
 }

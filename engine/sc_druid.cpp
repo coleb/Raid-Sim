@@ -54,6 +54,7 @@ struct druid_t : public player_t
   buff_t* buffs_survival_instincts;
   buff_t* buffs_t11_4pc_caster;
   buff_t* buffs_t11_4pc_melee;
+  buff_t* buffs_t13_4pc_melee;
   buff_t* buffs_wild_mushroom;
   buff_t* buffs_berserk;
   buff_t* buffs_primal_madness_bear;
@@ -62,9 +63,10 @@ struct druid_t : public player_t
   buff_t* buffs_tree_of_life;
 
   // Cooldowns
-  cooldown_t* cooldowns_mangle_bear;
-  cooldown_t* cooldowns_fury_swipes;
   cooldown_t* cooldowns_burning_treant;
+  cooldown_t* cooldowns_fury_swipes;
+  cooldown_t* cooldowns_mangle_bear;
+  cooldown_t* cooldowns_starsurge;
 
   // DoTs
   dot_t* dots_insect_swarm;
@@ -179,8 +181,8 @@ struct druid_t : public player_t
   int eclipse_bar_direction; // Tracking the current direction of the eclipse bar
 
   // Up-Times
-  uptime_t* uptimes_energy_cap;
-  uptime_t* uptimes_rage_cap;
+  benefit_t* uptimes_energy_cap;
+  benefit_t* uptimes_rage_cap;
 
   // Talents
   struct talents_t
@@ -278,10 +280,11 @@ struct druid_t : public player_t
     eclipse_wrath_count   = 0;
     eclipse_bar_direction = 0;
 
-    cooldowns_mangle_bear = get_cooldown( "mangle_bear" );
-    cooldowns_fury_swipes = get_cooldown( "fury_swipes" );
     cooldowns_burning_treant = get_cooldown( "burning_treant" );
     cooldowns_burning_treant -> duration = 45.0;
+    cooldowns_fury_swipes    = get_cooldown( "fury_swipes"    );
+    cooldowns_mangle_bear    = get_cooldown( "mangle_bear"    );
+    cooldowns_starsurge      = get_cooldown( "starsurge"      );
 
     dots_insect_swarm = get_dot( "insect_swarm" );
     dots_lacerate     = get_dot( "lacerate"     );
@@ -313,10 +316,11 @@ struct druid_t : public player_t
   virtual void      init_spells();
   virtual void      init_base();
   virtual void      init_buffs();
+  virtual void      init_values();
   virtual void      init_scaling();
   virtual void      init_gains();
   virtual void      init_procs();
-  virtual void      init_uptimes();
+  virtual void      init_benefits();
   virtual void      init_rng();
   virtual void      init_actions();
   virtual void      combat_begin();
@@ -1054,9 +1058,9 @@ static void trigger_tier12_2pc_melee( attack_t* s, double dmg )
       dot_behavior  = DOT_REFRESH;
       init();
     }
-    virtual void travel( player_t* t, int travel_result, double total_dot_dmg )
+    virtual void impact( player_t* t, int impact_result, double total_dot_dmg )
     {
-      druid_cat_attack_t::travel( t, travel_result, 0 );
+      druid_cat_attack_t::impact( t, impact_result, 0 );
 
       base_td = total_dot_dmg / dot -> num_ticks;
     }
@@ -1135,7 +1139,7 @@ void druid_cat_attack_t::parse_options( option_t*          options,
     { NULL, OPT_UNKNOWN, NULL }
   };
   std::vector<option_t> merged_options;
-  attack_t::parse_options( merge_options( merged_options, options, base_options ), options_str );
+  attack_t::parse_options( option_t::merge( merged_options, options, base_options ), options_str );
 }
 
 // druid_cat_attack_t::cost =================================================
@@ -1410,7 +1414,8 @@ struct ferocious_bite_t : public druid_cat_attack_t
       }
     }
 
-    if ( result_is_hit() && target -> health_percentage() <= p -> talents.blood_in_the_water -> base_value() )
+    double health_percentage = ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_melee() ) ? 60.0 : p -> talents.blood_in_the_water -> base_value();
+    if ( result_is_hit() && target -> health_percentage() <= health_percentage )
     {
       // Proc chance is not stored in the talent anymore
       if ( p -> dots_rip -> ticking && p -> rng_blood_in_the_water -> roll( p -> talents.blood_in_the_water -> rank() * 0.50 ) )
@@ -1482,10 +1487,18 @@ struct maim_t : public druid_cat_attack_t
 
 struct mangle_cat_t : public druid_cat_attack_t
 {
+  int extend_rip;
+
   mangle_cat_t( druid_t* p, const std::string& options_str ) :
-    druid_cat_attack_t( "mangle_cat", 33876, p )
+    druid_cat_attack_t( "mangle_cat", 33876, p ),
+    extend_rip( 0 )
   {
-    parse_options( NULL, options_str );
+    option_t options[] =
+    {
+      { "extend_rip", OPT_BOOL, &extend_rip },
+      { NULL, OPT_UNKNOWN, NULL }
+    };
+    parse_options( options, options_str );
 
     adds_combo_points = 1; // Not picked up from the DBC
     base_multiplier  *= 1.0 + p -> glyphs.mangle -> mod_additive( P_GENERIC );
@@ -1497,17 +1510,42 @@ struct mangle_cat_t : public druid_cat_attack_t
     if ( result_is_hit() )
     {
       druid_t* p = player -> cast_druid();
-      target -> debuffs.mangle -> trigger();
-      target -> debuffs.mangle -> source = p;
-      trigger_infected_wounds( this );
+
+      if ( p -> dbc.ptr && p -> glyphs.shred -> enabled() &&
+           p -> dots_rip -> ticking  &&
+           p -> dots_rip -> added_ticks < 4 )
+      {
+        // Glyph adds 1/1/2 ticks on execute
+        int extra_ticks = ( p -> dots_rip -> added_ticks < 2 ) ? 1 : 2;
+        p -> dots_rip -> extend_duration( extra_ticks );
+      }
       p -> buffs_t11_4pc_melee -> trigger();
     }
   }
 
-  virtual void travel( player_t* t, int travel_result, double travel_dmg )
+  virtual void impact( player_t* t, int impact_result, double travel_dmg )
   {
-    druid_cat_attack_t::travel( t, travel_result, travel_dmg );
-    trigger_tier12_2pc_melee( this, direct_dmg );
+    druid_cat_attack_t::impact( t, impact_result, travel_dmg );
+    if ( result_is_hit( impact_result ) )
+    {
+      trigger_infected_wounds( this );
+      trigger_tier12_2pc_melee( this, direct_dmg );
+      t -> debuffs.mangle -> trigger();
+      t -> debuffs.mangle -> source = player;
+    }
+  }
+
+  virtual bool ready()
+  {
+    druid_t* p = player -> cast_druid();
+
+    if ( p -> dbc.ptr && extend_rip )
+      if ( ! p -> glyphs.shred -> enabled() ||
+           ! p -> dots_rip -> ticking ||
+           ( p -> dots_rip -> added_ticks == 4 ) )
+        return false;
+
+    return druid_cat_attack_t::ready();
   }
 };
 
@@ -1584,8 +1622,10 @@ struct ravage_t : public druid_cat_attack_t
 
     druid_cat_attack_t::execute();
 
-    p -> buffs_stampede_cat -> expire();
+    p -> buffs_stampede_cat -> decrement();
+    p -> buffs_t13_4pc_melee -> decrement();
     requires_stealth = true;
+    requires_position = POSITION_BACK;
 
     if ( result_is_hit() )
       trigger_infected_wounds( this );
@@ -1601,6 +1641,9 @@ struct ravage_t : public druid_cat_attack_t
 
     c *= 1.0 - p -> buffs_stampede_cat -> value();
 
+    if ( p -> buffs_t13_4pc_melee -> up() )
+      return 0;
+
     return c;
   }
 
@@ -1608,7 +1651,7 @@ struct ravage_t : public druid_cat_attack_t
   {
     druid_t* p = player -> cast_druid();
     attack_t::consume_resource();
-    if ( p -> buffs_omen_of_clarity -> up() && ! p -> buffs_stampede_cat -> check() )
+    if ( p -> buffs_omen_of_clarity -> up() && ! p -> buffs_stampede_cat -> check() && ! p -> buffs_t13_4pc_melee -> check() )
     {
       // Treat the savings like a energy gain.
       double amount = attack_t::cost();
@@ -1640,6 +1683,12 @@ struct ravage_t : public druid_cat_attack_t
     if ( p -> buffs_stampede_cat -> check() )
     {
       requires_stealth = false;
+    }
+
+    if ( p -> buffs_t13_4pc_melee -> check() )
+    {
+      requires_stealth = false;
+      requires_position = POSITION_NONE;
     }
 
     return druid_cat_attack_t::ready();
@@ -1782,9 +1831,9 @@ struct shred_t : public druid_cat_attack_t
     }
   }
 
-  virtual void travel( player_t* t, int travel_result, double travel_dmg )
+  virtual void impact( player_t* t, int impact_result, double travel_dmg )
   {
-    druid_cat_attack_t::travel( t, travel_result, travel_dmg );
+    druid_cat_attack_t::impact( t, impact_result, travel_dmg );
     trigger_tier12_2pc_melee( this, direct_dmg );
   }
 
@@ -1878,6 +1927,7 @@ struct tigers_fury_t : public druid_cat_attack_t
     {
       p -> resource_gain( RESOURCE_ENERGY, p -> talents.king_of_the_jungle -> effect2().resource( RESOURCE_ENERGY ), p -> gains_tigers_fury );
     }
+    p -> buffs_t13_4pc_melee -> trigger();
   }
 
   virtual bool ready()
@@ -1903,7 +1953,7 @@ void druid_bear_attack_t::parse_options( option_t*          options,
     { NULL, OPT_UNKNOWN, NULL }
   };
   std::vector<option_t> merged_options;
-  attack_t::parse_options( merge_options( merged_options, options, base_options ), options_str );
+  attack_t::parse_options( option_t::merge( merged_options, options, base_options ), options_str );
 }
 
 // druid_bear_attack_t::cost ================================================
@@ -2113,7 +2163,7 @@ struct lacerate_t : public druid_bear_attack_t
     tick_power_mod       = 0.00369;
     dot_behavior         = DOT_REFRESH;
     base_crit           += p -> glyphs.lacerate -> mod_additive( P_CRIT );
-    mangle_bear_cooldown = p -> get_cooldown( "mangle_bear" );
+    mangle_bear_cooldown = p -> cooldowns_mangle_bear;
   }
 
   virtual void execute()
@@ -2172,18 +2222,18 @@ struct mangle_bear_t : public druid_bear_attack_t
     aoe = 0;
     if ( p -> buffs_berserk -> up() )
       cooldown -> reset();
-    if ( result_is_hit() )
-    {
-      target -> debuffs.mangle -> trigger();
-      target -> debuffs.mangle -> source = p;
-      trigger_infected_wounds( this );
-    }
   }
 
-  virtual void travel( player_t* t, int travel_result, double travel_dmg )
+  virtual void impact( player_t* t, int impact_result, double travel_dmg )
   {
-    druid_bear_attack_t::travel( t, travel_result, travel_dmg );
-    trigger_tier12_2pc_melee( this, direct_dmg );
+    druid_bear_attack_t::impact( t, impact_result, travel_dmg );
+    if ( result_is_hit( impact_result ) )
+    {
+      target -> debuffs.mangle -> trigger();
+      target -> debuffs.mangle -> source = player;
+      trigger_infected_wounds( this );
+      trigger_tier12_2pc_melee( this, direct_dmg );
+    }
   }
 };
 
@@ -2215,9 +2265,9 @@ struct maul_t : public druid_bear_attack_t
       trigger_infected_wounds( this );
     }
   }
-  virtual void travel( player_t* t, int travel_result, double travel_dmg )
+  virtual void impact( player_t* t, int impact_result, double travel_dmg )
   {
-    druid_bear_attack_t::travel( t, travel_result, travel_dmg );
+    druid_bear_attack_t::impact( t, impact_result, travel_dmg );
     trigger_tier12_2pc_melee( this, direct_dmg );
   }
 
@@ -2784,7 +2834,7 @@ struct wild_growth_t : public druid_heal_t
   wild_growth_t( druid_t* p, const std::string& options_str ) :
     druid_heal_t( "wild_growth", p, 48438 )
   {
-    check_talent( p -> talents.tree_of_life -> ok() );
+    check_talent( p -> talents.wild_growth -> ok() );
 
     parse_options( NULL, options_str );
 
@@ -2821,7 +2871,7 @@ void druid_spell_t::parse_options( option_t*          options,
     { NULL, OPT_UNKNOWN, NULL }
   };
   std::vector<option_t> merged_options;
-  spell_t::parse_options( merge_options( merged_options, options, base_options ), options_str );
+  spell_t::parse_options( option_t::merge( merged_options, options, base_options ), options_str );
 }
 
 // druid_spell_t::cost_reduction ============================================
@@ -3396,7 +3446,7 @@ struct insect_swarm_t : public druid_spell_t
     if ( p -> set_bonus.tier11_2pc_caster() )
       base_crit += 0.05;
 
-    starsurge_cd = p -> get_cooldown( "starsurge" );
+    starsurge_cd = p -> cooldowns_starsurge;
   }
 
   virtual void player_buff()
@@ -3474,7 +3524,7 @@ struct moonfire_t : public druid_spell_t
 {
   cooldown_t* starsurge_cd;
 
-  moonfire_t( druid_t* player, const std::string& options_str ) :
+  moonfire_t( druid_t* player, const std::string& options_str, bool dtr=false ) :
     druid_spell_t( "moonfire", 8921, player ),
     starsurge_cd( 0 )
   {
@@ -3492,7 +3542,15 @@ struct moonfire_t : public druid_spell_t
     if ( p -> set_bonus.tier11_2pc_caster() )
       base_crit += 0.05;
 
-    starsurge_cd = p -> get_cooldown( "starsurge" );
+    starsurge_cd = p -> cooldowns_starsurge;
+
+    may_trigger_dtr = false; // Disable the dot ticks procing DTR
+
+    if ( ! dtr && player -> has_dtr )
+    {
+      dtr_action = new moonfire_t( player, options_str, true );
+      dtr_action -> is_dtr_action = true;
+    }
   }
 
   virtual void player_buff()
@@ -3664,7 +3722,7 @@ struct starfire_t : public druid_spell_t
   std::string prev_str;
   int extend_moonfire;
 
-  starfire_t( druid_t* p, const std::string& options_str ) :
+  starfire_t( druid_t* p, const std::string& options_str, bool dtr=false ) :
     druid_spell_t( "starfire", 2912, p ),
     extend_moonfire( 0 )
   {
@@ -3680,6 +3738,12 @@ struct starfire_t : public druid_spell_t
 
     if ( p -> primary_tree() == TREE_BALANCE )
       crit_bonus_multiplier *= 1.0 + p -> spells.moonfury -> effect2().percent();
+
+    if ( ! dtr && player -> has_dtr )
+    {
+      dtr_action = new starfire_t( p, options_str, true );
+      dtr_action -> is_dtr_action = true;
+    }
   }
 
   virtual void execute()
@@ -3746,6 +3810,18 @@ struct starfire_t : public druid_spell_t
     }
   }
 
+  virtual void target_debuff( player_t* t, int dmg_type )
+  {
+    druid_spell_t::target_debuff( t, dmg_type );
+
+    druid_t* p = player -> cast_druid();
+
+    // Balance, 2P -- Insect Swarm increases all damage done by your Starfire,
+    // Starsurge, and Wrath spells against that target by 3%.
+    if ( p -> dots_insect_swarm -> ticking )
+      target_multiplier *= 1.0 + p -> set_bonus.tier13_2pc_caster() * 0.03;
+  }
+
   virtual bool ready()
   {
     druid_t* p = player -> cast_druid();
@@ -3786,7 +3862,7 @@ struct starfire_t : public druid_spell_t
 
 struct starfall_star_t : public druid_spell_t
 {
-  starfall_star_t( druid_t* player ) :
+  starfall_star_t( druid_t* player, bool dtr=false ) :
     druid_spell_t( "starfall_star", 50288, player )
   {
     druid_t* p = player -> cast_druid();
@@ -3798,6 +3874,12 @@ struct starfall_star_t : public druid_spell_t
 
     if ( p -> primary_tree() == TREE_BALANCE )
       crit_bonus_multiplier *= 1.0 + p -> spells.moonfury -> effect2().percent();
+
+    if ( ! dtr && player -> has_dtr )
+    {
+      dtr_action = new starfall_star_t( player, true );
+      dtr_action -> is_dtr_action = true;
+    }
   }
 
   virtual void player_buff()
@@ -3851,7 +3933,7 @@ struct starsurge_t : public druid_spell_t
 {
   cooldown_t* starfall_cd;
 
-  starsurge_t( druid_t* player, const std::string& options_str ) :
+  starsurge_t( druid_t* player, const std::string& options_str, bool dtr=false ) :
     druid_spell_t( "starsurge", 78674, player ),
     starfall_cd( 0 )
   {
@@ -3864,16 +3946,25 @@ struct starsurge_t : public druid_spell_t
     if ( p -> primary_tree() == TREE_BALANCE )
       crit_bonus_multiplier *= 1.0 + p -> spells.moonfury -> effect2().percent();
 
+    if ( p -> dbc.ptr && p -> set_bonus.tier13_4pc_caster() )
+      cooldown -> duration -= 5.0;
+
     starfall_cd = p -> get_cooldown( "starfall" );
+
+    if ( ! dtr && player -> has_dtr )
+    {
+      dtr_action = new starsurge_t( p, options_str, true );
+      dtr_action -> is_dtr_action = true;
+    }
   }
 
-  virtual void travel( player_t* t, int    travel_result,
+  virtual void impact( player_t* t, int impact_result,
                        double travel_dmg )
   {
     druid_t* p = player -> cast_druid();
-    druid_spell_t::travel( t, travel_result, travel_dmg );
+    druid_spell_t::impact( t, impact_result, travel_dmg );
 
-    if ( result_is_hit( travel_result ) )
+    if ( result_is_hit( impact_result ) )
     {
       // gain is positive for p -> eclipse_bar_direction==0
       // else it is towards p -> eclipse_bar_direction
@@ -3950,7 +4041,7 @@ struct sunfire_t : public druid_spell_t
 
   // Identical to moonfire, except damage type and usability
 
-  sunfire_t( druid_t* player, const std::string& options_str ) :
+  sunfire_t( druid_t* player, const std::string& options_str, bool dtr=false ) :
     druid_spell_t( "sunfire", 93402, player ),
     starsurge_cd( 0 )
   {
@@ -3969,7 +4060,15 @@ struct sunfire_t : public druid_spell_t
     if ( p -> set_bonus.tier11_2pc_caster() )
       base_crit += 0.05;
 
-    starsurge_cd = p -> get_cooldown( "starsurge" );
+    starsurge_cd = p -> cooldowns_starsurge;
+
+    may_trigger_dtr = false; // Disable the dot ticks procing DTR
+
+    if ( ! dtr && player -> has_dtr )
+    {
+      dtr_action = new sunfire_t( player, options_str, true );
+      dtr_action -> is_dtr_action = true;
+    }
   }
 
   virtual void player_buff()
@@ -4229,7 +4328,7 @@ struct wrath_t : public druid_spell_t
 {
   std::string prev_str;
 
-  wrath_t( druid_t* p, const std::string& options_str ) :
+  wrath_t( druid_t* p, const std::string& options_str, bool dtr=false ) :
     druid_spell_t( "wrath", 5176, p )
   {
     option_t options[] =
@@ -4242,6 +4341,12 @@ struct wrath_t : public druid_spell_t
     base_execute_time += p -> talents.starlight_wrath -> mod_additive( P_CAST_TIME );
     if ( p -> primary_tree() == TREE_BALANCE )
       crit_bonus_multiplier *= 1.0 + p -> spells.moonfury -> effect2().percent();
+
+    if ( ! dtr && player -> has_dtr )
+    {
+      dtr_action = new wrath_t( p, options_str, true );
+      dtr_action -> is_dtr_action = true;
+    }
   }
 
   virtual double execute_time() SC_CONST
@@ -4269,12 +4374,24 @@ struct wrath_t : public druid_spell_t
       player_multiplier *= 1.30;
   }
 
-  virtual void travel( player_t* t, int    travel_result,
+  virtual void target_debuff( player_t* t, int dmg_type )
+  {
+    druid_spell_t::target_debuff( t, dmg_type );
+
+    druid_t* p = player -> cast_druid();
+
+    // Balance, 2P -- Insect Swarm increases all damage done by your Starfire,
+    // Starsurge, and Wrath spells against that target by 3%.
+    if ( p -> dots_insect_swarm -> ticking )
+      target_multiplier *= 1.0 + p -> set_bonus.tier13_2pc_caster() * 0.03;
+  }
+
+  virtual void impact( player_t* t, int impact_result,
                        double travel_dmg )
   {
     druid_t* p = player -> cast_druid();
-    druid_spell_t::travel( t, travel_result, travel_dmg );
-    if ( result_is_hit( travel_result ) )
+    druid_spell_t::impact( t, impact_result, travel_dmg );
+    if ( result_is_hit( impact_result ) )
     {
       trigger_earth_and_moon( this );
 
@@ -4550,8 +4667,13 @@ void druid_t::init_spells()
   spells.total_eclipse   = spell_data_t::find( 77492, "Total Eclipse",   dbc.ptr );
   spells.vengeance       = spell_data_t::find( 84840, "Vengeance",       dbc.ptr );
 
-  unsigned primal_madness_ids[] = { 0, 80879, 80886 };
-  spells.primal_madness_cat = spell_data_t::find( primal_madness_ids[ talents.primal_madness -> rank() ], "Primal Madness", dbc.ptr );
+  if ( talents.primal_madness -> rank() )
+  {
+    spells.primal_madness_cat = spell_data_t::find( talents.primal_madness -> rank() > 1 ? 80886 : 80879,
+                                                   "Primal Madness", dbc.ptr );
+  }
+  else
+    spells.primal_madness_cat = spell_data_t::nil();
 
   // Glyphs
   glyphs.berserk          = find_glyph( "Glyph of Berserk" );
@@ -4571,7 +4693,7 @@ void druid_t::init_spells()
   glyphs.rejuvenation     = find_glyph( "Glyph of Rejuvenation" );
   glyphs.rip              = find_glyph( "Glyph of Rip" );
   glyphs.savage_roar      = find_glyph( "Glyph of Savage Roar" );
-  glyphs.shred            = find_glyph( "Glyph of Shred" );
+  glyphs.shred            = dbc.ptr ? find_glyph( "Glyph of Bloodletting" ) : find_glyph( "Glyph of Shred" );
   glyphs.starfall         = find_glyph( "Glyph of Starfall" );
   glyphs.starfire         = find_glyph( "Glyph of Starfire" );
   glyphs.starsurge        = find_glyph( "Glyph of Starsurge" );
@@ -4584,10 +4706,11 @@ void druid_t::init_spells()
   // Tier Bonuses
   static const uint32_t set_bonuses[N_TIER][N_TIER_BONUS] =
   {
-    //  C2P    C4P    M2P    M4P    T2P    T4P    H2P    H4P
-    { 90160, 90163, 90162, 90165,     0,     0,     0,     0 }, // Tier11
-    { 99019, 99049, 99001, 99009,     0,     0, 99013, 99015 }, // Tier12
-    {     0,     0,     0,     0,     0,     0,     0,     0 },
+    //   C2P     C4P     M2P     M4P    T2P    T4P     H2P     H4P
+    {  90160,  90163,  90162,  90165,     0,     0,      0,      0 }, // Tier11
+    {  99019,  99049,  99001,  99009,     0,     0,  99013,  99015 }, // Tier12
+    { 105722, 105717, 105725, 105735,     0,     0, 105715, 105770 }, // Tier13
+    {      0,     0,      0,       0,     0,     0,      0,      0 }, 
   };
 
   sets = new set_bonus_array_t( this, set_bonuses );
@@ -4646,6 +4769,7 @@ void druid_t::init_buffs()
   buffs_stampede_cat       = new buff_t( this, "stampede_cat"      , 1,  10.0,     0, talents.stampede -> ok() );
   buffs_t11_4pc_caster     = new buff_t( this, "t11_4pc_caster"    , 3,   8.0,     0, set_bonus.tier11_4pc_caster() );
   buffs_t11_4pc_melee      = new buff_t( this, "t11_4pc_melee"     , 3,  30.0,     0, set_bonus.tier11_4pc_melee()  );
+  buffs_t13_4pc_melee      = new buff_t( this, "t13_4pc_melee"     , 1,  10.0,     0, ( dbc.ptr && set_bonus.tier13_4pc_melee() ) ? 1.0 : 0 );
   buffs_wild_mushroom      = new buff_t( this, "wild_mushroom"     , 3,     0,     0, 1.0, true );
 
   // buff_t ( sim, id, name, chance, cooldown, quiet, reverse, rng_type )
@@ -4676,6 +4800,31 @@ void druid_t::init_buffs()
   buffs_moonkin_form = new buff_t( this, 24858, "moonkin_form" );
   buffs_savage_roar  = new buff_t( this, 52610, "savage_roar" );
   buffs_stealthed    = new buff_t( this, 5215,  "stealthed" );
+}
+
+// druid_t::init_values ====================================================
+
+void druid_t::init_values()
+{
+  player_t::init_values();
+
+  if ( set_bonus.pvp_2pc_caster() )
+    attribute_initial[ ATTR_INTELLECT ] += 70;
+
+  if ( set_bonus.pvp_4pc_caster() )
+    attribute_initial[ ATTR_INTELLECT ] += 90;
+
+  if ( set_bonus.pvp_2pc_heal() )
+    attribute_initial[ ATTR_INTELLECT ] += 70;
+
+  if ( set_bonus.pvp_4pc_heal() )
+    attribute_initial[ ATTR_INTELLECT ] += 90;
+
+  if ( set_bonus.pvp_2pc_melee() )
+    attribute_initial[ ATTR_AGILITY ]   += 70;
+
+  if ( set_bonus.pvp_4pc_melee() )
+    attribute_initial[ ATTR_AGILITY ]   += 90;
 }
 
 // druid_t::init_scaling ====================================================
@@ -4750,12 +4899,12 @@ void druid_t::init_procs()
 
 // druid_t::init_uptimes ====================================================
 
-void druid_t::init_uptimes()
+void druid_t::init_benefits()
 {
-  player_t::init_uptimes();
+  player_t::init_benefits();
 
-  uptimes_energy_cap   = get_uptime( "energy_cap" );
-  uptimes_rage_cap     = get_uptime( "rage_cap"   );
+  uptimes_energy_cap   = get_benefit( "energy_cap" );
+  uptimes_rage_cap     = get_benefit( "rage_cap"   );
 }
 
 // druid_t::init_rng ========================================================
@@ -4836,6 +4985,7 @@ void druid_t::init_actions()
       }
       else
       {
+        std::string bitw_hp = ( dbc.ptr && set_bonus.tier13_2pc_melee() ) ? "60" : "25";
         if ( level > 80 )
         {
           action_list_str += "flask,type=winds";
@@ -4886,12 +5036,14 @@ void druid_t::init_actions()
 
         if ( talents.blood_in_the_water -> rank() )
         {
-          action_list_str += "/ferocious_bite,if=buff.combo_points.stack>=1&dot.rip.ticking&dot.rip.remains<=1&target.health_pct<=25";
-          action_list_str += "/ferocious_bite,if=buff.combo_points.stack>=5&dot.rip.ticking&target.health_pct<=25";
+          action_list_str += "/ferocious_bite,if=buff.combo_points.stack>=1&dot.rip.ticking&dot.rip.remains<=1&target.health_pct<=" + bitw_hp;
+          action_list_str += "/ferocious_bite,if=buff.combo_points.stack>=5&dot.rip.ticking&target.health_pct<=" + bitw_hp;
         }
         action_list_str += use_str;
         action_list_str += init_use_profession_actions();
-        action_list_str += "/shred,extend_rip=1,if=dot.rip.ticking&dot.rip.remains<=4&target.health_pct>25";
+        action_list_str += "/shred,extend_rip=1,if=dot.rip.ticking&dot.rip.remains<=4";
+        if ( talents.blood_in_the_water -> rank() )
+          action_list_str += "&target.health_pct>" + bitw_hp;
         action_list_str += "/rip,if=buff.combo_points.stack>=5&target.time_to_die>=6&dot.rip.remains<2.0&(buff.berserk.up|dot.rip.remains<=cooldown.tigers_fury.remains)";
         action_list_str += "/ferocious_bite,if=buff.combo_points.stack>=5&dot.rip.remains>5.0&buff.savage_roar.remains>=3.0&buff.berserk.up";
         action_list_str += "/rake,if=target.time_to_die>=8.5&buff.tigers_fury.up&dot.rake.remains<9.0&(!dot.rake.ticking|dot.rake.multiplier<multiplier)";
@@ -5049,7 +5201,7 @@ void druid_t::regen( double periodicity )
       resource_gain( RESOURCE_RAGE, 1.0 * periodicity, gains_enrage );
 
     uptimes_rage_cap -> update( resource_current[ RESOURCE_RAGE ] ==
-                                resource_max    [ RESOURCE_RAGE ] );
+                                       resource_max    [ RESOURCE_RAGE ] );
   }
 
   player_t::regen( periodicity );
@@ -5340,6 +5492,34 @@ int druid_t::decode_set( item_t& item )
     if ( is_caster ) return SET_T12_CASTER;
     if ( is_melee  ) return SET_T12_MELEE;
   }
+
+  if ( strstr( s, "deep_earth" ) )
+  {
+    bool is_caster = ( strstr( s, "cover"         ) ||
+                       strstr( s, "shoulderwraps" ) ||
+                       strstr( s, "vestment"      ) ||
+                       strstr( s, "leggings"      ) ||
+                       strstr( s, "gloves"        ) );
+
+    bool is_melee = ( strstr( s, "headpiece"      ) ||
+                      strstr( s, "spaulders"      ) ||
+                      strstr( s, "raiment"        ) ||
+                      strstr( s, "legguards"      ) ||
+                      strstr( s, "grips"          ) );
+
+    bool is_healer = ( strstr( s, "helm"          ) ||
+                       strstr( s, "mantle"        ) ||
+                       strstr( s, "robes"         ) ||
+                       strstr( s, "legwraps"      ) ||
+                       strstr( s, "handwraps"     ) );
+    if ( is_caster ) return SET_T13_CASTER;
+    if ( is_melee  ) return SET_T13_MELEE;
+    if ( is_healer ) return SET_T13_HEAL;
+  }
+
+  if ( strstr( s, "_gladiators_kodohide_"   ) )   return SET_PVP_HEAL;
+  if ( strstr( s, "_gladiators_wyrmhide_"   ) )   return SET_PVP_CASTER;
+  if ( strstr( s, "_gladiators_dragonhide_" ) )   return SET_PVP_MELEE;
 
   return SET_NONE;
 }

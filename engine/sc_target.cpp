@@ -18,7 +18,8 @@ struct enemy_t : public player_t
   enemy_t( sim_t* s, const std::string& n, race_type r = RACE_HUMANOID ) :
     player_t( s, ENEMY, n, r ),
     fixed_health( 0 ), initial_health( 0 ),
-    fixed_health_percentage( 0 ), initial_health_percentage( 100.0 ), waiting_time( s -> max_time )
+    fixed_health_percentage( 0 ), initial_health_percentage( 100.0 ),
+    waiting_time( 1.0 )
 
   {
     player_t** last = &( sim -> target_list );
@@ -60,6 +61,7 @@ struct enemy_t : public player_t
   }
 
   virtual action_t* create_action( const std::string& name, const std::string& options_str );
+  virtual void init();
   virtual void init_base();
   virtual void init_resources( bool force=false );
   virtual void init_target();
@@ -313,10 +315,26 @@ action_t* enemy_t::create_action( const std::string& name,
   return player_t::create_action( name, options_str );
 }
 
+// enemy_t::init =======================================================
+
+void enemy_t::init()
+{
+  level = sim -> max_player_level + 3;
+
+  if ( sim -> target_level >= 0 )
+    level = sim -> target_level;
+
+  player_t::init();
+}
+
 // enemy_t::init_base =======================================================
 
 void enemy_t::init_base()
 {
+  waiting_time = std::min( (int) floor( sim -> max_time ), sim -> wheel_seconds );
+  if ( waiting_time < 1.0 )
+    waiting_time = 1.0;
+
   health_per_stamina = 10;
 
   base_attack_crit = 0.05;
@@ -510,7 +528,7 @@ void enemy_t::recalculate_health()
 
   if ( initial_health == 0 ) // first iteration
   {
-    initial_health = dmg_taken * ( sim -> expected_time / sim -> current_time );
+    initial_health = iteration_dmg_taken * ( sim -> expected_time / sim -> current_time );
   }
   else
   {
@@ -524,7 +542,7 @@ void enemy_t::recalculate_health()
     initial_health *= factor;
   }
 
-  if ( sim -> debug ) log_t::output( sim, "Target %s initial health calculated to be %.0f. Damage was %.0f", name(), initial_health, dmg_taken );
+  if ( sim -> debug ) log_t::output( sim, "Target %s initial health calculated to be %.0f. Damage was %.0f", name(), initial_health, iteration_dmg_taken );
 }
 
 // enemy_t::create_expression ===============================================

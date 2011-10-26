@@ -141,8 +141,6 @@ void action_t::init_action_t_()
   sync_action                    = NULL;
   next                           = NULL;
   marker                         = 0;
-  target_str                     = "";
-  label_str                      = "";
   last_reaction_time             = 0.0;
   dtr_action                     = 0;
   is_dtr_action                  = false;
@@ -159,8 +157,7 @@ void action_t::init_action_t_()
   while ( *last ) last = &( ( *last ) -> next );
   *last = this;
 
-  for ( int i=0; i < RESULT_MAX; i++ ) rng[ i ] = 0;
-
+  range::fill( rng, 0 );
 
   cooldown = player -> get_cooldown( name_str );
   dot      = player -> get_dot     ( name_str );
@@ -183,10 +180,7 @@ void action_t::init_action_t_()
   }
 
   if ( sim -> travel_variance && travel_speed && player -> distance )
-  {
-    std::string buffer = name_str + "_travel";
-    rng_travel = player -> get_rng( buffer, RNG_DISTRIBUTED );
-  }
+    rng_travel = player -> get_rng( name_str + "_travel", RNG_DISTRIBUTED );
 }
 
 action_t::action_t( int               ty,
@@ -233,11 +227,11 @@ action_t::action_t( int type, const char* name, const uint32_t id, player_t* p, 
 
 action_t::~action_t()
 {
-  if ( if_expr && ! is_dtr_action )
+  if ( ! is_dtr_action )
+  {
     delete if_expr;
-
-  if ( interrupt_if_expr && ! is_dtr_action )
     delete interrupt_if_expr;
+  }
 }
 
 // action_t::parse_data =====================================================
@@ -320,21 +314,19 @@ void action_t::parse_effect_data( int spell_id, int effect_nr )
     switch ( effect -> subtype() )
     {
     case A_PERIODIC_DAMAGE:
+      if ( school == SCHOOL_PHYSICAL )
+        school = stats -> school = SCHOOL_BLEED;
+    case A_PERIODIC_LEECH:
+    case A_PERIODIC_HEAL:
       tick_power_mod   = effect -> coeff();
       base_td_init     = player -> dbc.effect_average( effect -> id(), player -> level );
       base_td          = base_td_init;
-      base_tick_time   = effect -> period();
-      num_ticks        = ( int ) ( spell -> duration() / base_tick_time );
-      if ( school == SCHOOL_PHYSICAL )
-        school = stats -> school = SCHOOL_BLEED;
-      break;
-    case A_PERIODIC_LEECH:
-      tick_power_mod   = effect -> coeff();
-      base_td_init     = player -> dbc.effect_min ( effect -> id(), player -> level );
-      base_td          = base_td_init;
-      base_tick_time   = effect -> period();
-      num_ticks        = ( int ) ( spell -> duration() / base_tick_time );
-      break;
+    case A_PERIODIC_ENERGIZE:
+    case A_PERIODIC_TRIGGER_SPELL_WITH_VALUE:
+    case A_PERIODIC_HEALTH_FUNNEL:
+    case A_PERIODIC_MANA_LEECH:
+    case A_PERIODIC_DAMAGE_PERCENT:
+    case A_PERIODIC_DUMMY:
     case A_PERIODIC_TRIGGER_SPELL:
       base_tick_time   = effect -> period();
       num_ticks        = ( int ) ( spell -> duration() / base_tick_time );
@@ -343,13 +335,6 @@ void action_t::parse_effect_data( int spell_id, int effect_nr )
       direct_power_mod = effect -> coeff();
       base_dd_min      = player -> dbc.effect_min( effect -> id(), player -> level );
       base_dd_max      = player -> dbc.effect_max( effect -> id(), player -> level );
-      break;
-    case A_PERIODIC_HEAL:
-      tick_power_mod   = effect -> coeff();
-      base_td_init     = player -> dbc.effect_min( effect -> id(), player -> level );
-      base_td          = base_td_init;
-      base_tick_time   = effect -> period();
-      num_ticks        = ( int ) ( spell -> duration() / base_tick_time );
       break;
     case A_ADD_FLAT_MODIFIER:
       switch ( effect -> misc_value1() )
@@ -378,31 +363,6 @@ void action_t::parse_effect_data( int spell_id, int effect_nr )
     break;
   default: break;
   }
-}
-
-// action_t::merge_options ==================================================
-
-option_t* action_t::merge_options( std::vector<option_t>& merged_options,
-                                   option_t*              options1,
-                                   option_t*              options2 )
-{
-  merged_options.clear();
-
-  if ( options1 )
-  {
-    for ( int i=0; options1[ i ].name; i++ ) merged_options.push_back( options1[ i ] );
-  }
-
-  if ( options2 )
-  {
-    for ( int i=0; options2[ i ].name; i++ ) merged_options.push_back( options2[ i ] );
-  }
-
-  option_t null_option;
-  null_option.name = 0;
-  merged_options.push_back( null_option );
-
-  return &( merged_options[ 0 ] );
 }
 
 // action_t::parse_options ==================================================
@@ -435,7 +395,7 @@ void action_t::parse_options( option_t*          options,
   };
 
   std::vector<option_t> merged_options;
-  merge_options( merged_options, options, base_options );
+  option_t::merge( merged_options, options, base_options );
 
   std::string::size_type cut_pt = options_str.find_first_of( ":" );
 
@@ -1095,17 +1055,16 @@ void action_t::last_tick( dot_t* d )
 
   d -> ticking = 0;
 
-
   if ( school == SCHOOL_BLEED ) target -> debuffs.bleeding -> decrement();
 }
 
-// action_t::travel =========================================================
+// action_t::impact =========================================================
 
-void action_t::travel( player_t* t, int travel_result, double travel_dmg=0 )
+void action_t::impact( player_t* t, int impact_result, double travel_dmg=0 )
 {
-  assess_damage( t, travel_dmg, DMG_DIRECT, travel_result );
+  assess_damage( t, travel_dmg, DMG_DIRECT, impact_result );
 
-  if ( result_is_hit( travel_result ) )
+  if ( result_is_hit( impact_result ) )
   {
     if ( num_ticks > 0 )
     {
@@ -1147,7 +1106,7 @@ void action_t::travel( player_t* t, int travel_result, double travel_dmg=0 )
   {
     if ( sim -> log )
     {
-      log_t::output( sim, "Target %s avoids %s %s (%s)", target -> name(), player -> name(), name(), util_t::result_type_string( travel_result ) );
+      log_t::output( sim, "Target %s avoids %s %s (%s)", target -> name(), player -> name(), name(), util_t::result_type_string( impact_result ) );
     }
   }
 }
@@ -1257,7 +1216,6 @@ void action_t::schedule_execute()
   }
 }
 
-
 // action_t::schedule_travel ================================================
 
 void action_t::schedule_travel( player_t* t )
@@ -1268,7 +1226,7 @@ void action_t::schedule_travel( player_t* t )
 
   if ( time_to_travel == 0 )
   {
-    travel( t, result, direct_dmg );
+    impact( t, result, direct_dmg );
   }
   else
   {
@@ -1441,7 +1399,7 @@ bool action_t::ready()
 
 void action_t::init()
 {
-  if ( initialized )return;
+  if ( initialized ) return;
 
   std::string buffer;
   for ( int i=0; i < RESULT_MAX; i++ )
@@ -1776,7 +1734,7 @@ double action_t::ppm_proc_chance( double PPM ) SC_CONST
 
     if ( time == 0 ) time = player -> base_gcd;
 
-    return( PPM * time / 60.0 );
+    return ( PPM * time / 60.0 );
   }
 }
 
@@ -1815,17 +1773,4 @@ int action_t::hasted_num_ticks( double d ) SC_CONST
     return ( int ) ceil ( n - 0.5 );
 
   return ( int ) floor( n + 0.5 );
-}
-
-// action_t::dtr_proc_chance() ===
-
-double action_t::dtr_proc_chance() SC_CONST
-{
-  // Get base proc chance from player
-  double p = 0.1;
-
-  if ( is_dtr_action )
-    p = 0;
-
-  return p;
 }

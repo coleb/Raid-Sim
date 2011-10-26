@@ -15,10 +15,9 @@
 #  ifndef UNICODE
 #    define UNICODE
 #  endif
-#  define SIGACTION 0
 #else
 #  define DIRECTORY_DELIMITER "/"
-#  define SIGACTION 1
+#  define SC_SIGACTION
 #endif
 
 // Switching of using 'const'-flag on methods possible ======================
@@ -31,16 +30,6 @@
 #  include "../vs/stdint.h"
 #else
 #  include <stdint.h>
-#endif
-
-#if defined(__GNUC__)
-#  define likely(x)       __builtin_expect((x),1)
-#  define unlikely(x)     __builtin_expect((x),0)
-#  define PRINTF_ATTRIBUTE(a,b) __attribute__((format(printf,a,b)))
-#else
-#  define likely(x) (x)
-#  define unlikely(x) (x)
-#  define PRINTF_ATTRIBUTE(a,b)
 #endif
 
 #include <algorithm>
@@ -60,10 +49,11 @@
 #include <memory>
 #include <numeric>
 #include <queue>
-#include <string>
-#include <vector>
 #include <sstream>
+#include <stack>
+#include <string>
 #include <typeinfo>
+#include <vector>
 
 #include "data_enums.hh"
 
@@ -72,10 +62,6 @@
 #  if !defined(CLOCKS_PER_SEC)
 #    define CLOCKS_PER_SEC 1000000
 #  endif
-#endif
-
-#if SIGACTION
-#include <signal.h>
 #endif
 
 #if defined( NO_THREADS )
@@ -89,18 +75,29 @@
 #include <unistd.h>
 #endif
 
+#if defined(__GNUC__)
+#  define likely(x)       __builtin_expect((x),1)
+#  define unlikely(x)     __builtin_expect((x),0)
+#else
+#  define likely(x) (x)
+#  define unlikely(x) (x)
+#  define __attribute__(x)
+#endif
+#define PRINTF_ATTRIBUTE(a,b) __attribute__((format(printf,a,b)))
+
 #include "data_definitions.hh"
 
 #define SC_MAJOR_VERSION "422"
-#define SC_MINOR_VERSION "1"
-#define SC_USE_PTR ( 0 )
+#define SC_MINOR_VERSION "3"
+#define SC_USE_PTR ( 1 )
 #define SC_BETA ( 0 )
 #define DTR_DD_ENABLED ( 0 )
-
 #define SC_EPSILON ( 0.000001 )
 #ifndef M_PI
 #define M_PI ( 3.14159265358979323846 )
 #endif
+
+#define MAX_PLAYERS_PER_CHART 20
 
 // Forward Declarations =====================================================
 
@@ -111,10 +108,12 @@ struct action_priority_list_t;
 struct alias_t;
 struct attack_t;
 struct base_stats_t;
+struct benefit_t;
 struct buff_t;
+struct buff_uptime_t;
 struct callback_t;
 struct cooldown_t;
-struct dbc_t;
+class dbc_t;
 struct death_knight_t;
 struct druid_t;
 struct dot_t;
@@ -151,6 +150,7 @@ struct sim_t;
 struct spell_t;
 struct spell_data_t;
 struct spelleffect_data_t;
+struct sample_data_t;
 struct heal_t;
 struct stats_t;
 struct talent_t;
@@ -286,7 +286,8 @@ enum base_stat_type { BASE_STAT_STRENGTH=0, BASE_STAT_AGILITY, BASE_STAT_STAMINA
                       BASE_STAT_HEALTH, BASE_STAT_MANA,
                       BASE_STAT_MELEE_CRIT_PER_AGI, BASE_STAT_SPELL_CRIT_PER_INT,
                       BASE_STAT_DODGE_PER_AGI,
-                      BASE_STAT_MELEE_CRIT, BASE_STAT_SPELL_CRIT, BASE_STAT_MP5, BASE_STAT_SPI_REGEN, BASE_STAT_MAX };
+                      BASE_STAT_MELEE_CRIT, BASE_STAT_SPELL_CRIT, BASE_STAT_MP5, BASE_STAT_SPI_REGEN, BASE_STAT_MAX
+                    };
 
 enum resource_type
 {
@@ -446,14 +447,12 @@ enum slot_type   // these enum values match armory settings
 };
 
 // Tiers 11..14 + PVP
-#ifndef N_TIER
 #define N_TIER 5
-#endif
 
 // Caster 2/4, Melee 2/4, Tank 2/4, Heal 2/4
-#ifndef N_TIER_BONUS
 #define N_TIER_BONUS 8
-#endif
+
+typedef uint32_t set_bonus_description_t[N_TIER][N_TIER_BONUS];
 
 enum set_type
 {
@@ -480,6 +479,7 @@ enum set_type
   SET_PVP_HEAL,   SET_PVP_2PC_HEAL,   SET_PVP_4PC_HEAL,
   SET_MAX
 };
+// static_assert( SET_MAX == N_TIER * 3 * N_TIER_BONUS / 2 );
 
 enum gem_type
 {
@@ -561,8 +561,8 @@ enum stat_type
   STAT_HEALTH, STAT_MANA, STAT_RAGE, STAT_ENERGY, STAT_FOCUS, STAT_RUNIC,
   STAT_MAX_HEALTH, STAT_MAX_MANA, STAT_MAX_RAGE, STAT_MAX_ENERGY, STAT_MAX_FOCUS, STAT_MAX_RUNIC,
   STAT_SPELL_POWER, STAT_SPELL_PENETRATION, STAT_MP5,
-  STAT_ATTACK_POWER, STAT_EXPERTISE_RATING,
-  STAT_HIT_RATING, STAT_CRIT_RATING, STAT_HASTE_RATING,STAT_MASTERY_RATING,
+  STAT_ATTACK_POWER, STAT_EXPERTISE_RATING, STAT_EXPERTISE_RATING2,
+  STAT_HIT_RATING, STAT_HIT_RATING2,STAT_CRIT_RATING, STAT_HASTE_RATING,STAT_MASTERY_RATING,
   STAT_WEAPON_DPS, STAT_WEAPON_SPEED,
   STAT_WEAPON_OFFHAND_DPS, STAT_WEAPON_OFFHAND_SPEED,
   STAT_ARMOR, STAT_BONUS_ARMOR, STAT_RESILIENCE_RATING, STAT_DODGE_RATING, STAT_PARRY_RATING,
@@ -765,7 +765,8 @@ enum power_type
   //POWER_RUNE_UNHOLY = 12
 };
 
-enum rating_type {
+enum rating_type
+{
   RATING_DODGE = 0,
   RATING_PARRY,
   RATING_BLOCK,
@@ -783,31 +784,11 @@ enum rating_type {
   RATING_MAX
 };
 
-// Type utilities and simple meta-programming tools =========================
+
+// Type utilities and generic programming tools =============================
 template <typename T, std::size_t N>
-inline std::size_t sizeof_array( T (&)[N] )
+inline std::size_t sizeof_array( const T ( & )[N] )
 { return N; }
-
-template <typename T>
-inline void zerofill( T* t, std::size_t n )
-{
-  // static_assert( std::is_pod<T>::value, "You cannot use zerofill on a non-pod type." );
-  memset( t, 0, n * sizeof( *t ) );
-}
-
-template <typename T>
-inline void zerofill( T& t )
-{
-  // static_assert( std::is_pod<T>::value, "You cannot use zerofill on a non-pod type." );
-  memset( &t, 0, sizeof( t ) );
-}
-
-template <typename T, std::size_t N>
-inline void zerofill( T (&t)[N] )
-{
-  // static_assert( std::is_pod<T>::value, "You cannot use zerofill on a non-pod type." );
-  memset( &t, 0, sizeof( t ) );
-}
 
 class noncopyable
 {
@@ -826,6 +807,245 @@ private:
   // nonmoveable( nonmoveable&& ) = delete;
   // nonmoveable& operator = ( nonmoveable&& ) = delete;
 };
+
+struct delete_disposer_t
+{
+  template <typename T>
+  void operator () ( T* t ) const { delete t; }
+};
+
+template <typename T>
+struct iterator_type
+{ typedef typename T::iterator type; };
+
+template <typename T>
+struct iterator_type<const T>
+{ typedef typename T::const_iterator type; };
+
+// Generic algorithms =======================================================
+
+// Wrappers for std::fill, std::fill_n, and std::find that perform any type
+// conversions for t at the callsite instead of per assignement in the
+// loop body.
+template <typename I>
+inline void fill( I first, I last, typename std::iterator_traits<I>::value_type const& t )
+{ std::fill( first, last, t ); }
+
+template <typename I>
+inline void fill_n( I first, typename std::iterator_traits<I>::difference_type n,
+                    typename std::iterator_traits<I>::value_type const& t )
+{ std::fill_n( first, n, t ); }
+
+template <typename I>
+inline I find( I first, I last, typename std::iterator_traits<I>::value_type const& t )
+{ return std::find( first, last, t ); }
+
+template <typename I, typename D>
+void dispose( I first, I last, D disposer )
+{
+  while ( first != last )
+    disposer( *first++ );
+}
+
+template <typename I>
+inline void dispose( I first, I last )
+{ dispose( first, last, delete_disposer_t() ); }
+
+template <unsigned HW, typename Fwd, typename Out>
+void sliding_window_average( Fwd first, Fwd last, Out out )
+{
+  typedef typename std::iterator_traits<Fwd>::value_type value_t;
+  typedef typename std::iterator_traits<Fwd>::difference_type diff_t;
+  const diff_t n = std::distance( first, last );
+  const diff_t HALFWINDOW = static_cast<diff_t>( HW );
+
+  if ( n >= 2 * HALFWINDOW )
+  {
+    value_t window_sum = value_t();
+
+    // Fill right half of sliding window
+    Fwd right = first;
+    for ( diff_t count = 0; count < HALFWINDOW; ++count )
+      window_sum += *right++;
+
+    // Fill left half of sliding window
+    for ( diff_t count = HALFWINDOW; count < 2 * HALFWINDOW; ++count )
+    {
+      window_sum += *right++;
+      *out++ = window_sum / ( count + 1 );
+    }
+
+    // Slide until window hits end of data
+    while ( right != last )
+    {
+      window_sum += *right++;
+      *out++ = window_sum / ( 2 * HALFWINDOW + 1 );
+      window_sum -= *first++;
+    }
+
+    // Empty right half of sliding window
+    for ( diff_t count = 2 * HALFWINDOW; count > HALFWINDOW; --count )
+    {
+      *out++ = window_sum / count;
+      window_sum -= *first++;
+    }
+  }
+  else
+  {
+    // input is pathologically small compared to window size, just average everything.
+    fill_n( out, n, std::accumulate( first, last, value_t() ) / n );
+  }
+}
+
+
+// Machinery for range-based generic algorithms =============================
+
+namespace range { // ========================================================
+template <typename T>
+struct traits
+{
+  typedef typename iterator_type<T>::type iterator;
+  static iterator begin( T& t ) { return t.begin(); }
+  static iterator end( T& t ) { return t.end(); }
+};
+
+template <typename T, size_t N>
+struct traits<T[N]>
+{
+  typedef T* iterator;
+  static iterator begin( T ( &t )[N] ) { return &t[0]; }
+  static iterator end( T ( &t )[N] ) { return begin( t ) + N; }
+};
+
+template <typename T>
+struct traits< std::pair<T,T> >
+{
+  typedef T iterator;
+  static iterator begin( const std::pair<T,T>& t ) { return t.first; }
+  static iterator end( const std::pair<T,T>& t ) { return t.second; }
+};
+
+template <typename T>
+struct traits< const std::pair<T,T> >
+{
+  typedef T iterator;
+  static iterator begin( const std::pair<T,T>& t ) { return t.first; }
+  static iterator end( const std::pair<T,T>& t ) { return t.second; }
+};
+
+template <typename T>
+struct value_type
+{
+  typedef typename std::iterator_traits<typename traits<T>::iterator>::value_type type;
+};
+
+template <typename T>
+inline typename traits<T>::iterator begin( T& t )
+{ return traits<T>::begin( t ); }
+
+template <typename T>
+inline typename traits<const T>::iterator cbegin( const T& t )
+{ return range::begin( t ); }
+
+template <typename T>
+inline typename traits<T>::iterator end( T& t )
+{ return traits<T>::end( t ); }
+
+template <typename T>
+inline typename traits<const T>::iterator cend( const T& t )
+{ return range::end( t ); }
+
+// Range-based generic algorithms ===========================================
+
+template <typename Range, typename Out>
+inline Out copy( const Range& r, Out o )
+{ return std::copy( range::begin( r ), range::end( r ), o ); }
+
+template <typename Range, typename D>
+inline Range& dispose( Range& r, D disposer )
+{ dispose( range::begin( r ), range::end( r ), disposer ); return r; }
+
+template <typename Range>
+inline Range& dispose( Range& r )
+{ return dispose( r, delete_disposer_t() ); }
+
+template <typename Range>
+inline Range& fill( Range& r, typename range::value_type<Range>::type const& t )
+{ std::fill( range::begin( r ), range::end( r ), t ); return r; }
+
+template <typename Range>
+inline typename range::traits<Range>::iterator
+find( Range& r, typename range::value_type<Range>::type const& t )
+{ return std::find( range::begin( r ), range::end( r ), t ); }
+
+template <typename Range, typename F>
+inline F for_each( Range& r, F f )
+{ return std::for_each( range::begin( r ), range::end( r ), f ); }
+
+template <typename Range1, typename Range2, typename Out>
+inline Out set_difference( const Range1& left, const Range2& right, Out o )
+{
+  return std::set_difference( range::begin( left ), range::end( left ),
+                              range::begin( right ), range::end( right ), o );
+}
+
+template <typename Range1, typename Range2, typename Out, typename Compare>
+inline Out set_difference( const Range1& left, const Range2& right, Out o, Compare c )
+{
+  return std::set_difference( range::begin( left ), range::end( left ),
+                              range::begin( right ), range::end( right ), o, c );
+}
+
+template <typename Range1, typename Range2, typename Out>
+inline Out set_intersection( const Range1& left, const Range2& right, Out o )
+{
+  return std::set_intersection( range::begin( left ), range::end( left ),
+                                range::begin( right ), range::end( right ), o );
+}
+
+template <typename Range1, typename Range2, typename Out, typename Compare>
+inline Out set_intersection( const Range1& left, const Range2& right, Out o, Compare c )
+{
+  return std::set_intersection( range::begin( left ), range::end( left ),
+                                range::begin( right ), range::end( right ), o, c );
+}
+
+template <typename Range1, typename Range2, typename Out>
+inline Out set_union( const Range1& left, const Range2& right, Out o )
+{
+  return std::set_union( range::begin( left ), range::end( left ),
+                         range::begin( right ), range::end( right ), o );
+}
+
+template <typename Range1, typename Range2, typename Out, typename Compare>
+inline Out set_union( const Range1& left, const Range2& right, Out o, Compare c )
+{
+  return std::set_union( range::begin( left ), range::end( left ),
+                         range::begin( right ), range::end( right ), o, c );
+}
+
+template <unsigned HW, typename Range, typename Out>
+inline Range& sliding_window_average( Range& r, Out out )
+{ ::sliding_window_average<HW>( range::begin( r ), range::end( r ), out ); return r; }
+
+template <typename Range>
+inline Range& sort( Range& r )
+{ std::sort( range::begin( r ), range::end( r ) ); return r; }
+
+template <typename Range, typename Comp>
+inline Range& sort( Range& r, Comp c )
+{ std::sort( range::begin( r ), range::end( r ), c ); return r; }
+
+template <typename Range>
+inline typename range::traits<Range>::iterator unique( Range& r )
+{ return std::unique( range::begin( r ), range::end( r ) ); }
+
+template <typename Range, typename Comp>
+inline typename range::traits<Range>::iterator unique( Range& r, Comp c )
+{ return std::unique( range::begin( r ), range::end( r ), c ); }
+
+} // namespace range ========================================================
+
 
 // Cache Control ============================================================
 
@@ -890,406 +1110,417 @@ inline void items( behavior_t b )
 
 }
 
-struct stat_data_t {
-  double      strength;
-  double      agility;
-  double      stamina;
-  double      intellect;
-  double      spirit;
-  double      base_health;
-  double      base_resource;
+struct stat_data_t
+{
+  double strength;
+  double agility;
+  double stamina;
+  double intellect;
+  double spirit;
+  double base_health;
+  double base_resource;
 };
 
 #define DEFAULT_MISC_VALUE std::numeric_limits<int>::min()
 
 // These names come from the MANGOS project.
-enum spell_attribute_t {
- SPELL_ATTR_UNK0 = 0x0000, // 0
- SPELL_ATTR_RANGED, // 1 All ranged abilites have this flag
- SPELL_ATTR_ON_NEXT_SWING_1, // 2 on next swing
- SPELL_ATTR_UNK3, // 3 not set in 3.0.3
- SPELL_ATTR_UNK4, // 4 isAbility
- SPELL_ATTR_TRADESPELL, // 5 trade spells, will be added by client to a sublist of profession spell
- SPELL_ATTR_PASSIVE, // 6 Passive spell
- SPELL_ATTR_UNK7, // 7 can't be linked in chat?
- SPELL_ATTR_UNK8, // 8 hide created item in tooltip (for effect=24)
- SPELL_ATTR_UNK9, // 9
- SPELL_ATTR_ON_NEXT_SWING_2, // 10 on next swing 2
- SPELL_ATTR_UNK11, // 11
- SPELL_ATTR_DAYTIME_ONLY, // 12 only useable at daytime, not set in 2.4.2
- SPELL_ATTR_NIGHT_ONLY, // 13 only useable at night, not set in 2.4.2
- SPELL_ATTR_INDOORS_ONLY, // 14 only useable indoors, not set in 2.4.2
- SPELL_ATTR_OUTDOORS_ONLY, // 15 Only useable outdoors.
- SPELL_ATTR_NOT_SHAPESHIFT, // 16 Not while shapeshifted
- SPELL_ATTR_ONLY_STEALTHED, // 17 Must be in stealth
- SPELL_ATTR_UNK18, // 18
- SPELL_ATTR_LEVEL_DAMAGE_CALCULATION, // 19 spelldamage depends on caster level
- SPELL_ATTR_STOP_ATTACK_TARGE, // 20 Stop attack after use this spell (and not begin attack if use)
- SPELL_ATTR_IMPOSSIBLE_DODGE_PARRY_BLOCK, // 21 Cannot be dodged/parried/blocked
- SPELL_ATTR_UNK22, // 22
- SPELL_ATTR_UNK23, // 23 castable while dead?
- SPELL_ATTR_CASTABLE_WHILE_MOUNTED, // 24 castable while mounted
- SPELL_ATTR_DISABLED_WHILE_ACTIVE, // 25 Activate and start cooldown after aura fade or remove summoned creature or go
- SPELL_ATTR_UNK26, // 26
- SPELL_ATTR_CASTABLE_WHILE_SITTING, // 27 castable while sitting
- SPELL_ATTR_CANT_USED_IN_COMBAT, // 28 Cannot be used in combat
- SPELL_ATTR_UNAFFECTED_BY_INVULNERABILITY, // 29 unaffected by invulnerability (hmm possible not...)
- SPELL_ATTR_UNK30, // 30 breakable by damage?
- SPELL_ATTR_CANT_CANCEL, // 31 positive aura can't be canceled
+enum spell_attribute_t
+{
+  SPELL_ATTR_UNK0 = 0x0000, // 0
+  SPELL_ATTR_RANGED, // 1 All ranged abilites have this flag
+  SPELL_ATTR_ON_NEXT_SWING_1, // 2 on next swing
+  SPELL_ATTR_UNK3, // 3 not set in 3.0.3
+  SPELL_ATTR_UNK4, // 4 isAbility
+  SPELL_ATTR_TRADESPELL, // 5 trade spells, will be added by client to a sublist of profession spell
+  SPELL_ATTR_PASSIVE, // 6 Passive spell
+  SPELL_ATTR_UNK7, // 7 can't be linked in chat?
+  SPELL_ATTR_UNK8, // 8 hide created item in tooltip (for effect=24)
+  SPELL_ATTR_UNK9, // 9
+  SPELL_ATTR_ON_NEXT_SWING_2, // 10 on next swing 2
+  SPELL_ATTR_UNK11, // 11
+  SPELL_ATTR_DAYTIME_ONLY, // 12 only useable at daytime, not set in 2.4.2
+  SPELL_ATTR_NIGHT_ONLY, // 13 only useable at night, not set in 2.4.2
+  SPELL_ATTR_INDOORS_ONLY, // 14 only useable indoors, not set in 2.4.2
+  SPELL_ATTR_OUTDOORS_ONLY, // 15 Only useable outdoors.
+  SPELL_ATTR_NOT_SHAPESHIFT, // 16 Not while shapeshifted
+  SPELL_ATTR_ONLY_STEALTHED, // 17 Must be in stealth
+  SPELL_ATTR_UNK18, // 18
+  SPELL_ATTR_LEVEL_DAMAGE_CALCULATION, // 19 spelldamage depends on caster level
+  SPELL_ATTR_STOP_ATTACK_TARGE, // 20 Stop attack after use this spell (and not begin attack if use)
+  SPELL_ATTR_IMPOSSIBLE_DODGE_PARRY_BLOCK, // 21 Cannot be dodged/parried/blocked
+  SPELL_ATTR_UNK22, // 22
+  SPELL_ATTR_UNK23, // 23 castable while dead?
+  SPELL_ATTR_CASTABLE_WHILE_MOUNTED, // 24 castable while mounted
+  SPELL_ATTR_DISABLED_WHILE_ACTIVE, // 25 Activate and start cooldown after aura fade or remove summoned creature or go
+  SPELL_ATTR_UNK26, // 26
+  SPELL_ATTR_CASTABLE_WHILE_SITTING, // 27 castable while sitting
+  SPELL_ATTR_CANT_USED_IN_COMBAT, // 28 Cannot be used in combat
+  SPELL_ATTR_UNAFFECTED_BY_INVULNERABILITY, // 29 unaffected by invulnerability (hmm possible not...)
+  SPELL_ATTR_UNK30, // 30 breakable by damage?
+  SPELL_ATTR_CANT_CANCEL, // 31 positive aura can't be canceled
 
- SPELL_ATTR_EX_UNK0 = 0x0100, // 0
- SPELL_ATTR_EX_DRAIN_ALL_POWER, // 1 use all power (Only paladin Lay of Hands and Bunyanize)
- SPELL_ATTR_EX_CHANNELED_1, // 2 channeled 1
- SPELL_ATTR_EX_UNK3, // 3
- SPELL_ATTR_EX_UNK4, // 4
- SPELL_ATTR_EX_NOT_BREAK_STEALTH, // 5 Not break stealth
- SPELL_ATTR_EX_CHANNELED_2, // 6 channeled 2
- SPELL_ATTR_EX_NEGATIVE, // 7
- SPELL_ATTR_EX_NOT_IN_COMBAT_TARGET, // 8 Spell req target not to be in combat state
- SPELL_ATTR_EX_UNK9, // 9
- SPELL_ATTR_EX_NO_INITIAL_AGGRO, // 10 no generates threat on cast 100%
- SPELL_ATTR_EX_UNK11, // 11
- SPELL_ATTR_EX_UNK12, // 12
- SPELL_ATTR_EX_UNK13, // 13
- SPELL_ATTR_EX_UNK14, // 14
- SPELL_ATTR_EX_DISPEL_AURAS_ON_IMMUNITY, // 15 remove auras on immunity
- SPELL_ATTR_EX_UNAFFECTED_BY_SCHOOL_IMMUNE, // 16 unaffected by school immunity
- SPELL_ATTR_EX_UNK17, // 17 for auras AURA_TRACK_CREATURES, AURA_TRACK_RESOURCES and AURA_TRACK_STEALTHED select non-stacking tracking spells
- SPELL_ATTR_EX_UNK18, // 18
- SPELL_ATTR_EX_UNK19, // 19
- SPELL_ATTR_EX_REQ_COMBO_POINTS1, // 20 Req combo points on target
- SPELL_ATTR_EX_UNK21, // 21
- SPELL_ATTR_EX_REQ_COMBO_POINTS2, // 22 Req combo points on target
- SPELL_ATTR_EX_UNK23, // 23
- SPELL_ATTR_EX_UNK24, // 24 Req fishing pole??
- SPELL_ATTR_EX_UNK25, // 25
- SPELL_ATTR_EX_UNK26, // 26
- SPELL_ATTR_EX_UNK27, // 27
- SPELL_ATTR_EX_UNK28, // 28
- SPELL_ATTR_EX_UNK29, // 29
- SPELL_ATTR_EX_UNK30, // 30 overpower
- SPELL_ATTR_EX_UNK31, // 31
+  SPELL_ATTR_EX_UNK0 = 0x0100, // 0
+  SPELL_ATTR_EX_DRAIN_ALL_POWER, // 1 use all power (Only paladin Lay of Hands and Bunyanize)
+  SPELL_ATTR_EX_CHANNELED_1, // 2 channeled 1
+  SPELL_ATTR_EX_UNK3, // 3
+  SPELL_ATTR_EX_UNK4, // 4
+  SPELL_ATTR_EX_NOT_BREAK_STEALTH, // 5 Not break stealth
+  SPELL_ATTR_EX_CHANNELED_2, // 6 channeled 2
+  SPELL_ATTR_EX_NEGATIVE, // 7
+  SPELL_ATTR_EX_NOT_IN_COMBAT_TARGET, // 8 Spell req target not to be in combat state
+  SPELL_ATTR_EX_UNK9, // 9
+  SPELL_ATTR_EX_NO_INITIAL_AGGRO, // 10 no generates threat on cast 100%
+  SPELL_ATTR_EX_UNK11, // 11
+  SPELL_ATTR_EX_UNK12, // 12
+  SPELL_ATTR_EX_UNK13, // 13
+  SPELL_ATTR_EX_UNK14, // 14
+  SPELL_ATTR_EX_DISPEL_AURAS_ON_IMMUNITY, // 15 remove auras on immunity
+  SPELL_ATTR_EX_UNAFFECTED_BY_SCHOOL_IMMUNE, // 16 unaffected by school immunity
+  SPELL_ATTR_EX_UNK17, // 17 for auras AURA_TRACK_CREATURES, AURA_TRACK_RESOURCES and AURA_TRACK_STEALTHED select non-stacking tracking spells
+  SPELL_ATTR_EX_UNK18, // 18
+  SPELL_ATTR_EX_UNK19, // 19
+  SPELL_ATTR_EX_REQ_COMBO_POINTS1, // 20 Req combo points on target
+  SPELL_ATTR_EX_UNK21, // 21
+  SPELL_ATTR_EX_REQ_COMBO_POINTS2, // 22 Req combo points on target
+  SPELL_ATTR_EX_UNK23, // 23
+  SPELL_ATTR_EX_UNK24, // 24 Req fishing pole??
+  SPELL_ATTR_EX_UNK25, // 25
+  SPELL_ATTR_EX_UNK26, // 26
+  SPELL_ATTR_EX_UNK27, // 27
+  SPELL_ATTR_EX_UNK28, // 28
+  SPELL_ATTR_EX_UNK29, // 29
+  SPELL_ATTR_EX_UNK30, // 30 overpower
+  SPELL_ATTR_EX_UNK31, // 31
 
- SPELL_ATTR_EX2_UNK0 = 0x0200, // 0
- SPELL_ATTR_EX2_UNK1, // 1
- SPELL_ATTR_EX2_CANT_REFLECTED, // 2 ? used for detect can or not spell reflected // do not need LOS (e.g. 18220 since 3.3.3)
- SPELL_ATTR_EX2_UNK3, // 3 auto targeting? (e.g. fishing skill enhancement items since 3.3.3)
- SPELL_ATTR_EX2_UNK4, // 4
- SPELL_ATTR_EX2_AUTOREPEAT_FLAG, // 5
- SPELL_ATTR_EX2_UNK6, // 6 only usable on tabbed by yourself
- SPELL_ATTR_EX2_UNK7, // 7
- SPELL_ATTR_EX2_UNK8, // 8 not set in 3.0.3
- SPELL_ATTR_EX2_UNK9, // 9
- SPELL_ATTR_EX2_UNK10, // 10
- SPELL_ATTR_EX2_HEALTH_FUNNEL, // 11
- SPELL_ATTR_EX2_UNK12, // 12
- SPELL_ATTR_EX2_UNK13, // 13
- SPELL_ATTR_EX2_UNK14, // 14
- SPELL_ATTR_EX2_UNK15, // 15 not set in 3.0.3
- SPELL_ATTR_EX2_UNK16, // 16
- SPELL_ATTR_EX2_UNK17, // 17 suspend weapon timer instead of resetting it, (?Hunters Shot and Stings only have this flag?)
- SPELL_ATTR_EX2_UNK18, // 18 Only Revive pet - possible req dead pet
- SPELL_ATTR_EX2_NOT_NEED_SHAPESHIFT, // 19 does not necessarly need shapeshift
- SPELL_ATTR_EX2_UNK20, // 20
- SPELL_ATTR_EX2_DAMAGE_REDUCED_SHIELD, // 21 for ice blocks, pala immunity buffs, priest absorb shields, but used also for other spells -> not sure!
- SPELL_ATTR_EX2_UNK22, // 22
- SPELL_ATTR_EX2_UNK23, // 23 Only mage Arcane Concentration have this flag
- SPELL_ATTR_EX2_UNK24, // 24
- SPELL_ATTR_EX2_UNK25, // 25
- SPELL_ATTR_EX2_UNK26, // 26 unaffected by school immunity
- SPELL_ATTR_EX2_UNK27, // 27
- SPELL_ATTR_EX2_UNK28, // 28 no breaks stealth if it fails??
- SPELL_ATTR_EX2_CANT_CRIT, // 29 Spell can't crit
- SPELL_ATTR_EX2_UNK30, // 30
- SPELL_ATTR_EX2_FOOD_BUFF, // 31 Food or Drink Buff (like Well Fed)
+  SPELL_ATTR_EX2_UNK0 = 0x0200, // 0
+  SPELL_ATTR_EX2_UNK1, // 1
+  SPELL_ATTR_EX2_CANT_REFLECTED, // 2 ? used for detect can or not spell reflected // do not need LOS (e.g. 18220 since 3.3.3)
+  SPELL_ATTR_EX2_UNK3, // 3 auto targeting? (e.g. fishing skill enhancement items since 3.3.3)
+  SPELL_ATTR_EX2_UNK4, // 4
+  SPELL_ATTR_EX2_AUTOREPEAT_FLAG, // 5
+  SPELL_ATTR_EX2_UNK6, // 6 only usable on tabbed by yourself
+  SPELL_ATTR_EX2_UNK7, // 7
+  SPELL_ATTR_EX2_UNK8, // 8 not set in 3.0.3
+  SPELL_ATTR_EX2_UNK9, // 9
+  SPELL_ATTR_EX2_UNK10, // 10
+  SPELL_ATTR_EX2_HEALTH_FUNNEL, // 11
+  SPELL_ATTR_EX2_UNK12, // 12
+  SPELL_ATTR_EX2_UNK13, // 13
+  SPELL_ATTR_EX2_UNK14, // 14
+  SPELL_ATTR_EX2_UNK15, // 15 not set in 3.0.3
+  SPELL_ATTR_EX2_UNK16, // 16
+  SPELL_ATTR_EX2_UNK17, // 17 suspend weapon timer instead of resetting it, (?Hunters Shot and Stings only have this flag?)
+  SPELL_ATTR_EX2_UNK18, // 18 Only Revive pet - possible req dead pet
+  SPELL_ATTR_EX2_NOT_NEED_SHAPESHIFT, // 19 does not necessarly need shapeshift
+  SPELL_ATTR_EX2_UNK20, // 20
+  SPELL_ATTR_EX2_DAMAGE_REDUCED_SHIELD, // 21 for ice blocks, pala immunity buffs, priest absorb shields, but used also for other spells -> not sure!
+  SPELL_ATTR_EX2_UNK22, // 22
+  SPELL_ATTR_EX2_UNK23, // 23 Only mage Arcane Concentration have this flag
+  SPELL_ATTR_EX2_UNK24, // 24
+  SPELL_ATTR_EX2_UNK25, // 25
+  SPELL_ATTR_EX2_UNK26, // 26 unaffected by school immunity
+  SPELL_ATTR_EX2_UNK27, // 27
+  SPELL_ATTR_EX2_UNK28, // 28 no breaks stealth if it fails??
+  SPELL_ATTR_EX2_CANT_CRIT, // 29 Spell can't crit
+  SPELL_ATTR_EX2_UNK30, // 30
+  SPELL_ATTR_EX2_FOOD_BUFF, // 31 Food or Drink Buff (like Well Fed)
 
- SPELL_ATTR_EX3_UNK0 = 0x0300, // 0
- SPELL_ATTR_EX3_UNK1, // 1
- SPELL_ATTR_EX3_UNK2, // 2
- SPELL_ATTR_EX3_UNK3, // 3
- SPELL_ATTR_EX3_UNK4, // 4 Druid Rebirth only this spell have this flag
- SPELL_ATTR_EX3_UNK5, // 5
- SPELL_ATTR_EX3_UNK6, // 6
- SPELL_ATTR_EX3_UNK7, // 7 create a separate (de)buff stack for each caster
- SPELL_ATTR_EX3_UNK8, // 8
- SPELL_ATTR_EX3_UNK9, // 9
- SPELL_ATTR_EX3_MAIN_HAND, // 10 Main hand weapon required
- SPELL_ATTR_EX3_BATTLEGROUND, // 11 Can casted only on battleground
- SPELL_ATTR_EX3_CAST_ON_DEAD, // 12 target is a dead player (not every spell has this flag)
- SPELL_ATTR_EX3_UNK13, // 13
- SPELL_ATTR_EX3_UNK14, // 14 "Honorless Target" only this spells have this flag
- SPELL_ATTR_EX3_UNK15, // 15 Auto Shoot, Shoot, Throw, - this is autoshot flag
- SPELL_ATTR_EX3_UNK16, // 16 no triggers effects that trigger on casting a spell??
- SPELL_ATTR_EX3_UNK17, // 17 no triggers effects that trigger on casting a spell??
- SPELL_ATTR_EX3_UNK18, // 18
- SPELL_ATTR_EX3_UNK19, // 19
- SPELL_ATTR_EX3_DEATH_PERSISTENT, // 20 Death persistent spells
- SPELL_ATTR_EX3_UNK21, // 21
- SPELL_ATTR_EX3_REQ_WAND, // 22 Req wand
- SPELL_ATTR_EX3_UNK23, // 23
- SPELL_ATTR_EX3_REQ_OFFHAND, // 24 Req offhand weapon
- SPELL_ATTR_EX3_UNK25, // 25 no cause spell pushback ?
- SPELL_ATTR_EX3_UNK26, // 26
- SPELL_ATTR_EX3_UNK27, // 27
- SPELL_ATTR_EX3_UNK28, // 28
- SPELL_ATTR_EX3_UNK29, // 29
- SPELL_ATTR_EX3_UNK30, // 30
- SPELL_ATTR_EX3_UNK31, // 31
+  SPELL_ATTR_EX3_UNK0 = 0x0300, // 0
+  SPELL_ATTR_EX3_UNK1, // 1
+  SPELL_ATTR_EX3_UNK2, // 2
+  SPELL_ATTR_EX3_UNK3, // 3
+  SPELL_ATTR_EX3_UNK4, // 4 Druid Rebirth only this spell have this flag
+  SPELL_ATTR_EX3_UNK5, // 5
+  SPELL_ATTR_EX3_UNK6, // 6
+  SPELL_ATTR_EX3_UNK7, // 7 create a separate (de)buff stack for each caster
+  SPELL_ATTR_EX3_UNK8, // 8
+  SPELL_ATTR_EX3_UNK9, // 9
+  SPELL_ATTR_EX3_MAIN_HAND, // 10 Main hand weapon required
+  SPELL_ATTR_EX3_BATTLEGROUND, // 11 Can casted only on battleground
+  SPELL_ATTR_EX3_CAST_ON_DEAD, // 12 target is a dead player (not every spell has this flag)
+  SPELL_ATTR_EX3_UNK13, // 13
+  SPELL_ATTR_EX3_UNK14, // 14 "Honorless Target" only this spells have this flag
+  SPELL_ATTR_EX3_UNK15, // 15 Auto Shoot, Shoot, Throw, - this is autoshot flag
+  SPELL_ATTR_EX3_UNK16, // 16 no triggers effects that trigger on casting a spell??
+  SPELL_ATTR_EX3_UNK17, // 17 no triggers effects that trigger on casting a spell??
+  SPELL_ATTR_EX3_UNK18, // 18
+  SPELL_ATTR_EX3_UNK19, // 19
+  SPELL_ATTR_EX3_DEATH_PERSISTENT, // 20 Death persistent spells
+  SPELL_ATTR_EX3_UNK21, // 21
+  SPELL_ATTR_EX3_REQ_WAND, // 22 Req wand
+  SPELL_ATTR_EX3_UNK23, // 23
+  SPELL_ATTR_EX3_REQ_OFFHAND, // 24 Req offhand weapon
+  SPELL_ATTR_EX3_UNK25, // 25 no cause spell pushback ?
+  SPELL_ATTR_EX3_UNK26, // 26
+  SPELL_ATTR_EX3_UNK27, // 27
+  SPELL_ATTR_EX3_UNK28, // 28
+  SPELL_ATTR_EX3_UNK29, // 29
+  SPELL_ATTR_EX3_UNK30, // 30
+  SPELL_ATTR_EX3_UNK31, // 31
 
- SPELL_ATTR_EX4_UNK0 = 0x0400, // 0
- SPELL_ATTR_EX4_UNK1, // 1 proc on finishing move?
- SPELL_ATTR_EX4_UNK2, // 2
- SPELL_ATTR_EX4_UNK3, // 3
- SPELL_ATTR_EX4_UNK4, // 4 This will no longer cause guards to attack on use??
- SPELL_ATTR_EX4_UNK5, // 5
- SPELL_ATTR_EX4_NOT_STEALABLE, // 6 although such auras might be dispellable, they cannot be stolen
- SPELL_ATTR_EX4_UNK7, // 7
- SPELL_ATTR_EX4_STACK_DOT_MODIFIER, // 8 no effect on non DoTs?
- SPELL_ATTR_EX4_UNK9, // 9
- SPELL_ATTR_EX4_SPELL_VS_EXTEND_COST, // 10 Rogue Shiv have this flag
- SPELL_ATTR_EX4_UNK11, // 11
- SPELL_ATTR_EX4_UNK12, // 12
- SPELL_ATTR_EX4_UNK13, // 13
- SPELL_ATTR_EX4_UNK14, // 14
- SPELL_ATTR_EX4_UNK15, // 15
- SPELL_ATTR_EX4_NOT_USABLE_IN_ARENA, // 16 not usable in arena
- SPELL_ATTR_EX4_USABLE_IN_ARENA, // 17 usable in arena
- SPELL_ATTR_EX4_UNK18, // 18
- SPELL_ATTR_EX4_UNK19, // 19
- SPELL_ATTR_EX4_UNK20, // 20 do not give "more powerful spell" error message
- SPELL_ATTR_EX4_UNK21, // 21
- SPELL_ATTR_EX4_UNK22, // 22
- SPELL_ATTR_EX4_UNK23, // 23
- SPELL_ATTR_EX4_UNK24, // 24
- SPELL_ATTR_EX4_UNK25, // 25 pet scaling auras
- SPELL_ATTR_EX4_CAST_ONLY_IN_OUTLAND, // 26 Can only be used in Outland.
- SPELL_ATTR_EX4_UNK27, // 27
- SPELL_ATTR_EX4_UNK28, // 28
- SPELL_ATTR_EX4_UNK29, // 29
- SPELL_ATTR_EX4_UNK30, // 30
- SPELL_ATTR_EX4_UNK31, // 31
+  SPELL_ATTR_EX4_UNK0 = 0x0400, // 0
+  SPELL_ATTR_EX4_UNK1, // 1 proc on finishing move?
+  SPELL_ATTR_EX4_UNK2, // 2
+  SPELL_ATTR_EX4_UNK3, // 3
+  SPELL_ATTR_EX4_UNK4, // 4 This will no longer cause guards to attack on use??
+  SPELL_ATTR_EX4_UNK5, // 5
+  SPELL_ATTR_EX4_NOT_STEALABLE, // 6 although such auras might be dispellable, they cannot be stolen
+  SPELL_ATTR_EX4_UNK7, // 7
+  SPELL_ATTR_EX4_STACK_DOT_MODIFIER, // 8 no effect on non DoTs?
+  SPELL_ATTR_EX4_UNK9, // 9
+  SPELL_ATTR_EX4_SPELL_VS_EXTEND_COST, // 10 Rogue Shiv have this flag
+  SPELL_ATTR_EX4_UNK11, // 11
+  SPELL_ATTR_EX4_UNK12, // 12
+  SPELL_ATTR_EX4_UNK13, // 13
+  SPELL_ATTR_EX4_UNK14, // 14
+  SPELL_ATTR_EX4_UNK15, // 15
+  SPELL_ATTR_EX4_NOT_USABLE_IN_ARENA, // 16 not usable in arena
+  SPELL_ATTR_EX4_USABLE_IN_ARENA, // 17 usable in arena
+  SPELL_ATTR_EX4_UNK18, // 18
+  SPELL_ATTR_EX4_UNK19, // 19
+  SPELL_ATTR_EX4_UNK20, // 20 do not give "more powerful spell" error message
+  SPELL_ATTR_EX4_UNK21, // 21
+  SPELL_ATTR_EX4_UNK22, // 22
+  SPELL_ATTR_EX4_UNK23, // 23
+  SPELL_ATTR_EX4_UNK24, // 24
+  SPELL_ATTR_EX4_UNK25, // 25 pet scaling auras
+  SPELL_ATTR_EX4_CAST_ONLY_IN_OUTLAND, // 26 Can only be used in Outland.
+  SPELL_ATTR_EX4_UNK27, // 27
+  SPELL_ATTR_EX4_UNK28, // 28
+  SPELL_ATTR_EX4_UNK29, // 29
+  SPELL_ATTR_EX4_UNK30, // 30
+  SPELL_ATTR_EX4_UNK31, // 31
 
- SPELL_ATTR_EX5_UNK0 = 0x0500, // 0
- SPELL_ATTR_EX5_NO_REAGENT_WHILE_PREP, // 1 not need reagents if UNIT_FLAG_PREPARATION
- SPELL_ATTR_EX5_UNK2, // 2 removed at enter arena (e.g. 31850 since 3.3.3)
- SPELL_ATTR_EX5_USABLE_WHILE_STUNNED, // 3 usable while stunned
- SPELL_ATTR_EX5_UNK4, // 4
- SPELL_ATTR_EX5_SINGLE_TARGET_SPELL, // 5 Only one target can be apply at a time
- SPELL_ATTR_EX5_UNK6, // 6
- SPELL_ATTR_EX5_UNK7, // 7
- SPELL_ATTR_EX5_UNK8, // 8
- SPELL_ATTR_EX5_START_PERIODIC_AT_APPLY, // 9 begin periodic tick at aura apply
- SPELL_ATTR_EX5_UNK10, // 10
- SPELL_ATTR_EX5_UNK11, // 11
- SPELL_ATTR_EX5_UNK12, // 12
- SPELL_ATTR_EX5_UNK13, // 13 haste affects duration (e.g. 8050 since 3.3.3)
- SPELL_ATTR_EX5_UNK14, // 14
- SPELL_ATTR_EX5_UNK15, // 15
- SPELL_ATTR_EX5_UNK16, // 16
- SPELL_ATTR_EX5_USABLE_WHILE_FEARED, // 17 usable while feared
- SPELL_ATTR_EX5_USABLE_WHILE_CONFUSED, // 18 usable while confused
- SPELL_ATTR_EX5_UNK19, // 19
- SPELL_ATTR_EX5_UNK20, // 20
- SPELL_ATTR_EX5_UNK21, // 21
- SPELL_ATTR_EX5_UNK22, // 22
- SPELL_ATTR_EX5_UNK23, // 23
- SPELL_ATTR_EX5_UNK24, // 24
- SPELL_ATTR_EX5_UNK25, // 25
- SPELL_ATTR_EX5_UNK26, // 26
- SPELL_ATTR_EX5_UNK27, // 27
- SPELL_ATTR_EX5_UNK28, // 28
- SPELL_ATTR_EX5_UNK29, // 29
- SPELL_ATTR_EX5_UNK30, // 30
- SPELL_ATTR_EX5_UNK31, // 31 Forces all nearby enemies to focus attacks caster
+  SPELL_ATTR_EX5_UNK0 = 0x0500, // 0
+  SPELL_ATTR_EX5_NO_REAGENT_WHILE_PREP, // 1 not need reagents if UNIT_FLAG_PREPARATION
+  SPELL_ATTR_EX5_UNK2, // 2 removed at enter arena (e.g. 31850 since 3.3.3)
+  SPELL_ATTR_EX5_USABLE_WHILE_STUNNED, // 3 usable while stunned
+  SPELL_ATTR_EX5_UNK4, // 4
+  SPELL_ATTR_EX5_SINGLE_TARGET_SPELL, // 5 Only one target can be apply at a time
+  SPELL_ATTR_EX5_UNK6, // 6
+  SPELL_ATTR_EX5_UNK7, // 7
+  SPELL_ATTR_EX5_UNK8, // 8
+  SPELL_ATTR_EX5_START_PERIODIC_AT_APPLY, // 9 begin periodic tick at aura apply
+  SPELL_ATTR_EX5_UNK10, // 10
+  SPELL_ATTR_EX5_UNK11, // 11
+  SPELL_ATTR_EX5_UNK12, // 12
+  SPELL_ATTR_EX5_UNK13, // 13 haste affects duration (e.g. 8050 since 3.3.3)
+  SPELL_ATTR_EX5_UNK14, // 14
+  SPELL_ATTR_EX5_UNK15, // 15
+  SPELL_ATTR_EX5_UNK16, // 16
+  SPELL_ATTR_EX5_USABLE_WHILE_FEARED, // 17 usable while feared
+  SPELL_ATTR_EX5_USABLE_WHILE_CONFUSED, // 18 usable while confused
+  SPELL_ATTR_EX5_UNK19, // 19
+  SPELL_ATTR_EX5_UNK20, // 20
+  SPELL_ATTR_EX5_UNK21, // 21
+  SPELL_ATTR_EX5_UNK22, // 22
+  SPELL_ATTR_EX5_UNK23, // 23
+  SPELL_ATTR_EX5_UNK24, // 24
+  SPELL_ATTR_EX5_UNK25, // 25
+  SPELL_ATTR_EX5_UNK26, // 26
+  SPELL_ATTR_EX5_UNK27, // 27
+  SPELL_ATTR_EX5_UNK28, // 28
+  SPELL_ATTR_EX5_UNK29, // 29
+  SPELL_ATTR_EX5_UNK30, // 30
+  SPELL_ATTR_EX5_UNK31, // 31 Forces all nearby enemies to focus attacks caster
 
- SPELL_ATTR_EX6_UNK0 = 0x0600, // 0 Only Move spell have this flag
- SPELL_ATTR_EX6_ONLY_IN_ARENA, // 1 only usable in arena, not used in 3.2.0a and early
- SPELL_ATTR_EX6_UNK2, // 2
- SPELL_ATTR_EX6_UNK3, // 3
- SPELL_ATTR_EX6_UNK4, // 4
- SPELL_ATTR_EX6_UNK5, // 5
- SPELL_ATTR_EX6_UNK6, // 6
- SPELL_ATTR_EX6_UNK7, // 7
- SPELL_ATTR_EX6_UNK8, // 8
- SPELL_ATTR_EX6_UNK9, // 9
- SPELL_ATTR_EX6_UNK10, // 10
- SPELL_ATTR_EX6_NOT_IN_RAID_INSTANCE, // 11 not usable in raid instance
- SPELL_ATTR_EX6_UNK12, // 12 for auras AURA_TRACK_CREATURES, AURA_TRACK_RESOURCES and AURA_TRACK_STEALTHED select non-stacking tracking spells
- SPELL_ATTR_EX6_UNK13, // 13
- SPELL_ATTR_EX6_UNK14, // 14
- SPELL_ATTR_EX6_UNK15, // 15 not set in 3.0.3
- SPELL_ATTR_EX6_UNK16, // 16
- SPELL_ATTR_EX6_UNK17, // 17
- SPELL_ATTR_EX6_UNK18, // 18
- SPELL_ATTR_EX6_UNK19, // 19
- SPELL_ATTR_EX6_UNK20, // 20
- SPELL_ATTR_EX6_UNK21, // 21
- SPELL_ATTR_EX6_UNK22, // 22
- SPELL_ATTR_EX6_UNK23, // 23 not set in 3.0.3
- SPELL_ATTR_EX6_UNK24, // 24 not set in 3.0.3
- SPELL_ATTR_EX6_UNK25, // 25 not set in 3.0.3
- SPELL_ATTR_EX6_UNK26, // 26 not set in 3.0.3
- SPELL_ATTR_EX6_UNK27, // 27 not set in 3.0.3
- SPELL_ATTR_EX6_UNK28, // 28 not set in 3.0.3
- SPELL_ATTR_EX6_NO_DMG_PERCENT_MODS, // 29 do not apply damage percent mods (usually in cases where it has already been applied)
- SPELL_ATTR_EX6_UNK30, // 30 not set in 3.0.3
- SPELL_ATTR_EX6_UNK31, // 31 not set in 3.0.3
+  SPELL_ATTR_EX6_UNK0 = 0x0600, // 0 Only Move spell have this flag
+  SPELL_ATTR_EX6_ONLY_IN_ARENA, // 1 only usable in arena, not used in 3.2.0a and early
+  SPELL_ATTR_EX6_UNK2, // 2
+  SPELL_ATTR_EX6_UNK3, // 3
+  SPELL_ATTR_EX6_UNK4, // 4
+  SPELL_ATTR_EX6_UNK5, // 5
+  SPELL_ATTR_EX6_UNK6, // 6
+  SPELL_ATTR_EX6_UNK7, // 7
+  SPELL_ATTR_EX6_UNK8, // 8
+  SPELL_ATTR_EX6_UNK9, // 9
+  SPELL_ATTR_EX6_UNK10, // 10
+  SPELL_ATTR_EX6_NOT_IN_RAID_INSTANCE, // 11 not usable in raid instance
+  SPELL_ATTR_EX6_UNK12, // 12 for auras AURA_TRACK_CREATURES, AURA_TRACK_RESOURCES and AURA_TRACK_STEALTHED select non-stacking tracking spells
+  SPELL_ATTR_EX6_UNK13, // 13
+  SPELL_ATTR_EX6_UNK14, // 14
+  SPELL_ATTR_EX6_UNK15, // 15 not set in 3.0.3
+  SPELL_ATTR_EX6_UNK16, // 16
+  SPELL_ATTR_EX6_UNK17, // 17
+  SPELL_ATTR_EX6_UNK18, // 18
+  SPELL_ATTR_EX6_UNK19, // 19
+  SPELL_ATTR_EX6_UNK20, // 20
+  SPELL_ATTR_EX6_UNK21, // 21
+  SPELL_ATTR_EX6_UNK22, // 22
+  SPELL_ATTR_EX6_UNK23, // 23 not set in 3.0.3
+  SPELL_ATTR_EX6_UNK24, // 24 not set in 3.0.3
+  SPELL_ATTR_EX6_UNK25, // 25 not set in 3.0.3
+  SPELL_ATTR_EX6_UNK26, // 26 not set in 3.0.3
+  SPELL_ATTR_EX6_UNK27, // 27 not set in 3.0.3
+  SPELL_ATTR_EX6_UNK28, // 28 not set in 3.0.3
+  SPELL_ATTR_EX6_NO_DMG_PERCENT_MODS, // 29 do not apply damage percent mods (usually in cases where it has already been applied)
+  SPELL_ATTR_EX6_UNK30, // 30 not set in 3.0.3
+  SPELL_ATTR_EX6_UNK31, // 31 not set in 3.0.3
 
- SPELL_ATTR_EX7_UNK0 = 0x0700, // 0
- SPELL_ATTR_EX7_UNK1, // 1
- SPELL_ATTR_EX7_UNK2, // 2
- SPELL_ATTR_EX7_UNK3, // 3
- SPELL_ATTR_EX7_UNK4, // 4
- SPELL_ATTR_EX7_UNK5, // 5
- SPELL_ATTR_EX7_UNK6, // 6
- SPELL_ATTR_EX7_UNK7, // 7
- SPELL_ATTR_EX7_UNK8, // 8
- SPELL_ATTR_EX7_UNK9, // 9
- SPELL_ATTR_EX7_UNK10, // 10
- SPELL_ATTR_EX7_UNK11, // 11
- SPELL_ATTR_EX7_UNK12, // 12
- SPELL_ATTR_EX7_UNK13, // 13
- SPELL_ATTR_EX7_UNK14, // 14
- SPELL_ATTR_EX7_UNK15, // 15
- SPELL_ATTR_EX7_UNK16, // 16
- SPELL_ATTR_EX7_UNK17, // 17
- SPELL_ATTR_EX7_UNK18, // 18
- SPELL_ATTR_EX7_UNK19, // 19
- SPELL_ATTR_EX7_UNK20, // 20
- SPELL_ATTR_EX7_UNK21, // 21
- SPELL_ATTR_EX7_UNK22, // 22
- SPELL_ATTR_EX7_UNK23, // 23
- SPELL_ATTR_EX7_UNK24, // 24
- SPELL_ATTR_EX7_UNK25, // 25
- SPELL_ATTR_EX7_UNK26, // 26
- SPELL_ATTR_EX7_UNK27, // 27
- SPELL_ATTR_EX7_UNK28, // 28
- SPELL_ATTR_EX7_UNK29, // 29
- SPELL_ATTR_EX7_UNK30, // 30
- SPELL_ATTR_EX7_UNK31, // 31
+  SPELL_ATTR_EX7_UNK0 = 0x0700, // 0
+  SPELL_ATTR_EX7_UNK1, // 1
+  SPELL_ATTR_EX7_UNK2, // 2
+  SPELL_ATTR_EX7_UNK3, // 3
+  SPELL_ATTR_EX7_UNK4, // 4
+  SPELL_ATTR_EX7_UNK5, // 5
+  SPELL_ATTR_EX7_UNK6, // 6
+  SPELL_ATTR_EX7_UNK7, // 7
+  SPELL_ATTR_EX7_UNK8, // 8
+  SPELL_ATTR_EX7_UNK9, // 9
+  SPELL_ATTR_EX7_UNK10, // 10
+  SPELL_ATTR_EX7_UNK11, // 11
+  SPELL_ATTR_EX7_UNK12, // 12
+  SPELL_ATTR_EX7_UNK13, // 13
+  SPELL_ATTR_EX7_UNK14, // 14
+  SPELL_ATTR_EX7_UNK15, // 15
+  SPELL_ATTR_EX7_UNK16, // 16
+  SPELL_ATTR_EX7_UNK17, // 17
+  SPELL_ATTR_EX7_UNK18, // 18
+  SPELL_ATTR_EX7_UNK19, // 19
+  SPELL_ATTR_EX7_UNK20, // 20
+  SPELL_ATTR_EX7_UNK21, // 21
+  SPELL_ATTR_EX7_UNK22, // 22
+  SPELL_ATTR_EX7_UNK23, // 23
+  SPELL_ATTR_EX7_UNK24, // 24
+  SPELL_ATTR_EX7_UNK25, // 25
+  SPELL_ATTR_EX7_UNK26, // 26
+  SPELL_ATTR_EX7_UNK27, // 27
+  SPELL_ATTR_EX7_UNK28, // 28
+  SPELL_ATTR_EX7_UNK29, // 29
+  SPELL_ATTR_EX7_UNK30, // 30
+  SPELL_ATTR_EX7_UNK31, // 31
 
- SPELL_ATTR_EX8_UNK0 = 0x0800, // 0
- SPELL_ATTR_EX8_UNK1, // 1
- SPELL_ATTR_EX8_UNK2, // 2
- SPELL_ATTR_EX8_UNK3, // 3
- SPELL_ATTR_EX8_UNK4, // 4
- SPELL_ATTR_EX8_UNK5, // 5
- SPELL_ATTR_EX8_UNK6, // 6
- SPELL_ATTR_EX8_UNK7, // 7
- SPELL_ATTR_EX8_UNK8, // 8
- SPELL_ATTR_EX8_UNK9, // 9
- SPELL_ATTR_EX8_UNK10, // 10
- SPELL_ATTR_EX8_UNK11, // 11
- SPELL_ATTR_EX8_UNK12, // 12
- SPELL_ATTR_EX8_UNK13, // 13
- SPELL_ATTR_EX8_UNK14, // 14
- SPELL_ATTR_EX8_UNK15, // 15
- SPELL_ATTR_EX8_UNK16, // 16
- SPELL_ATTR_EX8_UNK17, // 17
- SPELL_ATTR_EX8_UNK18, // 18
- SPELL_ATTR_EX8_UNK19, // 19
- SPELL_ATTR_EX8_UNK20, // 20
- SPELL_ATTR_EX8_UNK21, // 21
- SPELL_ATTR_EX8_UNK22, // 22
- SPELL_ATTR_EX8_UNK23, // 23
- SPELL_ATTR_EX8_UNK24, // 24
- SPELL_ATTR_EX8_UNK25, // 25
- SPELL_ATTR_EX8_UNK26, // 26
- SPELL_ATTR_EX8_UNK27, // 27
- SPELL_ATTR_EX8_UNK28, // 28
- SPELL_ATTR_EX8_UNK29, // 29
- SPELL_ATTR_EX8_UNK30, // 30
- SPELL_ATTR_EX8_UNK31, // 31
+  SPELL_ATTR_EX8_UNK0 = 0x0800, // 0
+  SPELL_ATTR_EX8_UNK1, // 1
+  SPELL_ATTR_EX8_UNK2, // 2
+  SPELL_ATTR_EX8_UNK3, // 3
+  SPELL_ATTR_EX8_UNK4, // 4
+  SPELL_ATTR_EX8_UNK5, // 5
+  SPELL_ATTR_EX8_UNK6, // 6
+  SPELL_ATTR_EX8_UNK7, // 7
+  SPELL_ATTR_EX8_UNK8, // 8
+  SPELL_ATTR_EX8_UNK9, // 9
+  SPELL_ATTR_EX8_UNK10, // 10
+  SPELL_ATTR_EX8_UNK11, // 11
+  SPELL_ATTR_EX8_UNK12, // 12
+  SPELL_ATTR_EX8_UNK13, // 13
+  SPELL_ATTR_EX8_UNK14, // 14
+  SPELL_ATTR_EX8_UNK15, // 15
+  SPELL_ATTR_EX8_UNK16, // 16
+  SPELL_ATTR_EX8_UNK17, // 17
+  SPELL_ATTR_EX8_UNK18, // 18
+  SPELL_ATTR_EX8_UNK19, // 19
+  SPELL_ATTR_EX8_UNK20, // 20
+  SPELL_ATTR_EX8_UNK21, // 21
+  SPELL_ATTR_EX8_UNK22, // 22
+  SPELL_ATTR_EX8_UNK23, // 23
+  SPELL_ATTR_EX8_UNK24, // 24
+  SPELL_ATTR_EX8_UNK25, // 25
+  SPELL_ATTR_EX8_UNK26, // 26
+  SPELL_ATTR_EX8_UNK27, // 27
+  SPELL_ATTR_EX8_UNK28, // 28
+  SPELL_ATTR_EX8_UNK29, // 29
+  SPELL_ATTR_EX8_UNK30, // 30
+  SPELL_ATTR_EX8_UNK31, // 31
 
- SPELL_ATTR_EX9_UNK0 = 0x0900, // 0
- SPELL_ATTR_EX9_UNK1, // 1
- SPELL_ATTR_EX9_UNK2, // 2
- SPELL_ATTR_EX9_UNK3, // 3
- SPELL_ATTR_EX9_UNK4, // 4
- SPELL_ATTR_EX9_UNK5, // 5
- SPELL_ATTR_EX9_UNK6, // 6
- SPELL_ATTR_EX9_UNK7, // 7
- SPELL_ATTR_EX9_UNK8, // 8
- SPELL_ATTR_EX9_UNK9, // 9
- SPELL_ATTR_EX9_UNK10, // 10
- SPELL_ATTR_EX9_UNK11, // 11
- SPELL_ATTR_EX9_UNK12, // 12
- SPELL_ATTR_EX9_UNK13, // 13
- SPELL_ATTR_EX9_UNK14, // 14
- SPELL_ATTR_EX9_UNK15, // 15
- SPELL_ATTR_EX9_UNK16, // 16
- SPELL_ATTR_EX9_UNK17, // 17
- SPELL_ATTR_EX9_UNK18, // 18
- SPELL_ATTR_EX9_UNK19, // 19
- SPELL_ATTR_EX9_UNK20, // 20
- SPELL_ATTR_EX9_UNK21, // 21
- SPELL_ATTR_EX9_UNK22, // 22
- SPELL_ATTR_EX9_UNK23, // 23
- SPELL_ATTR_EX9_UNK24, // 24
- SPELL_ATTR_EX9_UNK25, // 25
- SPELL_ATTR_EX9_UNK26, // 26
- SPELL_ATTR_EX9_UNK27, // 27
- SPELL_ATTR_EX9_UNK28, // 28
- SPELL_ATTR_EX9_UNK29, // 29
- SPELL_ATTR_EX9_UNK30, // 30
- SPELL_ATTR_EX9_UNK31, // 31
+  SPELL_ATTR_EX9_UNK0 = 0x0900, // 0
+  SPELL_ATTR_EX9_UNK1, // 1
+  SPELL_ATTR_EX9_UNK2, // 2
+  SPELL_ATTR_EX9_UNK3, // 3
+  SPELL_ATTR_EX9_UNK4, // 4
+  SPELL_ATTR_EX9_UNK5, // 5
+  SPELL_ATTR_EX9_UNK6, // 6
+  SPELL_ATTR_EX9_UNK7, // 7
+  SPELL_ATTR_EX9_UNK8, // 8
+  SPELL_ATTR_EX9_UNK9, // 9
+  SPELL_ATTR_EX9_UNK10, // 10
+  SPELL_ATTR_EX9_UNK11, // 11
+  SPELL_ATTR_EX9_UNK12, // 12
+  SPELL_ATTR_EX9_UNK13, // 13
+  SPELL_ATTR_EX9_UNK14, // 14
+  SPELL_ATTR_EX9_UNK15, // 15
+  SPELL_ATTR_EX9_UNK16, // 16
+  SPELL_ATTR_EX9_UNK17, // 17
+  SPELL_ATTR_EX9_UNK18, // 18
+  SPELL_ATTR_EX9_UNK19, // 19
+  SPELL_ATTR_EX9_UNK20, // 20
+  SPELL_ATTR_EX9_UNK21, // 21
+  SPELL_ATTR_EX9_UNK22, // 22
+  SPELL_ATTR_EX9_UNK23, // 23
+  SPELL_ATTR_EX9_UNK24, // 24
+  SPELL_ATTR_EX9_UNK25, // 25
+  SPELL_ATTR_EX9_UNK26, // 26
+  SPELL_ATTR_EX9_UNK27, // 27
+  SPELL_ATTR_EX9_UNK28, // 28
+  SPELL_ATTR_EX9_UNK29, // 29
+  SPELL_ATTR_EX9_UNK30, // 30
+  SPELL_ATTR_EX9_UNK31, // 31
 };
 
 // DBC related classes ======================================================
 
-struct spell_data_t {
-  const char * _name;               // Spell name from Spell.dbc stringblock (enGB)
-  unsigned     _id;                 // Spell ID in dbc
-  unsigned     _flags;              // Unused for now, 0x00 for all
-  double       _prj_speed;          // Projectile Speed
-  unsigned     _school;             // Spell school mask
-  int          _power_type;         // Resource type
-  unsigned     _class_mask;         // Class mask for spell
-  unsigned     _race_mask;          // Racial mask for the spell
-  int          _scaling_type;       // Array index for gtSpellScaling.dbc. -1 means the last sub-array, 0 disabled
-  double       _extra_coeff;        // An "extra" coefficient (used for some spells to indicate AP based coefficient)
+struct spell_data_t
+{
+private:
+  static const unsigned FLAG_USED = 1;
+  static const unsigned FLAG_DISABLED = 2;
+
+  friend class dbc_t;
+  static void link( bool ptr );
+
+public:
+  const char* _name;               // Spell name from Spell.dbc stringblock (enGB)
+  unsigned    _id;                 // Spell ID in dbc
+  unsigned    _flags;              // Unused for now, 0x00 for all
+  double      _prj_speed;          // Projectile Speed
+  unsigned    _school;             // Spell school mask
+  int         _power_type;         // Resource type
+  unsigned    _class_mask;         // Class mask for spell
+  unsigned    _race_mask;          // Racial mask for the spell
+  int         _scaling_type;       // Array index for gtSpellScaling.dbc. -1 means the last sub-array, 0 disabled
+  double      _extra_coeff;        // An "extra" coefficient (used for some spells to indicate AP based coefficient)
   // SpellLevels.dbc
-  unsigned     _spell_level;        // Spell learned on level. NOTE: Only accurate for "class abilities"
-  unsigned     _max_level;          // Maximum level for scaling
+  unsigned    _spell_level;        // Spell learned on level. NOTE: Only accurate for "class abilities"
+  unsigned    _max_level;          // Maximum level for scaling
   // SpellRange.dbc
-  double       _min_range;          // Minimum range in yards
-  double       _max_range;          // Maximum range in yards
+  double      _min_range;          // Minimum range in yards
+  double      _max_range;          // Maximum range in yards
   // SpellCooldown.dbc
-  unsigned     _cooldown;           // Cooldown in milliseconds
-  unsigned     _gcd;                // GCD in milliseconds
+  unsigned    _cooldown;           // Cooldown in milliseconds
+  unsigned    _gcd;                // GCD in milliseconds
   // SpellCategories.dbc
-  unsigned     _category;           // Spell category (for shared cooldowns, effects?)
+  unsigned    _category;           // Spell category (for shared cooldowns, effects?)
   // SpellDuration.dbc
-  double       _duration;           // Spell duration in milliseconds
+  double      _duration;           // Spell duration in milliseconds
   // SpellPower.dbc
-  unsigned     _cost;               // Resource cost
+  unsigned    _cost;               // Resource cost
   // SpellRuneCost.dbc
-  unsigned     _rune_cost;          // Bitmask of rune cost 0x1, 0x2 = Blood | 0x4, 0x8 = Unholy | 0x10, 0x20 = Frost
-  unsigned     _runic_power_gain;   // Amount of runic power gained ( / 10 )
+  unsigned    _rune_cost;          // Bitmask of rune cost 0x1, 0x2 = Blood | 0x4, 0x8 = Unholy | 0x10, 0x20 = Frost
+  unsigned    _runic_power_gain;   // Amount of runic power gained ( / 10 )
   // SpellAuraOptions.dbc
-  unsigned     _max_stack;          // Maximum stack size for spell
-  unsigned     _proc_chance;        // Spell proc chance in percent
-  unsigned     _proc_charges;       // Per proc charge amount
+  unsigned    _max_stack;          // Maximum stack size for spell
+  unsigned    _proc_chance;        // Spell proc chance in percent
+  unsigned    _proc_charges;       // Per proc charge amount
   // SpellEquippedItems.dbc
-  unsigned     _equipped_class;
-  unsigned     _equipped_invtype_mask;
-  unsigned     _equipped_subclass_mask;
+  unsigned    _equipped_class;
+  unsigned    _equipped_invtype_mask;
+  unsigned    _equipped_subclass_mask;
   // SpellScaling.dbc
-  int          _cast_min;           // Minimum casting time in milliseconds
-  int          _cast_max;           // Maximum casting time in milliseconds
-  int          _cast_div;           // A divisor used in the formula for casting time scaling (20 always?)
-  double       _c_scaling;          // A scaling multiplier for level based scaling
-  unsigned     _c_scaling_level;    // A scaling divisor for level based scaling
+  int         _cast_min;           // Minimum casting time in milliseconds
+  int         _cast_max;           // Maximum casting time in milliseconds
+  int         _cast_div;           // A divisor used in the formula for casting time scaling (20 always?)
+  double      _c_scaling;          // A scaling multiplier for level based scaling
+  unsigned    _c_scaling_level;    // A scaling divisor for level based scaling
   // SpellEffect.dbc
-  unsigned     _effect[3];          // Effect identifiers
+  unsigned    _effect[MAX_EFFECTS];// Effect identifiers
   // Spell.dbc flags
-  unsigned     _attributes[10];     // Spell.dbc "flags", record field 1..10, note that 12694 added a field here after flags_7
-  const char * _desc;               // Spell.dbc description stringblock
-  const char * _tooltip;            // Spell.dbc tooltip stringblock
+  unsigned    _attributes[NUM_SPELL_FLAGS];// Spell.dbc "flags", record field 1..10, note that 12694 added a field here after flags_7
+  const char* _desc;               // Spell.dbc description stringblock
+  const char* _tooltip;            // Spell.dbc tooltip stringblock
   // SpellDescriptionVariables.dbc
-  const char * _desc_vars;          // Spell description variable stringblock, if present
+  const char* _desc_vars;          // Spell description variable stringblock, if present
   // SpellIcon.dbc
-  const char * _icon;
+  const char* _icon;
 
   // Pointers for runtime linking
   spelleffect_data_t* _effect1;
@@ -1300,56 +1531,90 @@ struct spell_data_t {
   const spelleffect_data_t& effect2() const { return *_effect2; }
   const spelleffect_data_t& effect3() const { return *_effect3; }
 
+  bool                 is_used() const { return _flags & FLAG_USED; }
+  void                 set_used( bool value );
+
+  bool                 is_enabled() const { return ! ( _flags & FLAG_DISABLED ); }
+  void                 set_enabled( bool value );
+
+  unsigned             id() const { return _id; }
+  uint32_t             school_mask() const { return _school; }
+  resource_type        power_type() const;
+
+  bool                 is_class( player_type c ) const;
+  uint32_t             class_mask() const { return _class_mask; }
+
+  bool                 is_race( race_type r ) const;
+  uint32_t             race_mask() const { return _race_mask; }
+
+  bool                 is_level( uint32_t level ) const { return level >= _spell_level; }
+  uint32_t             level() const { return _spell_level; }
+  uint32_t             max_level() const { return _max_level; }
+
+  player_type          scaling_class() const;
+
+  double               missile_speed() const { return _prj_speed; }
+  double               min_range() const { return _min_range; }
+  double               max_range() const { return _max_range; }
+  bool                 in_range( double range ) const { return range >= _min_range && range <= _max_range; }
+
+  double               cooldown() const { return _cooldown / 1000.0; }
+  double               duration() const { return _duration / 1000.0; }
+  double               gcd() const { return _gcd / 1000.0; }
+  double               cast_time( uint32_t level ) const;
+
+  uint32_t             category() const { return _category; }
+
+  double               cost() const;
+  uint32_t             rune_cost() const { return _rune_cost; }
+  double               runic_power_gain() const { return _runic_power_gain / 10.0; }
+
+  uint32_t             max_stacks() const { return _max_stack; }
+  uint32_t             initial_stacks() const { return _proc_charges; }
+
+  double               proc_chance() const { return _proc_chance / 100.0; }
+
+  uint32_t             effect_id( uint32_t effect_num ) const
+  {
+    assert( effect_num >= 1 && effect_num <= MAX_EFFECTS );
+    return _effect[ effect_num - 1 ];
+  }
+
+  bool                 flags( spell_attribute_t f ) const;
+
+  const char*          name_cstr() const { return _name; }
+  const char*          desc() const { return _desc; }
+  const char*          tooltip() const { return _tooltip; }
+
+  double               scaling_multiplier() const { return _c_scaling; }
+  unsigned             scaling_threshold() const { return _c_scaling_level; }
+  double               extra_coeff() const { return _extra_coeff; }
+
   static spell_data_t* nil();
-  static spell_data_t* find( const std::string& name, bool ptr = false );
+  static spell_data_t* find( const char* name, bool ptr = false );
   static spell_data_t* find( unsigned id, bool ptr = false );
   static spell_data_t* find( unsigned id, const char* confirmation, bool ptr = false );
   static spell_data_t* list( bool ptr = false );
-  static void          link( bool ptr = false );
-
-  bool                 is_used() SC_CONST;
-  bool                 is_enabled() SC_CONST;
-  void                 set_used( bool value );
-  void                 set_enabled( bool value );
-
-  inline unsigned      id() SC_CONST { return _id; }
-  double               missile_speed() SC_CONST;
-  uint32_t             school_mask() SC_CONST;
-  resource_type        power_type() SC_CONST;
-  bool                 is_class( player_type c ) SC_CONST;
-  bool                 is_race( race_type r ) SC_CONST;
-  bool                 is_level( uint32_t level ) SC_CONST;
-  uint32_t             level() SC_CONST;
-  uint32_t             max_level() SC_CONST;
-  uint32_t             class_mask() SC_CONST;
-  uint32_t             race_mask() SC_CONST;
-  player_type          scaling_class() SC_CONST;
-  double               min_range() SC_CONST;
-  double               max_range() SC_CONST;
-  bool                 in_range( double range ) SC_CONST;
-  double               cooldown() SC_CONST;
-  double               gcd() SC_CONST;
-  uint32_t             category() SC_CONST;
-  double               duration() SC_CONST;
-  double               cost() SC_CONST;
-  uint32_t             rune_cost() SC_CONST;
-  double               runic_power_gain() SC_CONST;
-  uint32_t             max_stacks() SC_CONST;
-  uint32_t             initial_stacks() SC_CONST;
-  double               proc_chance() SC_CONST;
-  double               cast_time( uint32_t level ) SC_CONST;
-  uint32_t             effect_id( uint32_t effect_num ) SC_CONST;
-  bool                 flags( spell_attribute_t f ) SC_CONST;
-  const char*          name_cstr() SC_CONST;
-  const char*          desc() SC_CONST;
-  const char*          tooltip() SC_CONST;
-  double               scaling_multiplier() SC_CONST;
-  unsigned             scaling_threshold() SC_CONST;
-  double               extra_coeff() SC_CONST;
 };
 
+class spell_data_nil_t : public spell_data_t
+{
+public:
+  spell_data_nil_t();
+  static spell_data_nil_t singleton;
+};
+
+inline spell_data_t* spell_data_t::nil()
+{ return &spell_data_nil_t::singleton; }
+
 // SpellEffect.dbc
-struct spelleffect_data_t {
+struct spelleffect_data_t
+{
+private:
+  static const unsigned int FLAG_USED = 1;
+  static const unsigned int FLAG_ENABLED = 2;
+
+public:
   unsigned         _id;              // Effect id
   unsigned         _flags;           // Unused for now, 0x00 for all
   unsigned         _spell_id;        // Spell this effect belongs to
@@ -1380,57 +1645,86 @@ struct spelleffect_data_t {
   spell_data_t*    _spell;
   spell_data_t*    _trigger_spell;
 
-  static spelleffect_data_t* nil();
-  static spelleffect_data_t* find( unsigned, bool ptr = false );
-  static spelleffect_data_t* list( bool ptr = false );
-  static void                link( bool ptr = false );
-
-  bool                       is_used() SC_CONST;
-  bool                       is_enabled() SC_CONST;
+  bool                       is_used() const { return ( _flags & FLAG_USED ) != 0; }
   void                       set_used( bool value );
+
+  bool                       is_enabled() const { return ( _flags & FLAG_ENABLED ) != 0; }
   void                       set_enabled( bool value );
 
-  unsigned                   id() SC_CONST { return _id; }
-  unsigned                   index() SC_CONST;
-  uint32_t                   spell_id() SC_CONST;
-  uint32_t                   spell_effect_num() SC_CONST;
-  effect_type_t              type() SC_CONST;
-  effect_subtype_t           subtype() SC_CONST;
-  int32_t                    base_value() SC_CONST { return _base_value; }
-  int32_t                    misc_value1() SC_CONST { return _misc_value; }
-  int32_t                    misc_value2() SC_CONST { return _misc_value_2; }
-  uint32_t                   trigger_spell_id() SC_CONST;
-  double                     chain_multiplier() SC_CONST;
+  unsigned                   id() const { return _id; }
+  unsigned                   index() const { return _index; }
+  unsigned                   spell_id() const { return _spell_id; }
+  unsigned                   spell_effect_num() const { return _index; }
 
-  double                     m_average() SC_CONST;
-  double                     m_delta() SC_CONST;
-  double                     m_unk() SC_CONST;
-  double                     coeff() SC_CONST;
-  double                     period() SC_CONST;
-  double                     radius() SC_CONST;
-  double                     radius_max() SC_CONST;
-  double                     pp_combo_points() SC_CONST;
-  double                     real_ppl() SC_CONST;
-  int                        die_sides() SC_CONST;
+  effect_type_t              type() const { return _type; }
+  effect_subtype_t           subtype() const { return _subtype; }
 
-  spell_data_t& spell()   const { return *_spell; }
-  spell_data_t& trigger() const { return *_trigger_spell; }
+  int                        base_value() const { return _base_value; }
   double percent() const { return _base_value / 100.0; }
   double seconds() const { return _base_value / 1000.0; }
   double resource( int type ) const
   {
-    if( type == RESOURCE_RUNIC ) return _base_value / 10.0;
-    if( type == RESOURCE_RAGE  ) return _base_value / 10.0;
-    if( type == RESOURCE_MANA  ) return _base_value / 100.0;
-    return _base_value;
+    switch( type )
+    {
+    case RESOURCE_RUNIC:
+    case RESOURCE_RAGE:
+      return _base_value / 10.0;
+    case RESOURCE_MANA:
+      return _base_value / 100.0;
+    default:
+      return _base_value;
+    }
   }
+
+  int                        misc_value1() const { return _misc_value; }
+  int                        misc_value2() const { return _misc_value_2; }
+
+  unsigned                   trigger_spell_id() const { return _trigger_spell_id >= 0 ? _trigger_spell_id : 0; }
+  double                     chain_multiplier() const { return _m_chain; }
+
+  double                     m_average() const { return _m_avg; }
+  double                     m_delta() const { return _m_delta; }
+  double                     m_unk() const { return _m_unk; }
+
+  double                     coeff() const { return _coeff; }
+
+  double                     period() const { return _amplitude / 1000.0; }
+
+  double                     radius() const { return _radius; }
+  double                     radius_max() const { return _radius_max; }
+
+  double                     pp_combo_points() const { return _pp_combo_points; }
+
+  double                     real_ppl() const { return _real_ppl; }
+
+  int                        die_sides() const { return _die_sides; }
+
+  spell_data_t& spell()   const { return *_spell; }
+  spell_data_t& trigger() const { return *_trigger_spell; }
+
+  static spelleffect_data_t* nil();
+  static spelleffect_data_t* find( unsigned, bool ptr = false );
+  static spelleffect_data_t* list( bool ptr = false );
+  static void                link( bool ptr = false );
 };
+
+class spelleffect_data_nil_t : public spelleffect_data_t
+{
+public:
+  spelleffect_data_nil_t();
+  static spelleffect_data_nil_t singleton;
+};
+
+inline spelleffect_data_t* spelleffect_data_t::nil()
+{ return &spelleffect_data_nil_t::singleton; }
 
 struct talent_data_t
 {
+private:
   static const unsigned FLAG_USED = 0x01;
   static const unsigned FLAG_DISABLED = 0x02;
 
+public:
   const char * _name;        // Talent name
   unsigned     _id;          // Talent id
   unsigned     _flags;       // Unused for now, 0x00 for all
@@ -1448,12 +1742,6 @@ struct talent_data_t
   spell_data_t* spell2;
   spell_data_t* spell3;
 
-  static talent_data_t* nil();
-  static talent_data_t* find( unsigned, const std::string& confirmation = std::string(), bool ptr = false );
-  static talent_data_t* find( const std::string& name, bool ptr = false );
-  static talent_data_t* list( bool ptr = false );
-  static void           link( bool ptr = false );
-
   bool                  is_used() const { return ( _flags & FLAG_USED ) != 0; }
   bool                  is_enabled() const { return ( _flags & FLAG_DISABLED ) == 0; }
   void                  set_used( bool value );
@@ -1461,19 +1749,19 @@ struct talent_data_t
 
   inline unsigned       id() const { return _id; }
   const char*           name_cstr() const { return _name; }
-  uint32_t              tab_page() const { return _tab_page; }
-  bool                  is_class( player_type c ) SC_CONST;
-  bool                  is_pet( pet_type_t p ) SC_CONST;
-  uint32_t              depends_id() const { return _dependance; }
-  uint32_t              depends_rank() const { return _depend_rank + 1; }
+  unsigned              tab_page() const { return _tab_page; }
+  bool                  is_class( player_type c ) const;
+  bool                  is_pet( pet_type_t p ) const;
+  unsigned              depends_id() const { return _dependance; }
+  unsigned              depends_rank() const { return _depend_rank + 1; }
 
-  uint32_t              col() const { return _col; }
-  uint32_t              row() const { return _row; }
-  uint32_t              rank_spell_id( uint32_t rank ) SC_CONST;
+  unsigned              col() const { return _col; }
+  unsigned              row() const { return _row; }
+  unsigned              rank_spell_id( unsigned rank ) const;
   unsigned              mask_class() const { return _m_class; }
   unsigned              mask_pet() const { return _m_pet; }
 
-  uint32_t              max_rank() SC_CONST;
+  unsigned              max_rank() const;
 
   spell_data_t& spell( unsigned r )
   {
@@ -1482,37 +1770,42 @@ struct talent_data_t
     if ( r == 2 ) return *spell3;
     return *spell_data_t::nil();
   }
+
+  static talent_data_t* nil();
+  static talent_data_t* find( unsigned, bool ptr = false );
+  static talent_data_t* find( unsigned, const char* confirmation, bool ptr = false );
+  static talent_data_t* find( const char* name, bool ptr = false );
+  static talent_data_t* list( bool ptr = false );
+  static void           link( bool ptr = false );
 };
 
-struct dbc_t
+class talent_data_nil_t : public talent_data_t
 {
+public:
+  talent_data_nil_t();
+  static talent_data_nil_t singleton;
+};
+
+inline talent_data_t* talent_data_t::nil()
+{ return &talent_data_nil_t::singleton; }
+
+class dbc_t
+{
+public:
   bool ptr;
 
   dbc_t( bool ptr=false ) : ptr( ptr ) { }
 
   // Static Initialization
   static void init();
-  static void de_init();
-  static int glyphs( std::vector<unsigned>& glyph_ids, int cid, bool ptr = false );
+  static void de_init() {}
+  static std::vector<unsigned> glyphs( int cid, bool ptr = false );
 
   static const char* build_level( bool ptr = false );
   static const char* wow_version( bool ptr = false );
-  static void        create_spell_data_index( bool ptr = false );
-  static void        create_spelleffect_data_index( bool ptr = false );
-  static void        create_talent_data_index( bool ptr = false );
 
   static const item_data_t* items( bool ptr = false );
   static std::size_t        n_items( bool ptr = false );
-
-  // Index access
-  spell_data_t** spell_data_index() SC_CONST;
-  unsigned spell_data_index_size() SC_CONST;
-
-  spelleffect_data_t** spelleffect_data_index() SC_CONST;
-  unsigned spelleffect_data_index_size() SC_CONST;
-
-  talent_data_t** talent_data_index() SC_CONST;
-  unsigned talent_data_index_size() SC_CONST;
 
   // Game data table access
   double melee_crit_base( player_type t ) SC_CONST;
@@ -1544,9 +1837,9 @@ struct dbc_t
   double combat_rating( unsigned combat_rating_id, unsigned level ) SC_CONST;
   double oct_combat_rating( unsigned combat_rating_id, player_type t ) SC_CONST;
 
-  const spell_data_t*            spell( unsigned spell_id ) SC_CONST;
-  const spelleffect_data_t*      effect( unsigned effect_id ) SC_CONST;
-  const talent_data_t*           talent( unsigned talent_id ) SC_CONST;
+  const spell_data_t*            spell( unsigned spell_id ) const { return spell_data_t::find( spell_id, ptr ); }
+  const spelleffect_data_t*      effect( unsigned effect_id ) const { return spelleffect_data_t::find( effect_id, ptr ); }
+  const talent_data_t*           talent( unsigned talent_id ) const { return talent_data_t::find( talent_id, ptr ); }
   const item_data_t*             item( unsigned item_id ) SC_CONST;
 
   const random_suffix_data_t&    random_suffix( unsigned suffix_id ) SC_CONST;
@@ -1658,6 +1951,7 @@ struct option_t
   static bool parse_file( sim_t*, FILE* file );
   static bool parse_line( sim_t*, char* line );
   static bool parse_token( sim_t*, std::string& token );
+  static option_t* merge( std::vector<option_t>& out, const option_t* in1, const option_t* in2 );
 };
 
 // Talent Translation =======================================================
@@ -1686,8 +1980,20 @@ struct talent_translation_t
 
 #ifdef _MSC_VER
 // C99-compliant snprintf - MSVC _snprintf is NOT the same.
+
+#undef vsnprintf
+int vsnprintf_simc( char* buf, size_t size, const char* fmt, va_list ap );
+#define vsnprintf vsnprintf_simc
+
 #undef snprintf
-int snprintf( char* buf, size_t size, const char* fmt, ... );
+inline int snprintf( char* buf, size_t size, const char* fmt, ... )
+{
+  va_list ap;
+  va_start( ap, fmt );
+  int rval = vsnprintf( buf, size, fmt, ap );
+  va_end( ap );
+  return rval;
+}
 #endif
 
 struct util_t
@@ -1701,6 +2007,9 @@ private:
   static void html_special_char_decode_( std::string& str );
   static void tolower_( std::string& );
   static void string_split_( std::vector<std::string>& results, const std::string& str, const char* delim, bool allow_quotes );
+  static void replace_all_( std::string&, const char* from, char to );
+  static void replace_all_( std::string&, char from, const char* to );
+  static int vfprintf_helper( FILE *stream, const char *format, va_list fmtargs );
 
 public:
   static double talent_rank( int num, int max, double increment );
@@ -1794,16 +2103,27 @@ public:
   { string_split_( results, str, delim, allow_quotes ); return static_cast<int>( results.size() ); }
   static int string_split( const std::string& str, const char* delim, const char* format, ... );
   static void string_strip_quotes( std::string& str );
+  static std::string& replace_all( std::string& s, const char* from, char to )
+  { replace_all_( s, from, to ); return s; }
+  static std::string& replace_all( std::string& s, char from, const char* to )
+  { replace_all_( s, from, to ); return s; }
 
-  static std::string to_string( int i );
+  template <typename T>
+  static std::string to_string( const T& t )
+  { std::ostringstream s; s << t; return s.str(); }
+
   static std::string to_string( double f );
   static std::string to_string( double f, int precision );
 
   static int64_t milliseconds();
   static int64_t parse_date( const std::string& month_day_year );
 
-  static int printf( const char *format,  ... ) PRINTF_ATTRIBUTE(1,2);
-  static int fprintf( FILE *stream, const char *format,  ... ) PRINTF_ATTRIBUTE(2,3);
+  static int printf( const char *format, ... ) PRINTF_ATTRIBUTE( 1,2 );
+  static int fprintf( FILE *stream, const char *format, ... ) PRINTF_ATTRIBUTE( 2,3 );
+  static int vfprintf( FILE *stream, const char *format, va_list fmtargs ) PRINTF_ATTRIBUTE( 2,0 )
+  { return vfprintf_helper( stream, format, fmtargs ); }
+  static int vprintf( const char *format, va_list fmtargs ) PRINTF_ATTRIBUTE( 1,0 )
+  { return vfprintf( stdout, format, fmtargs ); }
 
   static std::string& str_to_utf8( std::string& str ) { str_to_utf8_( str ); return str; }
   static std::string& str_to_latin1( std::string& str ) { str_to_latin1_( str ); return str; }
@@ -1827,6 +2147,8 @@ public:
   static double round( double X, unsigned int decplaces = 0 );
 
   static std::string& tolower( std::string& str ) { tolower_( str ); return str; }
+
+  static int snprintf( char* buf, size_t size, const char* fmt, ... ) PRINTF_ATTRIBUTE( 3,4 );
 };
 
 // Spell information struct, holding static functions to output spell data in a human readable form
@@ -1868,7 +2190,7 @@ struct spell_id_t
   int                        s_tree;
 
   // Construction & deconstruction
-  spell_id_t( const spell_id_t& copy );
+  // spell_id_t( const spell_id_t& copy ) = default;
   spell_id_t( player_t* player = 0, const char* t_name = 0 );
   spell_id_t( player_t* player, const char* t_name, const uint32_t id, talent_t* talent = 0 );
   spell_id_t( player_t* player, const char* t_name, const char* s_name, talent_t* talent = 0 );
@@ -1876,7 +2198,7 @@ struct spell_id_t
 
   // Generic spell data initialization
   bool initialize( const char* s_name = 0 );
-  virtual bool enable( bool override_value = false );
+  virtual bool enable( bool override_value );
 
   // Spell data object validity check
   virtual bool ok() SC_CONST;
@@ -2085,6 +2407,7 @@ struct raid_event_t
 
 // Gear Stats ===============================================================
 
+namespace internal {
 struct gear_stats_t
 {
   double attribute[ ATTRIBUTE_MAX ];
@@ -2094,7 +2417,9 @@ struct gear_stats_t
   double mp5;
   double attack_power;
   double expertise_rating;
+  double expertise_rating2;
   double hit_rating;
+  double hit_rating2;
   double crit_rating;
   double haste_rating;
   double weapon_dps;
@@ -2107,8 +2432,13 @@ struct gear_stats_t
   double parry_rating;
   double block_rating;
   double mastery_rating;
+};
+}
 
-  gear_stats_t() { memset( ( void* ) this, 0x00, sizeof( gear_stats_t ) ); }
+struct gear_stats_t : public internal::gear_stats_t
+{
+  typedef internal::gear_stats_t base_t;
+  gear_stats_t() : base_t( base_t() ) {}
 
   void   add_stat( int stat, double value );
   void   set_stat( int stat, double value );
@@ -2118,35 +2448,98 @@ struct gear_stats_t
 };
 
 
+// Statistical Sample Data
+
+struct sample_data_t
+{
+  std::vector<double> data;
+  // Analyzed Results
+  double sum;
+  double mean;
+  double min;
+  double max;
+  double variance;
+  double std_dev;
+  double mean_std_dev;
+  std::vector<int> distribution;
+  const bool simple;
+  const bool min_max;
+private:
+  int count;
+
+  bool analyzed_basics;
+  bool analyzed_variance;
+  bool created_dist;
+  bool is_sorted;
+public:
+
+  sample_data_t( bool s=true, bool mm=false );
+
+  void reserve( std::size_t capacity )
+  { if ( ! simple ) data.reserve( capacity ); }
+
+  void add( double x=0 );
+
+  bool basics_analyzed() const { return analyzed_basics; }
+  bool variance_analyzed() const { return analyzed_variance; }
+  bool distribution_created() const { return created_dist; }
+  bool sorted() const { return is_sorted; }
+  int size() const { if ( simple ) return count; return (int) data.size(); }
+
+  void analyze(
+    bool calc_basics=true,
+    bool calc_variance=true,
+    bool s=true,
+    unsigned int create_dist=0 );
+
+
+  void analyze_basics();
+
+  void analyze_variance();
+
+  void sort();
+
+  void create_distribution( unsigned int num_buckets=50 );
+
+  double percentile( double );
+
+  void merge( const sample_data_t& );
+
+  void clear() { count = 0; sum = 0; data.clear(); distribution.clear(); }
+
+  static double pearson_correlation( const sample_data_t&, const sample_data_t& );
+};
+
 // Buffs ====================================================================
 
 struct buff_t : public spell_id_t
 {
+  double current_value, react, buff_duration, buff_cooldown, default_chance;
+  double last_start, last_trigger, start_intervals_sum, trigger_intervals_sum, iteration_uptime_sum;
+  int64_t up_count, down_count, start_intervals, trigger_intervals, start_count, refresh_count;
+  int64_t trigger_attempts, trigger_successes;
+  double benefit_pct, trigger_pct, avg_start_interval, avg_trigger_interval, avg_start, avg_refresh;
+  std::string name_str;
+  std::vector<double> stack_occurrence, stack_react_time;
+  std::vector<buff_uptime_t> stack_uptime;
   sim_t* sim;
   player_t* player;
   player_t* source;
   player_t* initial_source;
-  std::string name_str;
-  std::vector<std::string> aura_str;
-  std::vector<double> stack_occurrence,stack_react_time;
-  int current_stack, max_stack;
-  bool activated;
-  double current_value, react, buff_duration, buff_cooldown, default_chance;
-  double last_start, last_trigger, start_intervals_sum, trigger_intervals_sum, uptime_sum;
-  int64_t up_count, down_count, start_intervals, trigger_intervals, start_count, refresh_count;
-  int64_t trigger_attempts, trigger_successes;
-  double uptime_pct, benefit_pct, trigger_pct, avg_start_interval, avg_trigger_interval, avg_start, avg_refresh;
-  bool reverse, constant, quiet, overridden;
-  int aura_id;
   event_t* expiration;
   event_t* delay;
-  int rng_type;
   rng_t* rng;
   cooldown_t* cooldown;
   buff_t* next;
+  int current_stack, max_stack;
+  int aura_id;
+  int rng_type;
+  bool activated;
+  bool reverse, constant, quiet, overridden;
+  sample_data_t uptime_pct;
 
   buff_t() : sim( 0 ) {}
-  virtual ~buff_t() {}
+  virtual ~buff_t();
 
   // Raid Aura
   buff_t( sim_t*, const std::string& name,
@@ -2163,9 +2556,7 @@ private:
   void init_from_talent_( player_t*, talent_t* );
   void init_from_spell_( player_t*, spell_data_t* );
 public:
-  buff_t( player_t*, talent_t* );
   buff_t( player_t*, talent_t*, ... );
-  buff_t( player_t*, spell_data_t* );
   buff_t( player_t*, spell_data_t*, ... );
 
   // Player Buff as spell_id_t by name
@@ -2182,9 +2573,9 @@ public:
   // Use up() where the presence of the buff affects the action mechanics.
 
   int    check() { return current_stack; }
-  bool   up()    { if( current_stack > 0 ) { up_count++; } else { down_count++; } return current_stack > 0; }
-  int    stack() { if( current_stack > 0 ) { up_count++; } else { down_count++; } return current_stack; }
-  double value() { if( current_stack > 0 ) { up_count++; } else { down_count++; } return current_value; }
+  inline bool   up()    { if( current_stack > 0 ) { up_count++; } else { down_count++; } return current_stack > 0; }
+  inline int    stack() { if( current_stack > 0 ) { up_count++; } else { down_count++; } return current_stack; }
+  inline double value() { if( current_stack > 0 ) { up_count++; } else { down_count++; } return current_value; }
   double remains();
   bool   remains_gt( double time );
   bool   remains_lt( double time );
@@ -2206,19 +2597,23 @@ public:
   virtual void reset();
   virtual void aura_gain();
   virtual void aura_loss();
-  virtual void merge( buff_t* other_buff );
+  virtual void merge( const buff_t* other_buff );
   virtual void analyze();
-  virtual void init();
+  void init_buff_shared();
+  void init();
+  void init_buff_t_();
   virtual void parse_options( va_list vap );
-  virtual const char* name() { return name_str.c_str(); }
+  virtual void combat_begin();
+  virtual void combat_end();
+
+  const char* name() { return name_str.c_str(); }
 
   action_expr_t* create_expression( action_t*, const std::string& type );
   std::string    to_str() SC_CONST;
 
+  static buff_t* find(   buff_t*, const std::string& name );
   static buff_t* find(    sim_t*, const std::string& name );
   static buff_t* find( player_t*, const std::string& name );
-
-  void init_buff_t_();
 
   const spelleffect_data_t& effect1() const { return s_data -> effect1(); }
   const spelleffect_data_t& effect2() const { return s_data -> effect2(); }
@@ -2227,16 +2622,17 @@ public:
 
 struct stat_buff_t : public buff_t
 {
-  int stat;
   double amount;
+  int stat;
+
   stat_buff_t( player_t*, const std::string& name,
                int stat, double amount,
                int max_stack=1, double buff_duration=0, double buff_cooldown=0,
                double chance=1.0, bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC, int aura_id=0, bool activated=true );
   stat_buff_t( player_t*, const uint32_t id, const std::string& name,
-                 int stat, double amount,
-                 double chance=1.0, double buff_cooldown=-1.0, bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC, bool activated=true );
-  virtual ~stat_buff_t() { };
+               int stat, double amount,
+               double chance=1.0, double buff_cooldown=-1.0, bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC, bool activated=true );
+
   virtual void bump     ( int stacks=1, double value=-1.0 );
   virtual void decrement( int stacks=1, double value=-1.0 );
   virtual void expire();
@@ -2244,8 +2640,8 @@ struct stat_buff_t : public buff_t
 
 struct cost_reduction_buff_t : public buff_t
 {
-  int school;
   double amount;
+  int school;
   bool refreshes;
 
   cost_reduction_buff_t( player_t*, const std::string& name,
@@ -2255,7 +2651,7 @@ struct cost_reduction_buff_t : public buff_t
   cost_reduction_buff_t( player_t*, const uint32_t id, const std::string& name,
                          int school, double amount,
                          double chance=1.0, double buff_cooldown=-1.0, bool refreshes=false, bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC, bool activated=true );
-  virtual ~cost_reduction_buff_t() { };
+
   virtual void bump     ( int stacks=1, double value=-1.0 );
   virtual void decrement( int stacks=1, double value=-1.0 );
   virtual void expire();
@@ -2280,7 +2676,8 @@ typedef struct buff_t aura_t;
 
 // Expressions ==============================================================
 
-enum token_type_t {
+enum token_type_t
+{
   TOK_UNKNOWN=0,
   TOK_PLUS,
   TOK_MINUS,
@@ -2307,25 +2704,14 @@ enum token_type_t {
   TOK_SPELL_LIST
 };
 
-struct new_buff_t : public buff_t
-{
-  int                       default_stack_charge;
-  const spelleffect_data_t* e_data[MAX_EFFECTS];
-  const spelleffect_data_t* single;
-
-  new_buff_t( player_t*, const std::string&, uint32_t, double override_chance = 0.0, bool quiet = false, bool reverse = false, int rng_type = RNG_CYCLIC );
-
-  virtual bool trigger( int stacks = -1, double value = -1.0, double chance = -1.0 );
-  virtual double base_value( effect_type_t type = E_MAX, effect_subtype_t sub_type = A_MAX, int misc_value = DEFAULT_MISC_VALUE, int misc_value2 = DEFAULT_MISC_VALUE ) SC_CONST;
-};
-
 struct expr_token_t
 {
   int type;
   std::string label;
 };
 
-enum expr_data_type_t {
+enum expr_data_type_t
+{
   DATA_SPELL = 0,
   DATA_TALENT,
   DATA_EFFECT,
@@ -2359,16 +2745,17 @@ struct action_expr_t
   double result_num;
   std::string result_str;
 
-  action_expr_t( action_t* a, const std::string& n, int t=TOK_UNKNOWN ) : action(a), name_str(n), result_type(t), result_num(0) {}
-  action_expr_t( action_t* a, const std::string& n, double       constant_value ) : action(a), name_str(n) { result_type = TOK_NUM; result_num = constant_value; }
-  action_expr_t( action_t* a, const std::string& n, std::string& constant_value ) : action(a), name_str(n) { result_type = TOK_STR; result_str = constant_value; }
-  virtual ~action_expr_t() { name_str.clear(); result_str.clear(); };
+  action_expr_t( action_t* a, const std::string& n, int t=TOK_UNKNOWN ) : action( a ), name_str( n ), result_type( t ), result_num( 0 ) {}
+  action_expr_t( action_t* a, const std::string& n, double       constant_value ) : action( a ), name_str( n ) { result_type = TOK_NUM; result_num = constant_value; }
+  action_expr_t( action_t* a, const std::string& n, std::string& constant_value ) : action( a ), name_str( n ) { result_type = TOK_STR; result_str = constant_value; }
+  virtual ~action_expr_t() {}
   virtual int evaluate() { return result_type; }
   virtual const char* name() { return name_str.c_str(); }
   virtual bool success() { return ( evaluate() == TOK_NUM ) && ( result_num != 0 ); }
 
   static action_expr_t* parse( action_t*, const std::string& expr_str );
 };
+
 
 struct spell_data_expr_t
 {
@@ -2382,27 +2769,27 @@ struct spell_data_expr_t
   std::vector<uint32_t> result_spell_list;
   std::string result_str;
 
-  spell_data_expr_t( sim_t* sim, const std::string& n, expr_data_type_t dt = DATA_SPELL, bool eq = false, int t=TOK_UNKNOWN ) : name_str(n), sim(sim), data_type( dt ), effect_query( eq ), result_type(t), result_num(0), result_spell_list() {}
-  spell_data_expr_t( sim_t* sim, const std::string& n, double       constant_value ) : name_str(n), sim(sim), data_type( DATA_SPELL) { result_type = TOK_NUM; result_num = constant_value; }
-  spell_data_expr_t( sim_t* sim, const std::string& n, std::string& constant_value ) : name_str(n), sim(sim), data_type( DATA_SPELL) { result_type = TOK_STR; result_str = constant_value; }
-  spell_data_expr_t( sim_t* sim, const std::string& n, std::vector<uint32_t>& constant_value ) : name_str(n), sim(sim), data_type( DATA_SPELL) { result_type = TOK_SPELL_LIST; result_spell_list = constant_value; }
-  virtual ~spell_data_expr_t() { name_str.clear(); result_str.clear(); };
+  spell_data_expr_t( sim_t* sim, const std::string& n, expr_data_type_t dt = DATA_SPELL, bool eq = false, int t=TOK_UNKNOWN ) : name_str( n ), sim( sim ), data_type( dt ), effect_query( eq ), result_type( t ), result_num( 0 ), result_spell_list() {}
+  spell_data_expr_t( sim_t* sim, const std::string& n, double       constant_value ) : name_str( n ), sim( sim ), data_type( DATA_SPELL ) { result_type = TOK_NUM; result_num = constant_value; }
+  spell_data_expr_t( sim_t* sim, const std::string& n, std::string& constant_value ) : name_str( n ), sim( sim ), data_type( DATA_SPELL ) { result_type = TOK_STR; result_str = constant_value; }
+  spell_data_expr_t( sim_t* sim, const std::string& n, std::vector<uint32_t>& constant_value ) : name_str( n ), sim( sim ), data_type( DATA_SPELL ) { result_type = TOK_SPELL_LIST; result_spell_list = constant_value; }
+  virtual ~spell_data_expr_t() {}
   virtual int evaluate() { return result_type; }
   virtual const char* name() { return name_str.c_str(); }
 
-  virtual std::vector<uint32_t> operator|(const spell_data_expr_t& /* other */) { return std::vector<uint32_t>(); }
-  virtual std::vector<uint32_t> operator&(const spell_data_expr_t& /* other */) { return std::vector<uint32_t>(); }
-  virtual std::vector<uint32_t> operator-(const spell_data_expr_t& /* other */) { return std::vector<uint32_t>(); }
+  virtual std::vector<uint32_t> operator|( const spell_data_expr_t& /* other */ ) { return std::vector<uint32_t>(); }
+  virtual std::vector<uint32_t> operator&( const spell_data_expr_t& /* other */ ) { return std::vector<uint32_t>(); }
+  virtual std::vector<uint32_t> operator-( const spell_data_expr_t& /* other */ ) { return std::vector<uint32_t>(); }
 
-  virtual std::vector<uint32_t> operator<(const spell_data_expr_t& /* other */) { return std::vector<uint32_t>(); }
-  virtual std::vector<uint32_t> operator>(const spell_data_expr_t& /* other */) { return std::vector<uint32_t>(); }
-  virtual std::vector<uint32_t> operator<=(const spell_data_expr_t& /* other */) { return std::vector<uint32_t>(); }
-  virtual std::vector<uint32_t> operator>=(const spell_data_expr_t& /* other */) { return std::vector<uint32_t>(); }
-  virtual std::vector<uint32_t> operator==(const spell_data_expr_t& /* other */) { return std::vector<uint32_t>(); }
-  virtual std::vector<uint32_t> operator!=(const spell_data_expr_t& /* other */) { return std::vector<uint32_t>(); }
+  virtual std::vector<uint32_t> operator<( const spell_data_expr_t& /* other */ ) { return std::vector<uint32_t>(); }
+  virtual std::vector<uint32_t> operator>( const spell_data_expr_t& /* other */ ) { return std::vector<uint32_t>(); }
+  virtual std::vector<uint32_t> operator<=( const spell_data_expr_t& /* other */ ) { return std::vector<uint32_t>(); }
+  virtual std::vector<uint32_t> operator>=( const spell_data_expr_t& /* other */ ) { return std::vector<uint32_t>(); }
+  virtual std::vector<uint32_t> operator==( const spell_data_expr_t& /* other */ ) { return std::vector<uint32_t>(); }
+  virtual std::vector<uint32_t> operator!=( const spell_data_expr_t& /* other */ ) { return std::vector<uint32_t>(); }
 
-  virtual std::vector<uint32_t> in(const spell_data_expr_t& /* other */) { return std::vector<uint32_t>(); }
-  virtual std::vector<uint32_t> not_in(const spell_data_expr_t& /* other */) { return std::vector<uint32_t>(); }
+  virtual std::vector<uint32_t> in( const spell_data_expr_t& /* other */ ) { return std::vector<uint32_t>(); }
+  virtual std::vector<uint32_t> not_in( const spell_data_expr_t& /* other */ ) { return std::vector<uint32_t>(); }
 
   static spell_data_expr_t* parse( sim_t* sim, const std::string& expr_str );
   static spell_data_expr_t* create_spell_expression( sim_t* sim, const std::string& name_str );
@@ -2544,7 +2931,8 @@ struct sim_t : private thread_t
   double      queue_gcd_reduction;
   int         strict_gcd_queue;
   double      confidence;
-    // Latency
+  double      confidence_estimator;
+  // Latency
   double      world_lag, world_lag_stddev;
   double      travel_variance, default_skill, reaction_time, regen_periodicity;
   double      current_time, max_time, expected_time, vary_combat_length, last_event;
@@ -2673,7 +3061,6 @@ struct sim_t : private thread_t
     int vindication;
     int windfury_totem;
     int wrath_of_air;
-    overrides_t() { memset( ( void* ) this, 0x0, sizeof( overrides_t ) ); }
   };
   overrides_t overrides;
 
@@ -2705,7 +3092,6 @@ struct sim_t : private thread_t
     aura_t* unleashed_rage;
     aura_t* windfury_totem;
     aura_t* wrath_of_air;
-    auras_t() { memset( (void*) this, 0x0, sizeof( auras_t ) ); }
   };
   auras_t auras;
 
@@ -2728,23 +3114,25 @@ struct sim_t : private thread_t
   scaling_t* scaling;
   plot_t*    plot;
   reforge_plot_t* reforge_plot;
-  double     raid_dps, total_dmg, raid_hps, total_heal, total_seconds, elapsed_cpu_seconds, max_fight_length;
+  double     elapsed_cpu_seconds, iteration_dmg, iteration_heal;
+  sample_data_t raid_dps, total_dmg, raid_hps, total_heal, simulation_length;
   int        report_progress;
   int        bloodlust_percent, bloodlust_time;
   std::string reference_player_str;
-  std::vector<player_t*> players_by_rank;
+  std::vector<player_t*> players_by_dps;
+  std::vector<player_t*> players_by_hps;
   std::vector<player_t*> players_by_name;
   std::vector<player_t*> targets_by_name;
   std::vector<std::string> id_dictionary;
-  std::vector<std::string> dps_charts, gear_charts, dpet_charts;
+  std::vector<std::string> dps_charts, hps_charts, gear_charts, dpet_charts;
   std::string downtime_chart;
   std::vector<double> iteration_timeline;
-  std::vector<int> distribution_timeline;
   std::vector<int> divisor_timeline;
   std::string timeline_chart;
-  std::string output_file_str, html_file_str,  xml_file_str;
+  std::string output_file_str, html_file_str;
+  std::string xml_file_str, xml_stylesheet_file_str;
   std::string path_str;
-  std::deque<std::string> active_files;
+  std::stack<std::string> active_files;
   std::vector<std::string> error_list;
   FILE* output_file;
   int armory_throttle;
@@ -2758,6 +3146,8 @@ struct sim_t : private thread_t
   int hosted_html;
   int print_styles;
   int report_overheal;
+  int save_raid_summary;
+  int statistics_level;
 
   // Multi-Threading
   int threads;
@@ -2810,7 +3200,7 @@ struct sim_t : private thread_t
   void      aura_gain( const char* name, int aura_id=0 );
   void      aura_loss( const char* name, int aura_id=0 );
   action_expr_t* create_expression( action_t*, const std::string& name );
-  int       errorf( const char* format, ... ) PRINTF_ATTRIBUTE(2,3);
+  int       errorf( const char* format, ... ) PRINTF_ATTRIBUTE( 2,3 );
 };
 
 // Scaling ==================================================================
@@ -2929,7 +3319,7 @@ public:
   int       canceled;
   const char* name;
   event_t( sim_t* s, player_t* p=0, const char* n="" ) :
-      next( 0 ), sim( s ), player( p ), reschedule_time( 0 ), canceled( 0 ), name( n )
+    next( 0 ), sim( s ), player( p ), reschedule_time( 0 ), canceled( 0 ), name( n )
   {
     if ( ! name ) name = "unknown";
   }
@@ -2970,6 +3360,7 @@ struct event_compare_t
 
 // Gear Rating Conversions ==================================================
 
+namespace internal {
 struct rating_t
 {
   double  spell_haste,  spell_hit,  spell_crit;
@@ -2978,7 +3369,14 @@ struct rating_t
   double expertise;
   double dodge, parry, block;
   double mastery;
-  rating_t() { memset( this, 0x00, sizeof( rating_t ) ); }
+};
+}
+
+struct rating_t : public internal::rating_t
+{
+  typedef internal::rating_t base_t;
+  rating_t() : base_t( base_t() ) {}
+
   void init( sim_t*, dbc_t& pData, int level, int type );
   static double interpolate( int level, double val_60, double val_70, double val_80, double val_85 = -1 );
   static double get_attribute_base( sim_t*, dbc_t& pData, int level, player_type class_type, race_type race, base_stat_type stat_type );
@@ -3003,7 +3401,7 @@ struct weapon_t
   double proc_chance_on_swing( double PPM, double adjusted_swing_time=0 ) SC_CONST;
 
   weapon_t( int t=WEAPON_NONE, double d=0, double st=2.0, school_type s=SCHOOL_PHYSICAL ) :
-    type(t), school(s), damage(d), min_dmg(d), max_dmg(d), swing_time(st), slot(SLOT_NONE), buff_type(0), buff_value(0), bonus_dmg(0) { }
+    type( t ), school( s ), damage( d ), min_dmg( d ), max_dmg( d ), swing_time( st ), slot( SLOT_NONE ), buff_type( 0 ), buff_value( 0 ), bonus_dmg( 0 ) { }
 };
 
 // Item =====================================================================
@@ -3088,11 +3486,11 @@ struct item_t
     bool chance_to_discharge;
     bool reverse;
     special_effect_t() :
-        trigger_type( 0 ), trigger_mask( 0 ), stat( 0 ), school( SCHOOL_NONE ),
-        max_stacks( 0 ), stat_amount( 0 ), discharge_amount( 0 ), discharge_scaling( 0 ),
-        proc_chance( 0 ), duration( 0 ), cooldown( 0 ),
-        tick( 0 ), cost_reduction( false ), no_crit( false ), no_player_benefits( false ), no_debuffs( false ),
-        no_refresh( false ), chance_to_discharge( false ), reverse( false ) {}
+      trigger_type( 0 ), trigger_mask( 0 ), stat( 0 ), school( SCHOOL_NONE ),
+      max_stacks( 0 ), stat_amount( 0 ), discharge_amount( 0 ), discharge_scaling( 0 ),
+      proc_chance( 0 ), duration( 0 ), cooldown( 0 ),
+      tick( 0 ), cost_reduction( false ), no_crit( false ), no_player_benefits( false ), no_debuffs( false ),
+      no_refresh( false ), chance_to_discharge( false ), reverse( false ) {}
     bool active() { return stat || school; }
   } use, equip, enchant, addon;
 
@@ -3208,7 +3606,7 @@ public:
 
 // Player ===================================================================
 
-struct player_t
+struct player_t : public noncopyable
 {
   sim_t*      sim;
   bool        ptr;
@@ -3237,6 +3635,7 @@ struct player_t
   std::vector<buff_t*> absorb_buffs;
   int         scale_player;
   bool        has_dtr;
+  double      avg_ilvl;
 
   // Latency
   double      world_lag, world_lag_stddev;
@@ -3347,6 +3746,7 @@ struct player_t
   double  resource_buffed [ RESOURCE_MAX ];
   double  mana_per_intellect;
   double  health_per_stamina;
+  uptime_t* primary_resource_cap;
 
   // Replenishment
   std::vector<player_t*> replenishment_targets;
@@ -3401,34 +3801,51 @@ struct player_t
   // Reporting
   int       quiet;
   action_t* last_foreground_action;
-  double    current_time, iteration_seconds, total_seconds, max_fight_length, arise_time;
-  double    total_waiting, total_foreground_actions;
-  double    iteration_dmg, total_dmg, iteration_heal, total_heal;
+  double    current_time, iteration_fight_length,arise_time;
+  sample_data_t fight_length, waiting_time, executed_foreground_actions;
+  double    iteration_waiting_time;
+  int       iteration_executed_foreground_actions;
   double    resource_lost  [ RESOURCE_MAX ];
   double    resource_gained[ RESOURCE_MAX ];
-  double    dps, dpse, dps_min, dps_max, dps_std_dev, dps_error, dps_convergence;
-  double    dps_10_percentile,dps_90_percentile;
-  double    dpr, rps_gain, rps_loss;
-  int       death_count;
-  std::vector<double> death_time;
-  double    avg_death_time, death_count_pct, min_death_time, max_death_time;
-  double    dmg_taken, total_dmg_taken, dtps, dtps_error;
+  double    rps_gain, rps_loss;
+  sample_data_t deaths;
+  double    deaths_error;
+
   buff_t*   buff_list;
   proc_t*   proc_list;
   gain_t*   gain_list;
   stats_t*  stats_list;
+  benefit_t* benefit_list;
   uptime_t* uptime_list;
   std::vector<double> dps_plot_data[ STAT_MAX ];
   std::vector<std::vector<double> > reforge_plot_data;
   std::vector<std::vector<double> > timeline_resource;
+
+  // Damage
+  double iteration_dmg, iteration_dmg_taken;
+  double dps_error, dpr, dtps_error;
+  sample_data_t dmg;
+  sample_data_t compound_dmg;
+  sample_data_t dps;
+  sample_data_t dpse;
+  sample_data_t dtps;
+  sample_data_t dmg_taken;
   std::vector<double> timeline_dmg;
   std::vector<double> timeline_dps;
-  std::vector<double> iteration_dps;
-  std::vector<double> iteration_dtps;
-  std::vector<double> iteration_dpse;
-  std::vector<int> distribution_dps;
-  std::vector<int> distribution_deaths;
   std::vector<double> dps_convergence_error;
+  double    dps_convergence;
+
+  // Heal
+  double iteration_heal,iteration_heal_taken;
+  double hps_error,hpr;
+  sample_data_t heal;
+  sample_data_t compound_heal;
+  sample_data_t hps;
+  sample_data_t hpse;
+  sample_data_t htps;
+  sample_data_t heal_taken;
+
+
   std::string action_sequence;
   std::string action_dpet_chart, action_dmg_chart, time_spent_chart, gains_chart;
   std::vector<std::string> timeline_resource_chart;
@@ -3468,7 +3885,7 @@ struct player_t
   double base_movement_speed;
   double x_position, y_position;
 
-  struct buffs_base_t
+  struct buffs_t
   {
     buff_t* arcane_brilliance;
     buff_t* battle_shout;
@@ -3520,11 +3937,6 @@ struct player_t
     buff_t* wild_magic_potion_crit;
     buff_t* wild_magic_potion_sp;
     buff_t* blessing_of_ancient_kings;
-
-    buffs_base_t() { zerofill( *this ); }
-  };
-  struct buffs_t : public buffs_base_t
-  {
     std::vector<buff_t*> power_word_shield;
     std::vector<buff_t*> divine_aegis;
   };
@@ -3571,7 +3983,6 @@ struct player_t
     debuff_t* vindication;
     debuff_t* vulnerable;
 
-    debuffs_t() { zerofill( *this ); }
     bool snared();
   };
   debuffs_t debuffs;
@@ -3597,16 +4008,14 @@ struct player_t
     gain_t* vampiric_touch;
     gain_t* water_elemental;
     gain_t* hymn_of_hope;
-    void reset() { zerofill( *this ); }
-    gains_t() { reset(); }
+    void reset() { *this = gains_t(); }
   };
   gains_t gains;
 
   struct procs_t
   {
     proc_t* hat_donor;
-    void reset() { zerofill( *this ); }
-    procs_t() { reset(); }
+    void reset() { *this = procs_t(); }
   };
   procs_t procs;
 
@@ -3621,11 +4030,9 @@ struct player_t
     rng_t* lag_reaction;
     rng_t* lag_world;
     rng_t* lag_brain;
-    void reset() { zerofill( *this ); }
-    rngs_t() { reset(); }
+    void reset() { *this = rngs_t(); }
   };
   rngs_t rngs;
-
 
   player_t( sim_t* sim, player_type type, const std::string& name, race_type race_type = RACE_NONE );
 
@@ -3662,6 +4069,7 @@ struct player_t
   virtual void init_gains();
   virtual void init_procs();
   virtual void init_uptimes();
+  virtual void init_benefits();
   virtual void init_rng();
   virtual void init_stats();
   virtual void init_values();
@@ -3794,7 +4202,6 @@ struct player_t
   virtual bool parse_talents_armory ( const std::string& talent_string );
   virtual bool parse_talents_wowhead( const std::string& talent_string );
 
-
   virtual void create_talents();
   virtual void create_glyphs();
 
@@ -3815,7 +4222,7 @@ struct player_t
 
   virtual void trigger_replenishment();
 
-  virtual int decode_set( item_t& item ) { (void)item; assert( item.name() ); return SET_NONE; }
+  virtual int decode_set( item_t& item ) { ( void )item; assert( item.name() ); return SET_NONE; }
 
   virtual void recalculate_haste();
 
@@ -3827,17 +4234,17 @@ struct player_t
 
   static player_t* create( sim_t* sim, const std::string& type, const std::string& name, race_type r = RACE_NONE );
 
-  static player_t * create_death_knight( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
-  static player_t * create_druid       ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
-  static player_t * create_hunter      ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
-  static player_t * create_mage        ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
-  static player_t * create_paladin     ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
-  static player_t * create_priest      ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
-  static player_t * create_rogue       ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
-  static player_t * create_shaman      ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
-  static player_t * create_warlock     ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
-  static player_t * create_warrior     ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
-  static player_t * create_enemy       ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
+  static player_t* create_death_knight( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
+  static player_t* create_druid       ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
+  static player_t* create_hunter      ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
+  static player_t* create_mage        ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
+  static player_t* create_paladin     ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
+  static player_t* create_priest      ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
+  static player_t* create_rogue       ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
+  static player_t* create_shaman      ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
+  static player_t* create_warlock     ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
+  static player_t* create_warrior     ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
+  static player_t* create_enemy       ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
 
   // Raid-wide aura/buff/debuff maintenance
   static bool init        ( sim_t* sim );
@@ -3934,10 +4341,11 @@ struct player_t
   gain_t*     get_gain    ( const std::string& name );
   proc_t*     get_proc    ( const std::string& name );
   stats_t*    get_stats   ( const std::string& name, action_t* action=0 );
+  benefit_t*  get_benefit ( const std::string& name );
   uptime_t*   get_uptime  ( const std::string& name );
   rng_t*      get_rng     ( const std::string& name, int type=RNG_DEFAULT );
-  double      get_player_distance( player_t* p );
-  double      get_position_distance( double m=0, double v=0 );
+  double      get_player_distance( const player_t* p ) const;
+  double      get_position_distance( double m=0, double v=0 ) const;
   action_priority_list_t* get_action_priority_list( const std::string& name );
 
   // Opportunity to perform any stat fixups before analysis
@@ -3956,6 +4364,7 @@ struct pet_t : public player_t
   double summon_time;
   bool summoned;
   pet_type_t pet_type;
+  event_t* expiration;
 
 private:
   void init_pet_t_();
@@ -3966,9 +4375,9 @@ public:
   // Pets gain their owners' hit rating, but it rounds down to a
   // percentage.  Also, heroic presence does not contribute to pet
   // expertise, so we use raw attack_hit.
-  virtual double composite_attack_expertise() SC_CONST { return floor(floor(100.0 * owner -> attack_hit) * 26.0 / 8.0) / 100.0; }
-  virtual double composite_attack_hit()       SC_CONST { return floor(100.0 * owner -> composite_attack_hit()) / 100.0; }
-  virtual double composite_spell_hit()        SC_CONST { return floor(100.0 * owner -> composite_spell_hit()) / 100.0;  }
+  virtual double composite_attack_expertise() SC_CONST { return floor( floor( 100.0 * owner -> attack_hit ) * 26.0 / 8.0 ) / 100.0; }
+  virtual double composite_attack_hit()       SC_CONST { return floor( 100.0 * owner -> composite_attack_hit() ) / 100.0; }
+  virtual double composite_spell_hit()        SC_CONST { return floor( 100.0 * owner -> composite_spell_hit() ) / 100.0;  }
 
   virtual double stamina() SC_CONST;
   virtual double intellect() SC_CONST;
@@ -4008,10 +4417,13 @@ struct stats_t
   double frequency, num_executes, num_ticks;
   double num_direct_results, num_tick_results;
   double total_execute_time, total_tick_time, total_time;
-  double actual_amount, total_amount, portion_amount, overkill_pct;
-  double aps, portion_aps, ape, apet, apr, rpe, etpe, ttpt;
+  double portion_amount, overkill_pct;
+  double aps, ape, apet, apr, rpe, etpe, ttpt;
   double total_intervals, num_intervals;
   double last_execute;
+  double iteration_actual_amount, iteration_total_amount;
+  sample_data_t actual_amount, total_amount, portion_aps;
+  std::string aps_distribution_chart;
 
   std::vector<stats_t*> children;
   double compound_actual,compound_amount;
@@ -4019,14 +4431,15 @@ struct stats_t
 
   struct stats_results_t
   {
-    double count, min_amount, max_amount, avg_amount, total_amount, actual_amount, pct, overkill_pct;
-    stats_results_t() :
-      count( 0 ), min_amount( std::numeric_limits<double>::max() ), max_amount( 0 ),
-      avg_amount( 0 ), total_amount( 0 ), actual_amount( 0 ), pct( 0 ), overkill_pct( 0 ) {}
+    sample_data_t actual_amount, total_amount,fight_actual_amount, fight_total_amount,count,avg_actual_amount;
+    int iteration_count;
+    double iteration_actual_amount, iteration_total_amount,pct, overkill_pct;
+    stats_results_t( sim_t* s );
     void merge( const stats_results_t& other );
+    void combat_end();
   };
-  stats_results_t direct_results[ RESULT_MAX ];
-  stats_results_t   tick_results[ RESULT_MAX ];
+  std::vector<stats_results_t> direct_results;
+  std::vector<stats_results_t>   tick_results;
 
   std::vector<double> timeline_amount;
   std::vector<double> timeline_aps;
@@ -4037,6 +4450,8 @@ struct stats_t
   void add_result( double act_amount, double tot_amount, int dmg_type, int result );
   void add_tick   ( double time );
   void add_execute( double time );
+  void combat_begin();
+  void combat_end();
   void reset();
   void analyze();
   void merge( const stats_t* other );
@@ -4138,18 +4553,19 @@ struct action_t : public spell_id_t
   bool is_dtr_action;
   bool can_trigger_dtr;
 
+private:
+  void init_action_t_();
+
+public:
   action_t( int type, const char* name, player_t* p=0, int r=RESOURCE_NONE, const school_type s=SCHOOL_NONE, int t=TREE_NONE, bool special=false );
   action_t( int type, const active_spell_t& s, int t=TREE_NONE, bool special=false );
   action_t( int type, const char* name, const char* sname, player_t* p=0, int t=TREE_NONE, bool special=false );
   action_t( int type, const char* name, const uint32_t id, player_t* p=0, int t=TREE_NONE, bool special=false );
   virtual ~action_t();
 
-  void init_action_t_();
-
   virtual void      parse_data();
   virtual void      parse_effect_data( int spell_id, int effect_nr );
   virtual void      parse_options( option_t*, const std::string& options_str );
-  virtual option_t* merge_options( std::vector<option_t>&, option_t*, option_t* );
   virtual rank_t*   init_rank( rank_t* rank_list, int id=0 );
 
 
@@ -4177,9 +4593,9 @@ struct action_t : public spell_id_t
   virtual void   execute();
   virtual void   tick( dot_t* d );
   virtual void   last_tick( dot_t* d );
-  virtual void   travel( player_t*, int result, double dmg );
-  virtual void   assess_damage( player_t* t, double amount, int dmg_type, int travel_result );
-  virtual void   additional_damage( player_t* t, double amount, int dmg_type, int travel_result );
+  virtual void   impact( player_t*, int result, double dmg );
+  virtual void   assess_damage( player_t* t, double amount, int dmg_type, int impact_result );
+  virtual void   additional_damage( player_t* t, double amount, int dmg_type, int impact_result );
   virtual void   schedule_execute();
   virtual void   schedule_travel( player_t* t );
   virtual void   reschedule_execute( double time );
@@ -4221,8 +4637,6 @@ struct action_t : public spell_id_t
 
   virtual double ppm_proc_chance( double PPM ) SC_CONST;
 
-  virtual double dtr_proc_chance() SC_CONST;
-
   void add_child( action_t* child ) { stats -> add_child( child -> stats ); }
 
   // Move to ability_t in future
@@ -4238,11 +4652,14 @@ struct attack_t : public action_t
 {
   double base_expertise, player_expertise, target_expertise;
 
+private:
+  void init_attack_t_();
+
+public:
   attack_t( const active_spell_t& s, int t=TREE_NONE, bool special=false );
   attack_t( const char* n=0, player_t* p=0, int r=RESOURCE_NONE, const school_type s=SCHOOL_PHYSICAL, int t=TREE_NONE, bool special=false );
   attack_t( const char* name, const char* sname, player_t* p, int t = TREE_NONE, bool special=false );
   attack_t( const char* name, const uint32_t id, player_t* p, int t = TREE_NONE, bool special=false );
-  void init_attack_t_();
 
   // Attack Overrides
   virtual double haste() SC_CONST;
@@ -4270,11 +4687,14 @@ struct attack_t : public action_t
 
 struct spell_t : public action_t
 {
+private:
+  void init_spell_t_();
+
+public:
   spell_t( const active_spell_t& s, int t=TREE_NONE );
   spell_t( const char* n=0, player_t* p=0, int r=RESOURCE_NONE, const school_type s=SCHOOL_PHYSICAL, int t=TREE_NONE );
   spell_t( const char* name, const char* sname, player_t* p, int t = TREE_NONE );
   spell_t( const char* name, const uint32_t id, player_t* p, int t = TREE_NONE );
-  void init_spell_t_();
 
   // Spell Overrides
   virtual double haste() SC_CONST;
@@ -4302,9 +4722,12 @@ struct heal_t : public spell_t
   // Reporting
   double total_heal, total_actual;
 
+private:
   void init_heal_t_();
-  heal_t(const char* n, player_t* player, const char* sname, int t = TREE_NONE);
-  heal_t(const char* n, player_t* player, const uint32_t id, int t = TREE_NONE);
+
+public:
+  heal_t( const char* n, player_t* player, const char* sname, int t = TREE_NONE );
+  heal_t( const char* n, player_t* player, const uint32_t id, int t = TREE_NONE );
 
   virtual void parse_options( option_t* options, const std::string& options_str );
   virtual void player_buff();
@@ -4312,11 +4735,11 @@ struct heal_t : public spell_t
   virtual double haste() SC_CONST;
   virtual void execute();
   virtual void assess_damage( player_t* t, double amount,
-                                  int    dmg_type, int travel_result );
+                              int    dmg_type, int impact_result );
   virtual void calculate_result();
   virtual double calculate_direct_damage();
   virtual double calculate_tick_damage();
-  virtual void travel( player_t*, int travel_result, double travel_dmg );
+  virtual void impact( player_t*, int impact_result, double travel_dmg );
   virtual void tick( dot_t* d );
   virtual void last_tick( dot_t* d );
   virtual player_t* find_greatest_difference_player();
@@ -4332,9 +4755,12 @@ struct absorb_t : public spell_t
   // Reporting
   double total_heal, total_actual;
 
+private:
   void init_absorb_t_();
-  absorb_t(const char* n, player_t* player, const char* sname, int t = TREE_NONE);
-  absorb_t(const char* n, player_t* player, const uint32_t id, int t = TREE_NONE);
+
+public:
+  absorb_t( const char* n, player_t* player, const char* sname, int t = TREE_NONE );
+  absorb_t( const char* n, player_t* player, const uint32_t id, int t = TREE_NONE );
 
   virtual void parse_options( option_t* options, const std::string& options_str );
   virtual void player_buff();
@@ -4342,10 +4768,10 @@ struct absorb_t : public spell_t
   virtual double haste() SC_CONST;
   virtual void execute();
   virtual void assess_damage( player_t* t, double amount,
-                                    int    dmg_type, int travel_result );
+                              int    dmg_type, int impact_result );
   virtual void calculate_result();
   virtual double calculate_direct_damage();
-  virtual void travel( player_t*, int travel_result, double travel_dmg );
+  virtual void impact( player_t*, int impact_result, double travel_dmg );
 
 };
 
@@ -4358,7 +4784,7 @@ struct sequence_t : public action_t
   bool restarted;
 
   sequence_t( player_t*, const std::string& sub_action_str );
-  virtual ~sequence_t();
+
   virtual void schedule_execute();
   virtual void reset();
   virtual bool ready();
@@ -4375,8 +4801,8 @@ struct cooldown_t
   double duration;
   double ready;
   cooldown_t* next;
-  cooldown_t( const std::string& n, player_t* p ) : sim(p->sim), player(p), name_str(n), duration(0), ready(-1), next(0) {}
-  cooldown_t( const std::string& n, sim_t* s ) : sim(s), player(0), name_str(n), duration(0), ready(-1), next(0) {}
+  cooldown_t( const std::string& n, player_t* p ) : sim( p->sim ), player( p ), name_str( n ), duration( 0 ), ready( -1 ), next( 0 ) {}
+  cooldown_t( const std::string& n, sim_t* s ) : sim( s ), player( 0 ), name_str( n ), duration( 0 ), ready( -1 ), next( 0 ) {}
   void reset() { ready=-1; }
   void start( double override=-1, double delay=0 )
   {
@@ -4408,7 +4834,7 @@ struct dot_t
   double time_to_tick;
   dot_t* next;
 
-  dot_t() : player(0) {}
+  dot_t() : player( 0 ) {}
   dot_t( const std::string& n, player_t* p );
 
   virtual ~dot_t();
@@ -4424,6 +4850,8 @@ struct dot_t
 
   virtual const char* name() { return name_str.c_str(); }
 };
+
+// Action Callback ==========================================================
 
 struct action_callback_t
 {
@@ -4446,6 +4874,7 @@ struct action_callback_t
   virtual void reset() {}
   virtual void activate() { active=true; }
   virtual void deactivate() { active=false; }
+
   static void trigger( std::vector<action_callback_t*>& v, action_t* a, void* call_data=0 )
   {
     if ( ! a -> player -> in_combat ) return;
@@ -4462,6 +4891,7 @@ struct action_callback_t
       }
     }
   }
+
   static void reset( std::vector<action_callback_t*>& v )
   {
     std::size_t size = v.size();
@@ -4602,54 +5032,129 @@ struct consumable_t
   static action_t* create_action( player_t*, const std::string& name, const std::string& options );
 };
 
-// Up-Time ==================================================================
+// Benefit ==================================================================
 
-struct uptime_t
+struct benefit_t : public noncopyable
+{
+  int up, down;
+
+  double ratio;
+
+  benefit_t* next;
+  std::string name_str;
+
+  explicit benefit_t( const std::string& n ) :
+    up( 0 ), down( 0 ),
+    ratio( 0.0 ), name_str( n ) {}
+
+  void update( int is_up ) { if ( is_up ) up++; else down++; }
+
+  const char* name() const { return name_str.c_str(); }
+
+  void analyze()
+  {
+    if ( up != 0 )
+      ratio = 1.0 * up / ( down + up );
+  }
+
+  void merge( const benefit_t* other )
+  { up += other -> up; down += other -> down; }
+};
+
+// Uptime ==================================================================
+
+struct uptime_common_t
+{
+  double last_start;
+  double uptime_sum;
+  sim_t* sim;
+
+  double uptime;
+
+  uptime_common_t( sim_t* s ) :
+    last_start( -1 ), uptime_sum( 0 ), sim( s ),
+    uptime( std::numeric_limits<double>::quiet_NaN() )
+  {}
+
+  void update( bool is_up )
+  {
+    if ( is_up )
+    {
+      if ( last_start < 0 )
+        last_start = sim -> current_time;
+    }
+    else if ( last_start >= 0 )
+    {
+      uptime_sum += sim -> current_time - last_start;
+      last_start = -1;
+    }
+  }
+
+  void reset() { last_start = -1; }
+
+  void analyze()
+  { uptime = uptime_sum / sim -> iterations / sim -> simulation_length.mean; }
+
+  void merge( const uptime_common_t& other )
+  { uptime_sum += other.uptime_sum; }
+};
+
+struct uptime_t : public uptime_common_t
 {
   std::string name_str;
-  uint64_t up, down;
   uptime_t* next;
-  uptime_t( const std::string& n ) : name_str( n ), up( 0 ), down( 0 ) {}
-  virtual ~uptime_t() {}
-  void   update( bool is_up ) { if ( is_up ) up++; else down++; }
-  void   update( int  is_up ) { update( is_up ? true : false ); }
-  double percentage() SC_CONST { return ( up==0 ) ? 0 : ( 100.0*up/( up+down ) ); }
-  virtual void   merge( uptime_t* other ) { up += other -> up; down += other -> down; }
-  const char* name() SC_CONST { return name_str.c_str(); }
+
+  uptime_t( sim_t* s, const std::string& n ) :
+    uptime_common_t( s ), name_str( n )
+  {}
+
+  const char* name() const { return name_str.c_str(); }
 };
+
+struct buff_uptime_t : public uptime_common_t
+{ buff_uptime_t( sim_t* s ) : uptime_common_t( s ) {} };
 
 // Gain =====================================================================
 
 struct gain_t
 {
-  std::string name_str;
   double actual, overflow, count;
+
+  std::string name_str;
   resource_type type;
-  int id;
   gain_t* next;
-  gain_t( const std::string& n, int id_=0 ) :
-    name_str( n ), actual( 0 ), overflow( 0 ), count( 0 ), type( RESOURCE_NONE ), id( id_ ) {}
+
+  gain_t( const std::string& n ) :
+    actual( 0 ), overflow( 0 ), count( 0 ), name_str( n ), type( RESOURCE_NONE )
+  {}
+
   void add( double a, double o=0 ) { actual += a; overflow += o; count++; }
-  void merge( gain_t* other ) { actual += other -> actual; overflow += other -> overflow; count += other -> count; }
-  void analyze( sim_t* sim ) { actual /= sim -> iterations; overflow /= sim -> iterations; count /= sim -> iterations; }
-  const char* name() SC_CONST { return name_str.c_str(); }
+  void merge( const gain_t* other ) { actual += other -> actual; overflow += other -> overflow; count += other -> count; }
+  void analyze( const sim_t* sim ) { actual /= sim -> iterations; overflow /= sim -> iterations; count /= sim -> iterations; }
+  const char* name() const { return name_str.c_str(); }
 };
 
 // Proc =====================================================================
 
 struct proc_t
 {
-  sim_t* sim;
-  player_t* player;
-  std::string name_str;
   double count;
-  double frequency;
+  double last_proc;
   double interval_sum;
   double interval_count;
-  double last_proc;
+
+  double frequency;
+  sim_t* sim;
+
+  player_t* player;
+  std::string name_str;
   proc_t* next;
+
   proc_t( sim_t* s, const std::string& n ) :
-    sim(s), player( 0 ), name_str(n), count(0), frequency(0), interval_sum(0), interval_count(0), last_proc(0), next( 0 ) {}
+    count( 0 ), last_proc( 0 ), interval_sum( 0 ), interval_count( 0 ),
+    frequency( 0 ), sim( s ), player( 0 ), name_str( n ), next( 0 )
+  {}
+
   void occur()
   {
     count++;
@@ -4660,18 +5165,21 @@ struct proc_t
     }
     last_proc = sim -> current_time;
   }
-  void merge( proc_t* other )
+
+  void merge( const proc_t* other )
   {
     count          += other -> count;
     interval_sum   += other -> interval_sum;
     interval_count += other -> interval_count;
   }
-  void analyze( sim_t* sim )
+
+  void analyze( const sim_t* sim )
   {
     count /= sim -> iterations;
     if ( interval_count > 0 ) frequency = interval_sum / interval_count;
   }
-  const char* name() SC_CONST { return name_str.c_str(); }
+
+  const char* name() const { return name_str.c_str(); }
 };
 
 
@@ -4680,10 +5188,12 @@ struct proc_t
 struct report_t
 {
   static void encode_html( std::string& buffer );
+  static std::string encode_html( const char* str );
   static void print_spell_query( sim_t* );
   static void print_profiles( sim_t* );
   static void print_text( FILE*, sim_t*, bool detail=true );
   static void print_html( sim_t* );
+  static void print_html_player( FILE*, player_t*, int );
   static void print_xml( sim_t* );
   static void print_suite( sim_t* );
 };
@@ -4692,25 +5202,21 @@ struct report_t
 
 struct chart_t
 {
-  static int raid_dps ( std::vector<std::string>& images, sim_t* );
+  static int raid_aps ( std::vector<std::string>& images, sim_t*, std::vector<player_t*>, bool dps );
   static int raid_dpet( std::vector<std::string>& images, sim_t* );
   static int raid_gear( std::vector<std::string>& images, sim_t* );
 
   static const char* raid_downtime    ( std::string& s, sim_t* );
-  static const char* raid_timeline    ( std::string& s, sim_t* );
   static const char* action_dpet      ( std::string& s, player_t* );
   static const char* action_dmg       ( std::string& s, player_t* );
   static const char* time_spent       ( std::string& s, player_t* );
   static const char* gains            ( std::string& s, player_t*, resource_type );
-  static const char* timeline_resource( std::string& s, player_t*, int );
-  static const char* timeline_dps     ( std::string& s, player_t* );
-  static const char* timeline_stat_dps( std::string& s, player_t*, stats_t* );
+  static const char* timeline         ( std::string& s, player_t*, const std::vector<double>&, const std::string&, double avg=0, const char* color="FDD017" );
   static const char* timeline_dps_error( std::string& s, player_t* );
   static const char* scale_factors    ( std::string& s, player_t* );
   static const char* scaling_dps      ( std::string& s, player_t* );
   static const char* reforge_dps      ( std::string& s, player_t* );
-  static const char* distribution_dps ( std::string& s, player_t* );
-  static const char* distribution_deaths ( std::string& s, player_t* );
+  static const char* distribution ( std::string& s, sim_t*, const std::vector<int>&, const std::string&, double, double, double );
 
   static const char* gear_weights_lootrank  ( std::string& s, player_t* );
   static const char* gear_weights_wowhead   ( std::string& s, player_t* );
@@ -4718,6 +5224,8 @@ struct chart_t
   static const char* gear_weights_pawn      ( std::string& s, player_t*, bool hit_expertise=true );
 
   static const char* dps_error( std::string& s, player_t* );
+
+  static const char* resource_color( int type );
 };
 
 // Log ======================================================================
@@ -4725,7 +5233,7 @@ struct chart_t
 struct log_t
 {
   // Generic Output
-  static void output( sim_t*, const char* format, ... ) PRINTF_ATTRIBUTE(2,3);
+  static void output( sim_t*, const char* format, ... ) PRINTF_ATTRIBUTE( 2,3 );
 
   // Combat Log (unsupported)
 };
@@ -4754,8 +5262,8 @@ struct rng_t
   virtual double exgauss( double mean, double stddev, double nu );
   virtual void   seed( uint32_t start );
   virtual void   report( FILE* );
-  virtual double stdnormal_cdf(double u);
-  virtual double stdnormal_inv(double p);
+  virtual double stdnormal_cdf( double u );
+  virtual double stdnormal_inv( double p );
 
   static rng_t* create( sim_t*, const std::string& name, int type=RNG_STANDARD );
 };
@@ -4998,7 +5506,7 @@ struct wait_action_base_t : public action_t
   { trigger_gcd = 0; }
 
   virtual void execute()
-  { player -> total_waiting += time_to_execute; }
+  { player -> iteration_waiting_time += time_to_execute; }
 };
 
 // Wait For Cooldown Action =================================================
@@ -5010,52 +5518,9 @@ struct wait_for_cooldown_t : public wait_action_base_t
   virtual double execute_time() SC_CONST;
 };
 
-// Sliding window averager ==================================================
+inline buff_t* buff_t::find( sim_t* s, const std::string& name ) { return find( s -> buff_list, name ); }
+inline buff_t* buff_t::find( player_t* p, const std::string& name ) { return find( p -> buff_list, name ); }
 
-template <int HW, typename In, typename Out>
-void sliding_window_average( In first, In last, Out out )
-{
-  typedef typename std::iterator_traits<In>::value_type value_t;
-  typedef typename std::iterator_traits<In>::difference_type diff_t;
-  const diff_t n = std::distance( first, last );
-  const diff_t HALFWINDOW = static_cast<diff_t>( HW );
-
-  if ( n >= 2 * HALFWINDOW )
-  {
-    value_t window_sum = value_t();
-
-    // Fill right half of sliding window
-    In right = first;
-    for ( diff_t count = 0; count < HALFWINDOW; ++count )
-      window_sum += *right++;
-
-    // Fill left half of sliding window
-    for ( diff_t count = HALFWINDOW; count < 2 * HALFWINDOW; ++count )
-    {
-      window_sum += *right++;
-      *out++ = window_sum / ( count + 1 );
-    }
-
-    // Slide until window hits end of data
-    while ( right != last )
-    {
-      window_sum += *right++;
-      *out++ = window_sum / ( 2 * HALFWINDOW + 1 );
-      window_sum -= *first++;
-    }
-
-    // Empty right half of sliding window
-    for ( diff_t count = 2 * HALFWINDOW; count > HALFWINDOW; --count )
-    {
-      *out++ = window_sum / count;
-      window_sum -= *first++;
-    }
-  }
-  else {
-    // input is pathologically small compared to window size, just average everything.
-    std::fill_n( out, n, std::accumulate( first, last, value_t() ) / n );
-  }
-}
 
 #ifdef WHAT_IF
 
@@ -5071,13 +5536,13 @@ struct ticker_t // replacement for dot_t, handles any ticking buff/debuff
 
 struct sim_t
 {
-...
-actor_t* actor_list;
-std::vector<player_t*> player_list;
-std::vector<mob_t*> mob_list;
-...
-int get_aura_slot( const std::string& n, actor_t* source );
-...
+  ...
+  actor_t* actor_list;
+  std::vector<player_t*> player_list;
+  std::vector<mob_t*> mob_list;
+  ...
+  int get_aura_slot( const std::string& n, actor_t* source );
+  ...
 };
 
 struct actor_t
@@ -5093,8 +5558,8 @@ struct actor_t
 
 struct player_t : public actor_t
 {
-  scaling, current_target (actor), pet_list ...
-  player_t( const std::string& n, int type ) : actor_t( n, type ) { sim.player_list.push_back(this); }
+  scaling, current_target ( actor ), pet_list ...
+  player_t( const std::string& n, int type ) : actor_t( n, type ) { sim.player_list.push_back( this ); }
 };
 
 struct pet_t : public actor_t
@@ -5106,7 +5571,7 @@ struct pet_t : public actor_t
 struct enemy_t : public actor_t
 {
   health_by_time, health_per_player, arrise_at_time, arise_at_percent, ...
-  enemy_t( const std::string& n ) : actor_t( n, ACTOR_ENEMY ) { sim.enemy_list.push_back(this); }
+  enemy_t( const std::string& n ) : actor_t( n, ACTOR_ENEMY ) { sim.enemy_list.push_back( this ); }
 };
 
 struct action_t
@@ -5158,7 +5623,7 @@ struct ability_t : public action_t
     update_ready();
     // "cast" callbacks
   }
-  virtual void travel( result_t& result )
+  virtual void impact( result_t& result )
   {
     if( result.hit )
     {
@@ -5177,7 +5642,7 @@ struct ability_t : public action_t
       {
         ticker_t* ticker = get_ticker( result.target );  // caches aura_slot
         ticker -> trigger( this, result.ticker );
-        // ticker_t::trigger() handles dot work in existing action_t::travel()
+        // ticker_t::trigger() handles dot work in existing action_t::impact()
       }
     }
     else

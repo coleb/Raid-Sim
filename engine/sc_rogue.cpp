@@ -130,20 +130,21 @@ struct rogue_t : public player_t
   buff_t* buffs_shiv;
   buff_t* buffs_stealthed;
   buff_t* buffs_tier11_4pc;
+  buff_t* buffs_tier13_2pc;
   buff_t* buffs_vanish;
 
-  new_buff_t* buffs_adrenaline_rush;
-  new_buff_t* buffs_blade_flurry;
-  new_buff_t* buffs_cold_blood;
-  new_buff_t* buffs_envenom;
-  new_buff_t* buffs_find_weakness;
-  new_buff_t* buffs_killing_spree;
-  new_buff_t* buffs_master_of_subtlety;
-  new_buff_t* buffs_revealing_strike;
-  new_buff_t* buffs_shadow_dance;
-  new_buff_t* buffs_shadowstep;
-  new_buff_t* buffs_slice_and_dice;
-  new_buff_t* buffs_vendetta;
+  buff_t* buffs_adrenaline_rush;
+  buff_t* buffs_blade_flurry;
+  buff_t* buffs_cold_blood;
+  buff_t* buffs_envenom;
+  buff_t* buffs_find_weakness;
+  buff_t* buffs_killing_spree;
+  buff_t* buffs_master_of_subtlety;
+  buff_t* buffs_revealing_strike;
+  buff_t* buffs_shadow_dance;
+  buff_t* buffs_shadowstep;
+  buff_t* buffs_slice_and_dice;
+  buff_t* buffs_vendetta;
 
   stat_buff_t* buffs_tier12_4pc_crit;
   stat_buff_t* buffs_tier12_4pc_haste;
@@ -193,9 +194,9 @@ struct rogue_t : public player_t
   proc_t* procs_rolled_tier12_2pc_melee;
 
   // Up-Times
-  uptime_t* uptimes_bandits_guile[ 3 ];
-  uptime_t* uptimes_energy_cap;
-  uptime_t* uptimes_poisoned;
+  benefit_t* uptimes_bandits_guile[ 3 ];
+  benefit_t* uptimes_energy_cap;
+  benefit_t* uptimes_poisoned;
 
   // Random Number Generation
   rng_t* rng_bandits_guile;
@@ -234,6 +235,16 @@ struct rogue_t : public player_t
   mastery_t* mastery_potent_poisons; // XXX done as additive
   mastery_t* mastery_main_gauche;    // done
   mastery_t* mastery_executioner;    // XXX done as additive
+
+  // Spell Data
+  struct spells_t
+  {
+    spell_data_t* tier13_2pc;
+    spell_data_t* tier13_4pc;
+
+    spells_t() { memset( ( void* ) this, 0x0, sizeof( spells_t ) ); }
+  };
+  spells_t spells;
 
   // Talents
   struct talents_list_t
@@ -367,10 +378,7 @@ struct rogue_t : public player_t
   }
 
   ~rogue_t()
-  {
-    if ( combo_points )
-      delete combo_points;
-  }
+  { delete combo_points; }
 
   // Character Definition
   virtual void      init_talents();
@@ -378,7 +386,7 @@ struct rogue_t : public player_t
   virtual void      init_base();
   virtual void      init_gains();
   virtual void      init_procs();
-  virtual void      init_uptimes();
+  virtual void      init_benefits();
   virtual void      init_rng();
   virtual void      init_scaling();
   virtual void      init_buffs();
@@ -460,7 +468,7 @@ struct rogue_attack_t : public attack_t
   virtual double calculate_weapon_damage();
   virtual void   player_buff();
   virtual bool   ready();
-  virtual void   assess_damage( player_t* t, double amount, int dmg_type, int travel_result );
+  virtual void   assess_damage( player_t* t, double amount, int dmg_type, int impact_result );
   virtual double total_multiplier() SC_CONST;
   virtual double armor() SC_CONST;
 
@@ -823,6 +831,7 @@ static void trigger_tricks_of_the_trade( rogue_attack_t* a )
     }
 
     p -> tricks_of_the_trade_target = 0;
+    p -> buffs_tier13_2pc -> trigger();
   }
 }
 
@@ -888,9 +897,9 @@ static void trigger_tier12_2pc_melee( attack_t* s, double dmg )
       dot_behavior  = DOT_REFRESH;
       init();
     }
-    virtual void travel( player_t* t, int travel_result, double total_dot_dmg )
+    virtual void impact( player_t* t, int impact_result, double total_dot_dmg )
     {
-      rogue_attack_t::travel( t, travel_result, 0 );
+      rogue_attack_t::impact( t, impact_result, 0 );
 
       base_td = total_dot_dmg / dot -> num_ticks;
     }
@@ -1130,8 +1139,13 @@ double rogue_attack_t::cost() SC_CONST
 {
   double c = attack_t::cost();
 
+  rogue_t* p = player -> cast_rogue();
+
   if ( c <= 0 )
     return 0;
+
+  if ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_melee() && p -> buffs_tier13_2pc -> up() )
+    c *= 1.0 + p -> spells.tier13_2pc -> effect1().percent();
 
   return c;
 }
@@ -1327,9 +1341,9 @@ bool rogue_attack_t::ready()
 void rogue_attack_t::assess_damage( player_t* t,
                                     double amount,
                                     int    dmg_type,
-                                    int travel_result )
+                                    int impact_result )
 {
-  attack_t::assess_damage( t, amount, dmg_type, travel_result );
+  attack_t::assess_damage( t, amount, dmg_type, impact_result );
 
   /*rogue_t* p = player -> cast_rogue();
 
@@ -1340,7 +1354,7 @@ void rogue_attack_t::assess_damage( player_t* t,
     target_t* q = t -> cast_target();
 
     if ( p -> buffs_blade_flurry -> up() && q -> adds_nearby )
-      attack_t::additional_damage( q, amount, dmg_type, travel_result );
+      attack_t::additional_damage( q, amount, dmg_type, impact_result );
   }*/
 }
 
@@ -2189,7 +2203,7 @@ struct mutilate_strike_t : public rogue_attack_t
 
     rogue_t* p = player -> cast_rogue();
 
-    if ( target -> debuffs.poisoned )
+    if ( target -> debuffs.poisoned && ! p -> ptr )
       player_multiplier *= 1.20; // XXX: I'm sure it's there somehwere; or not
 
     p -> uptimes_poisoned -> update( target -> debuffs.poisoned > 0 );
@@ -2370,12 +2384,12 @@ struct rupture_t : public rogue_attack_t
     }
   }
 
-  virtual void travel( player_t* t, int travel_result, double travel_dmg )
+  virtual void impact( player_t* t, int impact_result, double travel_dmg )
   {
     rogue_t* p = player -> cast_rogue();
-    if ( result_is_hit( travel_result ) )
+    if ( result_is_hit( impact_result ) )
       num_ticks = 3 + combo_points_spent + ( int )( p -> glyphs.rupture -> mod_additive( P_DURATION ) / base_tick_time );
-    rogue_attack_t::travel( t, travel_result, travel_dmg );
+    rogue_attack_t::impact( t, impact_result, travel_dmg );
   }
 
   virtual void player_buff()
@@ -2610,6 +2624,8 @@ struct shadow_dance_t : public rogue_attack_t
     add_trigger_buff( p -> buffs_shadow_dance );
 
     p -> buffs_shadow_dance -> buff_duration += p -> glyphs.shadow_dance -> mod_additive( P_DURATION );
+    if ( p -> dbc.ptr && p -> set_bonus.tier13_4pc_melee() )
+      p -> buffs_shadow_dance -> buff_duration += p -> spells.tier13_4pc -> effect1().seconds();
 
     parse_options( options_str );
   }
@@ -2676,6 +2692,7 @@ struct tricks_of_the_trade_t : public rogue_attack_t
     }
 
     trigger_tier12_4pc_melee( this );
+    p -> buffs_tier13_2pc -> trigger();
   }
 
   virtual bool ready()
@@ -3101,28 +3118,30 @@ struct stealth_t : public spell_t
 // Buffs
 // ==========================================================================
 
-struct adrenaline_rush_buff_t : public new_buff_t
+struct adrenaline_rush_buff_t : public buff_t
 {
   adrenaline_rush_buff_t( rogue_t* p, uint32_t id ) :
-    new_buff_t( p, "adrenaline_rush", id )
+    buff_t( p, id, "adrenaline_rush" )
   {
     // we track the cooldown in the actual action
     // and because of restless blades have to remove it here
     cooldown -> duration = 0;
     buff_duration += p -> glyphs.adrenaline_rush -> mod_additive( P_DURATION );
+    if ( p -> dbc.ptr && p -> set_bonus.tier13_4pc_melee() )
+      buff_duration += p -> spells.tier13_4pc -> effect2().seconds();
   }
 
   virtual bool trigger( int, double, double )
   {
     // we keep haste % as current_value
-    return new_buff_t::trigger( 1, base_value( E_APPLY_AURA, A_319 ) );
+    return buff_t::trigger( 1, base_value( E_APPLY_AURA, A_319 ) );
   }
 };
 
-struct envenom_buff_t : public new_buff_t
+struct envenom_buff_t : public buff_t
 {
   envenom_buff_t( rogue_t* p ) :
-    new_buff_t( p, "envenom", 32645 ) { }
+    buff_t( p, 32645, "envenom" ) { }
 
   virtual bool trigger( int cp, double, double )
   {
@@ -3131,17 +3150,17 @@ struct envenom_buff_t : public new_buff_t
     if ( remains_lt( new_duration ) )
     {
       buff_duration = new_duration;
-      return new_buff_t::trigger();
+      return buff_t::trigger();
     }
     else
       return false;
   }
 };
 
-struct find_weakness_buff_t : public new_buff_t
+struct find_weakness_buff_t : public buff_t
 {
   find_weakness_buff_t( rogue_t* p, uint32_t id ) :
-    new_buff_t( p, "find_weakness", id )
+    buff_t( p, id, "find_weakness" )
   {
     if ( ! p -> dbc.spell( id ) )
       return;
@@ -3149,19 +3168,19 @@ struct find_weakness_buff_t : public new_buff_t
     // Duration is specified in the actual debuff (or is it a buff?) placed on the target
     buff_duration = p -> dbc.spell( 91021 ) -> duration();
 
-    init_buff_t_();
+    init_buff_shared();
   }
 
   virtual bool trigger( int, double, double )
   {
-    return new_buff_t::trigger( 1, base_value() / 100.0 );
+    return buff_t::trigger( 1, effect1().percent() );
   }
 };
 
-struct killing_spree_buff_t : public new_buff_t
+struct killing_spree_buff_t : public buff_t
 {
   killing_spree_buff_t( rogue_t* p, uint32_t id ) :
-    new_buff_t( p, "killing_spree", id )
+    buff_t( p, id, "killing_spree" )
   {
     // we track the cooldown in the actual action
     // and because of restless blades have to remove it here
@@ -3175,28 +3194,28 @@ struct killing_spree_buff_t : public new_buff_t
     double value = 0.20; // XXX
     value += p -> glyphs.killing_spree -> mod_additive( P_EFFECT_3 ) / 100.0;
 
-    return new_buff_t::trigger( 1, value );
+    return buff_t::trigger( 1, value );
   }
 };
 
-struct master_of_subtlety_buff_t : public new_buff_t
+struct master_of_subtlety_buff_t : public buff_t
 {
   master_of_subtlety_buff_t( rogue_t* p, uint32_t id ) :
-    new_buff_t( p, "master_of_subtlety", id )
+    buff_t( p, id, "master_of_subtlety" )
   {
     buff_duration = 6.0;
   }
 
   virtual bool trigger( int, double, double )
   {
-    return new_buff_t::trigger( 1, base_value() / 100.0 );
+    return buff_t::trigger( 1, effect1().percent() );
   }
 };
 
-struct revealing_strike_buff_t : public new_buff_t
+struct revealing_strike_buff_t : public buff_t
 {
   revealing_strike_buff_t( rogue_t* p, uint32_t id ) :
-    new_buff_t( p, "revealing_strike", id ) { }
+    buff_t( p, id, "revealing_strike" ) { }
 
   virtual bool trigger( int, double, double )
   {
@@ -3205,27 +3224,27 @@ struct revealing_strike_buff_t : public new_buff_t
     double value = base_value( E_APPLY_AURA, A_DUMMY ) / 100.0;
     value += p -> glyphs.revealing_strike -> mod_additive( P_EFFECT_3 ) / 100.0;
 
-    return new_buff_t::trigger( 1, value );
+    return buff_t::trigger( 1, value );
   }
 };
 
-struct shadowstep_buff_t : public new_buff_t
+struct shadowstep_buff_t : public buff_t
 {
   shadowstep_buff_t( rogue_t* p, uint32_t id ) :
-    new_buff_t( p, "shadowstep", id ) { }
+    buff_t( p, id, "shadowstep" ) { }
 
   virtual bool trigger( int, double, double )
   {
-    return new_buff_t::trigger( 1, base_value( E_APPLY_AURA, A_ADD_PCT_MODIFIER ) );
+    return buff_t::trigger( 1, base_value( E_APPLY_AURA, A_ADD_PCT_MODIFIER ) );
   }
 };
 
-struct slice_and_dice_buff_t : public new_buff_t
+struct slice_and_dice_buff_t : public buff_t
 {
   uint32_t id;
 
   slice_and_dice_buff_t( rogue_t* p ) :
-    new_buff_t( p, "slice_and_dice", 5171 ), id( 5171 ) { }
+    buff_t( p, 5171, "slice_and_dice" ), id( 5171 ) { }
 
   virtual bool trigger( int cp, double, double )
   {
@@ -3239,7 +3258,7 @@ struct slice_and_dice_buff_t : public new_buff_t
     if ( remains_lt( new_duration ) )
     {
       buff_duration = new_duration;
-      return new_buff_t::trigger( 1,
+      return buff_t::trigger( 1,
         base_value( E_APPLY_AURA, A_319 ) * ( 1.0 + p -> composite_mastery() * p -> mastery_executioner -> effect_coeff( 1 ) / 100.0 ) );
     }
     else
@@ -3247,17 +3266,19 @@ struct slice_and_dice_buff_t : public new_buff_t
   }
 };
 
-struct vendetta_buff_t : public new_buff_t
+struct vendetta_buff_t : public buff_t
 {
   vendetta_buff_t( rogue_t* p, uint32_t id ) :
-    new_buff_t( p, "vendetta", id )
+    buff_t( p, id, "vendetta" )
   {
     buff_duration *= 1.0 + p -> glyphs.vendetta -> mod_additive( P_DURATION );
+    if ( p -> dbc.ptr && p -> set_bonus.tier13_4pc_melee() )
+      buff_duration += p -> spells.tier13_4pc -> effect3().seconds();
   }
 
   virtual bool trigger( int, double, double )
   {
-    return new_buff_t::trigger( 1, base_value( E_APPLY_AURA, A_MOD_DAMAGE_FROM_CASTER ) );
+    return buff_t::trigger( 1, base_value( E_APPLY_AURA, A_MOD_DAMAGE_FROM_CASTER ) );
   }
 };
 
@@ -3382,7 +3403,7 @@ void rogue_t::init_actions()
       action_list_str += init_use_racial_actions();
 
       /* Putting this here for now but there is likely a better place to put it */
-      action_list_str += "/tricks_of_the_trade,if=set_bonus.tier12_4pc_melee";
+      action_list_str += "/tricks_of_the_trade,if=set_bonus.tier12_4pc_melee|set_bonus.tier13_2pc_melee";
 
       action_list_str += "/garrote";
       action_list_str += "/slice_and_dice,if=buff.slice_and_dice.down";
@@ -3417,7 +3438,7 @@ void rogue_t::init_actions()
       action_list_str += init_use_racial_actions();
 
       /* Putting this here for now but there is likely a better place to put it */
-      action_list_str += "/tricks_of_the_trade,if=set_bonus.tier12_4pc_melee";
+      action_list_str += "/tricks_of_the_trade,if=set_bonus.tier12_4pc_melee|set_bonus.tier13_2pc_melee";
 
       // TODO: Add Blade Flurry
       action_list_str += "/slice_and_dice,if=buff.slice_and_dice.down";
@@ -3437,7 +3458,7 @@ void rogue_t::init_actions()
     else if ( primary_tree() == TREE_SUBTLETY )
     {
       /* Putting this here for now but there is likely a better place to put it */
-      action_list_str += "/tricks_of_the_trade,if=set_bonus.tier12_4pc_melee";
+      action_list_str += "/tricks_of_the_trade,if=set_bonus.tier12_4pc_melee|set_bonus.tier13_2pc_melee";
 
       if ( talents.shadow_dance -> rank() )
       {
@@ -3700,6 +3721,12 @@ void rogue_t::init_spells()
   mastery_main_gauche     = new mastery_t( this, "main_gauche",        76806, TREE_COMBAT );
   mastery_executioner     = new mastery_t( this, "executioner",        76808, TREE_SUBTLETY );
 
+  if ( dbc.ptr )
+  {
+    spells.tier13_2pc       = spell_data_t::find( 105864, "Tricks of Time", dbc.ptr );
+    spells.tier13_4pc       = spell_data_t::find( 105865, "Item - Rogue T13 4P Bonus (Shadow Dance, Adrenaline Rush, and Vendetta)", dbc.ptr );
+  }
+
   glyphs.adrenaline_rush     = find_glyph( "Glyph of Adrenaline Rush"     );
   glyphs.ambush              = find_glyph( "Glyph of Ambush"              );
   glyphs.backstab            = find_glyph( "Glyph of Backstab"            );
@@ -3723,9 +3750,10 @@ void rogue_t::init_spells()
   static const uint32_t set_bonuses[N_TIER][N_TIER_BONUS] =
   {
     //  C2P    C4P    M2P    M4P    T2P    T4P    H2P    H4P
-    {     0,     0, 90460, 90473,     0,     0,     0,     0 }, // Tier11
-    {     0,     0, 99174, 99175,     0,     0,     0,     0 }, // Tier12
-    {     0,     0,     0,     0,     0,     0,     0,     0 },
+    {     0,     0,  90460,  90473,     0,     0,     0,     0 }, // Tier11
+    {     0,     0,  99174,  99175,     0,     0,     0,     0 }, // Tier12
+    {     0,     0, 105849, 105865,     0,     0,     0,     0 }, // Tier13
+    {     0,     0,      0,      0,     0,     0,     0,     0 },
   };
 
   sets = new set_bonus_array_t( this, set_bonuses );
@@ -3769,16 +3797,16 @@ void rogue_t::init_procs()
 
 // rogue_t::init_uptimes ====================================================
 
-void rogue_t::init_uptimes()
+void rogue_t::init_benefits()
 {
-  player_t::init_uptimes();
+  player_t::init_benefits();
 
-  uptimes_bandits_guile[ 0 ] = get_uptime( "shallow_insight" );
-  uptimes_bandits_guile[ 1 ] = get_uptime( "moderate_insight" );
-  uptimes_bandits_guile[ 2 ] = get_uptime( "deep_insight" );
+  uptimes_bandits_guile[ 0 ] = get_benefit( "shallow_insight" );
+  uptimes_bandits_guile[ 1 ] = get_benefit( "moderate_insight" );
+  uptimes_bandits_guile[ 2 ] = get_benefit( "deep_insight" );
 
-  uptimes_energy_cap = get_uptime( "energy_cap" );
-  uptimes_poisoned   = get_uptime( "poisoned"   );
+  uptimes_energy_cap = get_benefit( "energy_cap" );
+  uptimes_poisoned   = get_benefit( "poisoned"   );
 }
 
 // rogue_t::init_rng ========================================================
@@ -3820,6 +3848,7 @@ void rogue_t::init_scaling()
 
   scales_with[ STAT_WEAPON_OFFHAND_DPS    ] = 1;
   scales_with[ STAT_WEAPON_OFFHAND_SPEED  ] = sim -> weapon_speed_scale_factors;
+  scales_with[ STAT_HIT_RATING2           ] = 1;
 }
 
 // rogue_t::init_buffs ======================================================
@@ -3837,15 +3866,17 @@ void rogue_t::init_buffs()
   buffs_shiv               = new buff_t( this, "shiv",          1  );
   buffs_stealthed          = new buff_t( this, "stealthed",     1  );
   buffs_tier11_4pc         = new buff_t( this, "tier11_4pc",    1, 15.0, 0.0, set_bonus.tier11_4pc_melee() * 0.01 );
+
+  buffs_tier13_2pc         = new buff_t( this, "tier13_2pc",    1, dbc.ptr ? spells.tier13_2pc -> duration() : 6.0, 0.0, ( dbc.ptr && set_bonus.tier13_2pc_melee() ) ? 1.0 : 0 );
   buffs_vanish             = new buff_t( this, "vanish",        1, 3.0 );
 
   buffs_tier12_4pc_haste   = new stat_buff_t( this, "future_on_fire",    STAT_HASTE_RATING,   0.0, 1, dbc.spell( 99186 ) -> duration() );
   buffs_tier12_4pc_crit    = new stat_buff_t( this, "fiery_devastation", STAT_CRIT_RATING,    0.0, 1, dbc.spell( 99187 ) -> duration() );
   buffs_tier12_4pc_mastery = new stat_buff_t( this, "master_of_flames",  STAT_MASTERY_RATING, 0.0, 1, dbc.spell( 99188 ) -> duration() );
 
-  buffs_blade_flurry       = new new_buff_t( this, "blade_flurry",   spec_blade_flurry -> spell_id() );
-  buffs_cold_blood         = new new_buff_t( this, "cold_blood",     talents.cold_blood -> spell_id() );
-  buffs_shadow_dance       = new new_buff_t( this, "shadow_dance",   talents.shadow_dance -> spell_id() );
+  buffs_blade_flurry       = new buff_t( this,   spec_blade_flurry -> spell_id(), "blade_flurry" );
+  buffs_cold_blood         = new buff_t( this,     talents.cold_blood -> spell_id(), "cold_blood" );
+  buffs_shadow_dance       = new buff_t( this,   talents.shadow_dance -> spell_id(), "shadow_dance" );
 
   buffs_adrenaline_rush    = new adrenaline_rush_buff_t    ( this, talents.adrenaline_rush -> spell_id() );
   buffs_envenom            = new envenom_buff_t            ( this );
@@ -3863,6 +3894,12 @@ void rogue_t::init_buffs()
 void rogue_t::init_values()
 {
   player_t::init_values();
+
+  if ( set_bonus.pvp_2pc_melee() )
+    attribute_initial[ ATTR_AGILITY ]   += 70;
+
+  if ( set_bonus.pvp_4pc_melee() )
+    attribute_initial[ ATTR_AGILITY ]   += 90;
 }
 
 // trigger_honor_among_thieves ==============================================
@@ -4041,7 +4078,7 @@ void rogue_t::regen( double periodicity )
   }
 
   uptimes_energy_cap -> update( resource_current[ RESOURCE_ENERGY ] ==
-                                resource_max    [ RESOURCE_ENERGY ] );
+                                       resource_max    [ RESOURCE_ENERGY ] );
 
   for ( int i = 0; i < 3; i++ )
     uptimes_bandits_guile[ i ] -> update( ( buffs_bandits_guile -> current_stack / 4 - 1 ) == i );
@@ -4059,7 +4096,7 @@ double rogue_t::available() SC_CONST
   return std::max( ( 25 - energy ) / energy_regen_per_second(), 0.1 );
 }
 
-// rogue_t::create_options ==================================================
+// rogue_t::parse_combo_points ==============================================
 
 static bool parse_combo_points( sim_t* sim,
                                 const std::string& name,
@@ -4145,6 +4182,9 @@ int rogue_t::decode_set( item_t& item )
 
   if ( strstr( s, "wind_dancers" ) ) return SET_T11_MELEE;
   if ( strstr( s, "dark_phoenix" ) ) return SET_T12_MELEE;
+  if ( strstr( s, "blackfang_battleweave" ) ) return SET_T13_MELEE;
+
+  if ( strstr( s, "_gladiators_leather_" ) )  return SET_PVP_CASTER;
 
   return SET_NONE;
 }

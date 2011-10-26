@@ -377,7 +377,7 @@ namespace { // ANONYMOUS ====================================================
 struct item_info_t : public item_data_t
 {
   std::string name_str, icon_str;
-  item_info_t() { zerofill( static_cast<item_data_t&>( *this ) ); }
+  item_info_t() : item_data_t() {}
 };
 
 bool download_item_data( item_t& item, item_info_t& item_data,
@@ -441,7 +441,7 @@ bool download_item_data( item_t& item, item_info_t& item_data,
     {
       std::vector<js_node_t*> nodes;
       js_t::get_children( nodes, classes );
-      for ( unsigned i = 0, n = nodes.size(); i < n; ++i )
+      for ( size_t i = 0, n = nodes.size(); i < n; ++i )
       {
         int cid;
         if ( js_t::get_value( cid, nodes[ i ] ) )
@@ -455,7 +455,7 @@ bool download_item_data( item_t& item, item_info_t& item_data,
     {
       std::vector<js_node_t*> nodes;
       js_t::get_children( nodes, races );
-      for ( unsigned i = 0, n = nodes.size(); i < n; ++i )
+      for ( size_t i = 0, n = nodes.size(); i < n; ++i )
       {
         int rid;
         if ( js_t::get_value( rid, nodes[ i ] ) )
@@ -469,7 +469,7 @@ bool download_item_data( item_t& item, item_info_t& item_data,
     {
       std::vector<js_node_t*> nodes;
       js_t::get_children( nodes, stats );
-      for ( unsigned i = 0, n = std::min( nodes.size(), sizeof_array( item_data.stat_type ) ); i < n; ++i )
+      for ( size_t i = 0, n = std::min( nodes.size(), sizeof_array( item_data.stat_type ) ); i < n; ++i )
       {
         if ( ! js_t::get_value( item_data.stat_type[ i ], nodes[ i ], "stat" ) ) throw( "bonus stat" );
         if ( ! js_t::get_value( item_data.stat_val[ i ], nodes[ i ], "amount" ) ) throw( "bonus stat amount" );
@@ -480,7 +480,7 @@ bool download_item_data( item_t& item, item_info_t& item_data,
     {
       std::vector<js_node_t*> nodes;
       js_t::get_children( nodes, sockets );
-      for ( unsigned i = 0, n = std::min( nodes.size(), sizeof_array( item_data.socket_color ) ); i < n; ++i )
+      for ( size_t i = 0, n = std::min( nodes.size(), sizeof_array( item_data.socket_color ) ); i < n; ++i )
       {
         std::string color;
         if ( js_t::get_value( color, nodes[ i ], "type" ) )
@@ -642,7 +642,7 @@ bool download_guild( sim_t* sim, const std::string& region, const std::string& s
     int rank;
     if ( ! js_t::get_value( rank, characters[ i ], "rank" ) ||
         ( ( max_rank > 0 ) && ( rank > max_rank ) ) ||
-        ( ! ranks.empty() && std::find( ranks.begin(), ranks.end(), rank ) == ranks.end() ) )
+        ( ! ranks.empty() && range::find( ranks, rank ) == ranks.end() ) )
       continue;
 
     std::string cname;
@@ -652,7 +652,7 @@ bool download_guild( sim_t* sim, const std::string& region, const std::string& s
 
   if ( names.empty() ) return true;
 
-  std::sort( names.begin(), names.end() );
+  range::sort( names );
 
   for ( std::size_t i = 0, n = names.size(); i < n; ++i )
   {
@@ -664,7 +664,8 @@ bool download_guild( sim_t* sim, const std::string& region, const std::string& s
       sim -> errorf( "BCP API: Failed to download player '%s' trying Wowhead instead\n", cname.c_str() );
       player = wowhead_t::download_player( sim, region, server, cname, "active", caching );
       if ( !player )
-        return false;
+        sim -> errorf( "Wowhead: Failed to download player '%s'\n", cname.c_str() );
+      // Just ignore invalid players
     }
   }
 

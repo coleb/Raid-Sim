@@ -130,6 +130,7 @@ struct death_knight_t : public player_t
   buff_t* buffs_shadow_infusion;
   buff_t* buffs_sudden_doom;
   buff_t* buffs_tier11_4pc_melee;
+  buff_t* buffs_tier13_4pc_melee;
   buff_t* buffs_unholy_presence;
 
   // Cooldowns
@@ -307,7 +308,7 @@ struct death_knight_t : public player_t
   talents_t talents;
 
   // Uptimes
-  uptime_t* uptimes_rp_cap;
+  benefit_t* uptimes_rp_cap;
 
   double tier12_4pc_melee_value;
 
@@ -361,10 +362,11 @@ struct death_knight_t : public player_t
   virtual void      init_base();
   virtual void      init_scaling();
   virtual void      init_buffs();
+  virtual void      init_values();
   virtual void      init_gains();
   virtual void      init_procs();
   virtual void      init_resources( bool force );
-  virtual void      init_uptimes();
+  virtual void      init_benefits();
   double composite_pet_attack_crit();
   virtual double    composite_armor_multiplier() SC_CONST;
   virtual double    composite_attack_haste() SC_CONST;
@@ -2158,7 +2160,24 @@ struct melee_t : public death_knight_attack_t
     {
       if ( weapon -> slot == SLOT_MAIN_HAND )
       {
-        p -> buffs_sudden_doom -> trigger( 1, -1, weapon -> proc_chance_on_swing( p -> talents.sudden_doom -> rank() ) );
+        // T13 2pc gives 2 stacks of SD, otherwise we can only ever have one
+        // Ensure that if we have 1 that we only refresh, not add another stack
+        int new_stacks = ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_melee() && sim -> roll( 0.3 ) ) ? 2 : 1;
+
+        if ( sim -> roll( weapon -> proc_chance_on_swing( p -> talents.sudden_doom -> rank() ) ) )
+        {
+          // If we're proccing 2 or we have 0 stacks, trigger like normal
+          if ( ! p -> dbc.ptr || new_stacks == 2 || p -> buffs_sudden_doom -> check() == 0 )
+          {
+            p -> buffs_sudden_doom -> trigger( new_stacks );
+          }
+          // Refresh the 1 stack we already have
+          // refresh( 0 ) means we don't add any stacks
+          else
+          {
+            p -> buffs_sudden_doom -> refresh( 0 );
+          }
+        }
       }
 
       // TODO: Confirm PPM for ranks 1 and 2 http://elitistjerks.com/f72/t110296-frost_dps_|_cataclysm_4_0_3_nothing_lose/p9/#post1869431
@@ -2856,11 +2875,11 @@ struct frost_fever_t : public death_knight_spell_t
     init(); // Not a real action
   }
 
-  virtual void travel( player_t* t, int travel_result, double travel_dmg )
+  virtual void impact( player_t* t, int impact_result, double travel_dmg )
   {
-    death_knight_spell_t::travel( t, travel_result, travel_dmg );
+    death_knight_spell_t::impact( t, impact_result, travel_dmg );
 
-    if ( result_is_hit( travel_result ) )
+    if ( result_is_hit( impact_result ) )
       trigger_brittle_bones( this, t );
   }
 
@@ -3111,7 +3130,7 @@ struct howling_blast_t : public death_knight_spell_t
         p -> resource_gain( RESOURCE_RUNIC, p -> talents.chill_of_the_grave -> effect1().resource( RESOURCE_RUNIC ), p -> gains_chill_of_the_grave );
       }
     }
-    p -> buffs_rime -> expire();
+    p -> buffs_rime -> decrement();
   }
 
   virtual void target_debuff( player_t* t, int dmg_type )
@@ -3195,7 +3214,7 @@ struct icy_touch_t : public death_knight_spell_t
       trigger_ebon_plaguebringer( this );
     }
 
-    p -> buffs_rime -> expire();
+    p -> buffs_rime -> decrement();
   }
 
   virtual void target_debuff( player_t* t, int dmg_type )
@@ -3292,16 +3311,10 @@ struct obliterate_offhand_t : public death_knight_attack_t
 
   virtual void execute()
   {
-    death_knight_t* p = player -> cast_death_knight();
     death_knight_attack_t::execute();
 
     if ( result_is_hit() )
     {
-      if ( p -> buffs_rime -> trigger() )
-      {
-        p -> cooldowns_howling_blast -> reset();
-        update_ready();
-      }
       if ( flaming_torment )
       {
         flaming_torment -> base_dd_min = direct_dmg;
@@ -3375,11 +3388,29 @@ struct obliterate_t : public death_knight_attack_t
       {
         p -> resource_gain( RESOURCE_RUNIC, p -> talents.chill_of_the_grave -> effect1().resource( RESOURCE_RUNIC ), p -> gains_chill_of_the_grave );
       }
-      if ( p -> buffs_rime -> trigger() )
+
+      // T13 2pc gives 2 stacks of Rime, otherwise we can only ever have one
+      // Ensure that if we have 1 that we only refresh, not add another stack
+      int new_stacks = ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_melee() && sim -> roll( 0.6 ) ) ? 2 : 1;
+
+      if ( sim -> roll( p -> talents.rime -> proc_chance() ) )
       {
+        // If we're proccing 2 or we have 0 stacks, trigger like normal
+        if ( ! p -> dbc.ptr || new_stacks == 2 || p -> buffs_rime -> check() == 0 )
+        {
+          p -> buffs_rime -> trigger( new_stacks );
+        }
+        // Refresh the 1 stack we already have
+        // refresh( 0 ) means we don't add any stacks
+        else
+        {
+          p -> buffs_rime -> refresh( 0 );
+        }
+
         p -> cooldowns_howling_blast -> reset();
         update_ready();
       }
+
       if ( flaming_torment )
       {
         flaming_torment -> base_dd_min = direct_dmg;
@@ -4411,10 +4442,11 @@ void death_knight_t::init_spells()
   // Tier Bonuses
   static const uint32_t set_bonuses[N_TIER][N_TIER_BONUS] =
   {
-    //  C2P    C4P    M2P    M4P    T2P    T4P    H2P    H4P
-    {     0,     0, 90457, 90459, 90454, 90456,     0,     0 }, // Tier11
-    {     0,     0, 98970, 98996, 98956, 98966,     0,     0 }, // Tier12
-    {     0,     0,     0,     0,     0,     0,     0,     0 },
+    //  C2P    C4P     M2P     M4P     T2P     T4P    H2P    H4P
+    {     0,     0,  90457,  90459,  90454,  90456,     0,     0 }, // Tier11
+    {     0,     0,  98970,  98996,  98956,  98966,     0,     0 }, // Tier12
+    {     0,     0, 105609, 105646, 105552, 105587,     0,     0 }, // Tier13
+    {     0,     0,      0,      0,      0,      0,     0,     0 },
   };
 
   sets = new set_bonus_array_t( this, set_bonuses );
@@ -4468,23 +4500,12 @@ void death_knight_t::init_actions()
     }
     action_list_str +="/army_of_the_dead";
     action_list_str += "/snapshot_stats";
-    int num_items = ( int ) items.size();
-    bool has_hor = false;
 
     action_list_str += init_use_item_actions( ",time>=10" );
 
     action_list_str += init_use_profession_actions();
 
     action_list_str += init_use_racial_actions( ",time>=10" );
-
-    for ( int i=0; i < num_items; i++ )
-    {
-      // check for Heart of Rage
-      if ( strstr( items[ i ].name(), "heart_of_rage" ) )
-      {
-        has_hor = true;
-      }
-    }
 
     switch ( primary_tree() )
     {
@@ -4507,43 +4528,81 @@ void death_knight_t::init_actions()
       action_list_str += "/death_coil";
       break;
     case TREE_FROST:
+    {
       action_list_str += "/golemblood_potion,if=!in_combat|buff.bloodlust.react|target.time_to_die<=60";
       action_list_str += "/auto_attack";
       if ( talents.pillar_of_frost -> rank() )
       {
         action_list_str += "/pillar_of_frost";
       }
-      action_list_str += "/blood_tap,if=death!=2";
-      // Try and time a better ghoul
-      action_list_str += "/raise_dead,if=buff.rune_of_the_fallen_crusader.react";
-      if ( has_hor )
-        action_list_str += "&buff.heart_of_rage.react";
-      action_list_str += "/raise_dead,time>=15";
-      if ( level > 81 )
-        action_list_str += "/outbreak,if=dot.frost_fever.remains<=2|dot.blood_plague.remains<=2";
-      action_list_str += "/howling_blast,if=dot.frost_fever.remains<=2";
-      action_list_str += "/plague_strike,if=dot.blood_plague.remains<=2";
-      action_list_str += "/obliterate,if=frost=2|unholy=2";
-      action_list_str += "/obliterate,if=death=2";
-      action_list_str += "/obliterate,if=buff.killing_machine.react"; // All 3 are seperated for Sample Sequence
-      action_list_str += "/empower_rune_weapon,if=target.time_to_die<=120&buff.killing_machine.react";
-      action_list_str +="/frost_strike,if=runic_power>=90&!buff.bloodlust.react";
-      action_list_str +="/frost_strike,if=runic_power>=95";
-      if ( talents.howling_blast -> rank() )
+      action_list_str += "/blood_tap,if=death!=2&death.cooldown_remains>2.0";
+      // this results in a dps loss. which is odd, it probalby shouldn't. although it only ever affects the very first ghoul summon
+      // leaving it here until further testing.
+      if ( false )
       {
-        if ( talents.rime -> rank() )
-          action_list_str += "/howling_blast,if=buff.rime.react";
-        action_list_str += "/howling_blast,if=(death+unholy)=0&!buff.bloodlust.react";
+        // Try and time a better ghoul
+        bool has_heart_of_rage = false;
+        for ( int i=0, n=items.size(); i < n; i++ )
+        {
+          // check for Heart of Rage
+          if ( strstr( items[ i ].name(), "heart_of_rage" ) )
+          {
+            has_heart_of_rage = true;
+            break;
+          }
+        }
+        action_list_str += "/raise_dead,if=buff.rune_of_the_fallen_crusader.react";
+        if ( has_heart_of_rage )
+          action_list_str += "&buff.heart_of_rage.react";
       }
+
+      action_list_str += "/raise_dead,time>=15";
+      // priority:
+      // Diseases
+      // Obliterate if 2 rune pair are capped, or there is no candidate for RE
+      // FS if RP > 110 - avoid RP capping (value varies. going with 110)
+      // Rime
+      // OBL if any pair are capped
+      // FS to avoid RP capping (maxRP - OBL rp generation + GCD generation. Lets say 100)
+      // OBL
+      // FS
+      // HB (it turns out when resource starved using a lonely death/frost rune to generate RP/FS/RE is better than waiting for OBL
+
+      // optimal timing for diseases depends on points in epidemic, and if using improved blood tap
+      // players with only 2 points in epidemic want a 0 second refresh to avoid two PS in one minute instead of 1
+      // IBT players use 2 PS every minute
+      std::string drefresh = "0";
+      if ( talents.improved_blood_tap -> rank() )
+        drefresh = "2";
+      if ( talents.epidemic -> rank() == 3 )
+        drefresh = "1";
+      if ( talents.epidemic -> rank() == 2 )
+        drefresh = "0";
+      if ( level > 81 )
+        action_list_str += "/outbreak,if=dot.frost_fever.remains<=" + drefresh + "|dot.blood_plague.remains<=" + drefresh;
+      action_list_str += "/howling_blast,if=dot.frost_fever.remains<=" + drefresh;
+      action_list_str += "/plague_strike,if=dot.blood_plague.remains<=" + drefresh;
+      action_list_str += "/obliterate,if=death>=1&frost>=1&unholy>=1";
+      action_list_str += "/obliterate,if=(death=2&frost=2)|(death=2&unholy=2)|(frost=2|unholy=2)";
+      // XXX TODO 110 is based on MAXRP - FSCost + a little, as a break point. should be varialble based on RPM GoFS etc
+      action_list_str += "/frost_strike,if=runic_power>=110";
+      if ( talents.howling_blast -> rank() && talents.rime -> rank() )
+        action_list_str += "/howling_blast,if=buff.rime.react";
+      action_list_str += "/obliterate,if=(death=2|unholy=2|frost=2)";
+      action_list_str += "/frost_strike,if=runic_power>=100";
       action_list_str += "/obliterate";
       action_list_str += "/empower_rune_weapon,if=target.time_to_die<=45";
-      action_list_str += "/frost_strike";
+      action_list_str +="/frost_strike";
       if ( talents.howling_blast -> rank() )
         action_list_str += "/howling_blast";
-      action_list_str += "/blood_tap";
-      action_list_str += "/empower_rune_weapon";
+      // avoid using ERW if runes are almost ready
+      action_list_str += "/empower_rune_weapon,if=(blood.cooldown_remains+frost.cooldown_remains+unholy.cooldown_remains)>8";
       action_list_str += "/horn_of_winter";
+      // add in goblin rocket barrage when nothing better to do. 40dps or so.
+      if ( race == RACE_GOBLIN )
+        action_list_str += "/rocket_barrage";
       break;
+    }
     case TREE_UNHOLY:
       action_list_str += "/raise_dead";
       action_list_str += "/golemblood_potion,if=!in_combat|buff.bloodlust.react|target.time_to_die<=60";
@@ -4649,6 +4708,14 @@ void death_knight_t::init_enchant()
       trigger_gcd = 0;
       init();
     }
+
+    void target_debuff( player_t* t, int dmg_type )
+    {
+      death_knight_spell_t::target_debuff( t, dmg_type );
+      death_knight_t* p = player -> cast_death_knight();
+
+      target_multiplier /= 1.0 + p -> buffs_rune_of_razorice -> stack() * 0.02;
+    }
   };
 
   struct razorice_callback_t : public action_callback_t
@@ -4675,8 +4742,6 @@ void death_knight_t::init_enchant()
       // double chance     = w -> proc_chance_on_swing( PPM, swing_time );
       buff -> trigger();
 
-      razorice_damage_proc -> base_dd_min = w -> min_dmg;
-      razorice_damage_proc -> base_dd_max = w -> max_dmg;
       razorice_damage_proc -> execute();
     }
   };
@@ -4725,6 +4790,7 @@ void death_knight_t::init_scaling()
   {
     scales_with[ STAT_WEAPON_OFFHAND_DPS   ] = 1;
     scales_with[ STAT_WEAPON_OFFHAND_SPEED ] = sim -> weapon_speed_scale_factors;
+    scales_with[ STAT_HIT_RATING2          ] = 1;
   }
 
   if ( primary_role() == ROLE_TANK )
@@ -4750,12 +4816,13 @@ void death_knight_t::init_buffs()
   buffs_frost_presence      = new buff_t( this, "frost_presence" );
   buffs_killing_machine     = new buff_t( this, "killing_machine",                                    1,  30.0,  0.0, 0.0 ); // PPM based!
   buffs_pillar_of_frost     = new buff_t( this, "pillar_of_frost",                                    1,  20.0 );
-  buffs_rime                = new buff_t( this, "rime",                                               1,  30.0,  0.0, talents.rime -> proc_chance() );
+  buffs_rime                = new buff_t( this, "rime", ( dbc.ptr && set_bonus.tier13_2pc_melee() ) ? 2 : 1, 30.0, 0.0, 1.0 ); // Trigger controls proc chance
   buffs_runic_corruption    = new buff_t( this, "runic_corruption",                                   1,   3.0,  0.0, talents.runic_corruption -> effect1().percent() );
   buffs_scent_of_blood      = new buff_t( this, "scent_of_blood",      talents.scent_of_blood -> rank(),  20.0,  0.0, talents.scent_of_blood -> proc_chance() );
   buffs_shadow_infusion     = new buff_t( this, "shadow_infusion",                                    5,  30.0,  0.0, talents.shadow_infusion -> proc_chance() );
-  buffs_sudden_doom         = new buff_t( this, "sudden_doom",                                        1,  10.0,  0.0, 1.0 );
+  buffs_sudden_doom         = new buff_t( this, "sudden_doom", ( dbc.ptr && set_bonus.tier13_2pc_melee() ) ? 2 : 1, 10.0, 0.0, 1.0 );
   buffs_tier11_4pc_melee    = new buff_t( this, "tier11_4pc_melee",                                   3,  30.0,  0.0, set_bonus.tier11_4pc_melee() );
+  buffs_tier13_4pc_melee    = new stat_buff_t( this, "tier13_4pc_melee", STAT_MASTERY_RATING, 710, 1, 12.0 );
   buffs_unholy_presence     = new buff_t( this, "unholy_presence" );
 
   struct bloodworms_buff_t : public buff_t
@@ -4776,6 +4843,19 @@ void death_knight_t::init_buffs()
     }
   };
   buffs_bloodworms = new bloodworms_buff_t( this );
+}
+
+// death_knight_t::init_values ====================================================
+
+void death_knight_t::init_values()
+{
+  player_t::init_values();
+
+  if ( set_bonus.pvp_2pc_melee() )
+    attribute_initial[ ATTR_STRENGTH ]   += 70;
+
+  if ( set_bonus.pvp_4pc_melee() )
+    attribute_initial[ ATTR_STRENGTH ]   += 90;
 }
 
 // death_knight_t::init_gains ===============================================
@@ -4842,11 +4922,11 @@ void death_knight_t::init_resources( bool force )
 
 // death_knight_t::init_uptimes =============================================
 
-void death_knight_t::init_uptimes()
+void death_knight_t::init_benefits()
 {
-  player_t::init_uptimes();
+  player_t::init_benefits();
 
-  uptimes_rp_cap = get_uptime( "rp_cap" );
+  uptimes_rp_cap = get_benefit( "rp_cap" );
 }
 
 // death_knight_t::reset ====================================================
@@ -5050,7 +5130,7 @@ void death_knight_t::regen( double periodicity )
   }
 
   uptimes_rp_cap -> update( resource_current[ RESOURCE_RUNIC ] ==
-                            resource_max    [ RESOURCE_RUNIC] );
+                                   resource_max    [ RESOURCE_RUNIC] );
 }
 
 // death_knight_t::create_options ===========================================
@@ -5119,6 +5199,26 @@ int death_knight_t::decode_set( item_t& item )
     if ( is_tank  ) return SET_T12_TANK;
   }
 
+  if ( strstr( s, "necrotic_boneplate" ) )
+  {
+    bool is_melee = ( strstr( s, "helmet"        ) ||
+                      strstr( s, "pauldrons"     ) ||
+                      strstr( s, "breastplate"   ) ||
+                      strstr( s, "greaves"       ) ||
+                      strstr( s, "gauntlets"     ) );
+
+    bool is_tank = ( strstr( s, "faceguard"      ) ||
+                     strstr( s, "shoulderguards" ) ||
+                     strstr( s, "chestguard"     ) ||
+                     strstr( s, "legguards"      ) ||
+                     strstr( s, "handguards"     ) );
+
+    if ( is_melee ) return SET_T13_MELEE;
+    if ( is_tank  ) return SET_T13_TANK;
+  }
+
+  if ( strstr( s, "_gladiators_dreadplate_" ) ) return SET_PVP_MELEE;
+
   return SET_NONE;
 }
 
@@ -5139,6 +5239,10 @@ void death_knight_t::trigger_runic_empowerment()
     {
       buffs_runic_corruption -> trigger();
     }
+
+    if ( dbc.ptr && set_bonus.tier13_4pc_melee() )
+      buffs_tier13_4pc_melee -> trigger( 1, 0, 0.40 );
+
     return;
   }
 
@@ -5161,6 +5265,9 @@ void death_knight_t::trigger_runic_empowerment()
     gains_runic_empowerment -> add ( 1,0 );
     if ( sim -> log ) log_t::output( sim, "runic empowerment regen'd rune %d", rune_to_regen );
     proc_runic_empowerment -> occur();
+
+    if ( dbc.ptr && set_bonus.tier13_4pc_melee() )
+      buffs_tier13_4pc_melee -> trigger( 1, 0, 0.25 );
   }
   else
   {
@@ -5168,6 +5275,7 @@ void death_knight_t::trigger_runic_empowerment()
     proc_runic_empowerment_wasted -> occur();
     gains_runic_empowerment -> add ( 0,1 );
   }
+
 }
 
 // player_t implementations =================================================
