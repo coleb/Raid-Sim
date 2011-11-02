@@ -88,10 +88,9 @@
 #include "data_definitions.hh"
 
 #define SC_MAJOR_VERSION "422"
-#define SC_MINOR_VERSION "3"
+#define SC_MINOR_VERSION "4"
 #define SC_USE_PTR ( 1 )
 #define SC_BETA ( 0 )
-#define DTR_DD_ENABLED ( 0 )
 #define SC_EPSILON ( 0.000001 )
 #ifndef M_PI
 #define M_PI ( 3.14159265358979323846 )
@@ -126,6 +125,7 @@ struct hunter_t;
 struct item_t;
 struct js_node_t;
 struct mage_t;
+struct monk_t;
 struct option_t;
 struct paladin_t;
 struct pet_t;
@@ -172,6 +172,7 @@ enum race_type
   // Player Races
   RACE_NIGHT_ELF, RACE_HUMAN, RACE_GNOME, RACE_DWARF, RACE_DRAENEI, RACE_WORGEN,
   RACE_ORC, RACE_TROLL, RACE_UNDEAD, RACE_BLOOD_ELF, RACE_TAUREN, RACE_GOBLIN,
+  RACE_PANDAREN,
   RACE_MAX
 };
 
@@ -179,7 +180,7 @@ enum player_type
 {
   PLAYER_SPECIAL_SCALE=-1,
   PLAYER_NONE=0,
-  DEATH_KNIGHT, DRUID, HUNTER, MAGE, PALADIN, PRIEST, ROGUE, SHAMAN, WARLOCK, WARRIOR,
+  DEATH_KNIGHT, DRUID, HUNTER, MAGE, MONK, PALADIN, PRIEST, ROGUE, SHAMAN, WARLOCK, WARRIOR,
   PLAYER_PET, PLAYER_GUARDIAN,
   ENEMY, ENEMY_ADD,
   PLAYER_MAX
@@ -294,7 +295,8 @@ enum resource_type
   RESOURCE_NONE=0,
   RESOURCE_HEALTH, RESOURCE_MANA,  RESOURCE_RAGE, RESOURCE_ENERGY, RESOURCE_FOCUS, RESOURCE_RUNIC,
   RESOURCE_RUNE, RESOURCE_HAPPINESS, RESOURCE_SOUL_SHARDS, RESOURCE_ECLIPSE, RESOURCE_HOLY_POWER,
-  RESOURCE_RUNE_BLOOD, RESOURCE_RUNE_UNHOLY, RESOURCE_RUNE_FROST, RESOURCE_MAX
+  RESOURCE_RUNE_BLOOD, RESOURCE_RUNE_UNHOLY, RESOURCE_RUNE_FROST,
+  RESOURCE_CHI, RESOURCE_LIGHT_FORCE,RESOURCE_DARK_FORCE, RESOURCE_MAX
 };
 
 enum result_type
@@ -378,6 +380,7 @@ enum talent_tree_type
   TREE_BALANCE,       TREE_FERAL,        TREE_RESTORATION, // DRUID
   TREE_BEAST_MASTERY, TREE_MARKSMANSHIP, TREE_SURVIVAL,    // HUNTER
   TREE_ARCANE,        TREE_FIRE,         TREE_FROST,       // MAGE
+  TREE_BREWMASTER,    TREE_WINDWALKER,   TREE_MISTWEAVER,  // FIXME tank/dd/heal
                                          TREE_RETRIBUTION, // PALADIN
   TREE_DISCIPLINE,    TREE_HOLY,         TREE_SHADOW,      // PRIEST
   TREE_ASSASSINATION, TREE_COMBAT,       TREE_SUBTLETY,    // ROGUE
@@ -394,6 +397,7 @@ enum talent_tab_type
   DRUID_BALANCE = 0,        DRUID_FERAL,         DRUID_RESTORATION,   // DRUID
   HUNTER_BEAST_MASTERY = 0, HUNTER_MARKSMANSHIP, HUNTER_SURVIVAL,     // HUNTER
   MAGE_ARCANE = 0,          MAGE_FIRE,           MAGE_FROST,          // MAGE
+  MONK_BREWMASTER = 0,      MONK_WINDWALKER,     MONK_MISTWEAVER,     // MONK tank/dd/heal
   PALADIN_HOLY = 0,         PALADIN_PROTECTION,  PALADIN_RETRIBUTION, // PALADIN
   PRIEST_DISCIPLINE = 0,    PRIEST_HOLY,         PRIEST_SHADOW,       // PRIEST
   ROGUE_ASSASSINATION = 0,  ROGUE_COMBAT,        ROGUE_SUBTLETY,      // ROGUE
@@ -3695,6 +3699,7 @@ struct player_t : public noncopyable
   double mana_regen_while_casting;
   double base_energy_regen_per_second;
   double base_focus_regen_per_second;
+  double base_chi_regen_per_second;
   double resource_reduction[ SCHOOL_MAX ], initial_resource_reduction[ SCHOOL_MAX ];
   double last_cast;
 
@@ -3910,6 +3915,7 @@ struct player_t : public noncopyable
     buff_t* furious_howl;
     buff_t* golemblood_potion;
     buff_t* grace;
+    buff_t* guardian_spirit;
     buff_t* hellscreams_warsong;
     buff_t* heroic_presence;
     buff_t* hymn_of_hope;
@@ -3921,6 +3927,7 @@ struct player_t : public noncopyable
     buff_t* mark_of_the_wild;
     buff_t* mongoose_mh;
     buff_t* mongoose_oh;
+    buff_t* pain_supression;
     buff_t* power_infusion;
     buff_t* replenishment;
     buff_t* raid_movement;
@@ -3959,6 +3966,7 @@ struct player_t : public noncopyable
     debuff_t* ebon_plaguebringer;
     debuff_t* expose_armor;
     debuff_t* faerie_fire;
+    debuff_t* forbearance;
     debuff_t* hemorrhage;
     debuff_t* hunters_mark;
     debuff_t* infected_wounds;
@@ -4008,6 +4016,7 @@ struct player_t : public noncopyable
     gain_t* vampiric_touch;
     gain_t* water_elemental;
     gain_t* hymn_of_hope;
+    gain_t* chi_regen;
     void reset() { *this = gains_t(); }
   };
   gains_t gains;
@@ -4084,6 +4093,7 @@ struct player_t : public noncopyable
 
   virtual double energy_regen_per_second() SC_CONST;
   virtual double focus_regen_per_second() SC_CONST;
+  virtual double chi_regen_per_second() SC_CONST;
   virtual double composite_attack_haste() SC_CONST;
   virtual double composite_attack_speed() SC_CONST;
   virtual double composite_attack_power() SC_CONST;
@@ -4238,6 +4248,7 @@ struct player_t : public noncopyable
   static player_t* create_druid       ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
   static player_t* create_hunter      ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
   static player_t* create_mage        ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
+  static player_t* create_monk        ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
   static player_t* create_paladin     ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
   static player_t* create_priest      ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
   static player_t* create_rogue       ( sim_t* sim, const std::string& name, race_type r = RACE_NONE );
@@ -4270,6 +4281,11 @@ struct player_t : public noncopyable
   static void mage_init        ( sim_t* sim );
   static void mage_combat_begin( sim_t* sim );
   static void mage_combat_end  ( sim_t* /* sim */ ) {}
+
+  // Raid-wide Monk buff maintenance
+  static void monk_init        ( sim_t* sim );
+  static void monk_combat_begin( sim_t* sim );
+  static void monk_combat_end  ( sim_t* /* sim */ ) {}
 
   // Raid-wide Paladin buff maintenance
   static void paladin_init        ( sim_t* sim );
@@ -4314,6 +4330,7 @@ struct player_t : public noncopyable
   druid_t       * cast_druid       () { assert( type == DRUID        ); return ( druid_t       * ) this; }
   hunter_t      * cast_hunter      () { assert( type == HUNTER       ); return ( hunter_t      * ) this; }
   mage_t        * cast_mage        () { assert( type == MAGE         ); return ( mage_t        * ) this; }
+  monk_t        * cast_monk        () { assert( type == MONK         ); return ( monk_t        * ) this; }
   paladin_t     * cast_paladin     () { assert( type == PALADIN      ); return ( paladin_t     * ) this; }
   priest_t      * cast_priest      () { assert( type == PRIEST       ); return ( priest_t      * ) this; }
   rogue_t       * cast_rogue       () { assert( type == ROGUE        ); return ( rogue_t       * ) this; }
@@ -4609,7 +4626,6 @@ public:
   virtual void   check_talent( int talent_rank );
   virtual void   check_spec( int necessary_spec );
   virtual void   check_race( int race );
-  virtual void   check_min_level( int level );
   virtual const char* name() SC_CONST { return name_str.c_str(); }
 
   virtual double   miss_chance( int /* delta_level */ ) SC_CONST { return 0; }

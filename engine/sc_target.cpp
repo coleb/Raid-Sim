@@ -75,7 +75,7 @@ struct enemy_t : public player_t
   virtual void combat_end();
   virtual void recalculate_health();
   virtual action_expr_t* create_expression( action_t* action, const std::string& type );
-  virtual double    available() SC_CONST { return waiting_time; }
+  virtual double available() SC_CONST { return waiting_time; }
 };
 
 // ==========================================================================
@@ -109,16 +109,15 @@ struct enemy_add_t : public pet_t
   virtual action_t* create_action( const std::string& name, const std::string& options_str );
 };
 
+namespace { // ANONYMOUS NAMESPACE ==========================================
 
-namespace   // ANONYMOUS NAMESPACE ==========================================
-{
+// Melee ====================================================================
 
 struct melee_t : public attack_t
 {
   melee_t( const char* name, player_t* player ) :
     attack_t( name, player, RESOURCE_MANA, SCHOOL_PHYSICAL )
   {
-
     may_crit    = true;
     background  = true;
     repeating   = true;
@@ -126,9 +125,10 @@ struct melee_t : public attack_t
     base_cost   = 0;
     base_dd_min = 120000;
     base_execute_time = 2.0;
-
   }
 };
+
+// Auto Attack ==============================================================
 
 struct auto_attack_t : public attack_t
 {
@@ -161,7 +161,6 @@ struct auto_attack_t : public attack_t
     trigger_gcd = 0;
   }
 
-
   virtual void execute()
   {
     enemy_t* p = player -> cast_enemy();
@@ -178,8 +177,9 @@ struct auto_attack_t : public attack_t
     if ( p -> is_moving() ) return false;
     return( p -> main_hand_attack -> execute_event == 0 ); // not swinging
   }
-
 };
+
+// Spell Nuke ===============================================================
 
 struct spell_nuke_t : public spell_t
 {
@@ -204,15 +204,15 @@ struct spell_nuke_t : public spell_t
     if ( base_execute_time < 0.01 )
       base_execute_time = 3.0;
 
-
     stats = player -> get_stats( name_str + "_" + target -> name(), this );
     stats -> school = school;
     name_str = name_str + "_" + target -> name();
 
-    may_crit = true;
-
+    may_crit = false;
   }
 };
+
+// Spell AoE ================================================================
 
 struct spell_aoe_t : public spell_t
 {
@@ -237,15 +237,15 @@ struct spell_aoe_t : public spell_t
     if ( base_execute_time < 0.01 )
       base_execute_time = 3.0;
 
-
     stats = player -> get_stats( name_str + "_" + target -> name(), this );
     stats -> school = school;
     name_str = name_str + "_" + target -> name();
 
-    may_crit = true;
-
+    may_crit = false;
   }
 };
+
+// Summon Add ===============================================================
 
 struct summon_add_t : public spell_t
 {
@@ -278,7 +278,6 @@ struct summon_add_t : public spell_t
     harmful = false;
 
     trigger_gcd = 1.5;
-
   }
 
   virtual void execute()
@@ -304,18 +303,20 @@ struct summon_add_t : public spell_t
 // Enemy Extensions
 // ==========================================================================
 
+// enemy_t::create_action ===================================================
+
 action_t* enemy_t::create_action( const std::string& name,
                                   const std::string& options_str )
 {
-  if ( name == "auto_attack"             ) return new              auto_attack_t( this, options_str );
-  if ( name == "spell_nuke"              ) return new               spell_nuke_t( this, options_str );
-  if ( name == "spell_aoe"               ) return new               spell_aoe_t( this, options_str );
-  if ( name == "summon_add"              ) return new               summon_add_t( this, options_str );
+  if ( name == "auto_attack" ) return new auto_attack_t( this, options_str );
+  if ( name == "spell_nuke"  ) return new  spell_nuke_t( this, options_str );
+  if ( name == "spell_aoe"   ) return new   spell_aoe_t( this, options_str );
+  if ( name == "summon_add"  ) return new  summon_add_t( this, options_str );
 
   return player_t::create_action( name, options_str );
 }
 
-// enemy_t::init =======================================================
+// enemy_t::init ============================================================
 
 void enemy_t::init()
 {
@@ -504,6 +505,7 @@ pet_t* enemy_t::find_pet( const std::string& add_name )
 
   return 0;
 }
+
 // enemy_t::health_percentage() =============================================
 
 double enemy_t::health_percentage() SC_CONST
@@ -584,7 +586,6 @@ action_t* enemy_add_t::create_action( const std::string& name,
   if ( name == "auto_attack"             ) return new              auto_attack_t( this, options_str );
   if ( name == "spell_nuke"              ) return new               spell_nuke_t( this, options_str );
 
-
   return pet_t::create_action( name, options_str );
 }
 
@@ -606,7 +607,7 @@ void player_t::enemy_init( sim_t* /* sim */ )
 
 }
 
-// player_t::warrior_combat_begin ===========================================
+// player_t::enemy_combat_begin =============================================
 
 void player_t::enemy_combat_begin( sim_t* /* sim */ )
 {

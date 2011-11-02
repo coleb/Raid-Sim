@@ -20,6 +20,7 @@ static const struct { const char* name; player_type pt; } _class_map[] =
   { 0, PLAYER_NONE },
   { "Druid", DRUID },
   { 0, PLAYER_NONE },
+  { "Monk", MONK }, // FIXME: move to the correct place
 };
 
 static const char * _race_strings[] =
@@ -38,6 +39,7 @@ static const char * _race_strings[] =
   "Draenei",
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   "Worgen",
+  "Pandaren",
   0
 };
 

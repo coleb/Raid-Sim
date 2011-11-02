@@ -1741,7 +1741,7 @@ struct combustion_t : public mage_spell_t
 
     orig_duration = cooldown -> duration;
 
-    may_trigger_dtr = false; // Disable the dot ticks procing DTR
+    may_trigger_dtr = p -> dbc.ptr; // Disable the dot ticks procing DTR, fixed on PTR
 
     if ( ! dtr && player -> has_dtr )
     {
@@ -1759,7 +1759,7 @@ struct combustion_t : public mage_spell_t
 
     mage_t* p = player -> cast_mage();
 
-    ignite_dmg = calculate_dot_dps( p -> dots_ignite         );
+    ignite_dmg = calculate_dot_dps( p -> dots_ignite );
     ignite_dmg /= 1.0 + p -> specializations.flashburn * p -> dots_ignite -> action -> snapshot_mastery;
     ignite_dmg *= 1.0 + p -> specializations.flashburn * p -> composite_mastery();
 
@@ -2493,7 +2493,6 @@ struct frostfire_orb_t : public mage_spell_t
   frostfire_orb_t( mage_t* p, const std::string& options_str ) :
     mage_spell_t( "frostfire_orb", 92283, p )
   {
-    check_min_level( 81 );
     parse_options( NULL, options_str );
 
     school = SCHOOL_FROSTFIRE; // set as Fire in DBC, coloring the report chart wrong

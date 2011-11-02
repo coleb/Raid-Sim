@@ -171,7 +171,7 @@ void action_t::init_action_t_()
 
   const spell_data_t* spell = player -> dbc.spell( id );
 
-  if ( id && spell && ! spell -> is_level( player -> level ) && spell -> level() <= MAX_LEVEL )
+  if ( id && spell && s_type == T_CLASS && ! spell -> is_level( player -> level ) && spell -> level() <= MAX_LEVEL )
   {
     sim -> errorf( "Player %s attempting to execute action %s without the required level (%d < %d).\n",
                    player -> name(), name(), player -> level, spell -> level() );
@@ -1544,18 +1544,6 @@ void action_t::check_spec( int necessary_spec )
 
     background = true; // prevent action from being executed
   }
-}
-
-// action_t::check_min_level ================================================
-
-void action_t::check_min_level( int action_level )
-{
-  if ( action_level <= player -> level ) return;
-
-  sim -> errorf( "Player %s attempting to execute action %s without the required level (%d < %d).\n",
-                 player -> name(), name(), player -> level, action_level );
-
-  background = true; // prevent action from being executed
 }
 
 // action_t::create_expression ==============================================

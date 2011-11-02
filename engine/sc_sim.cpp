@@ -1410,11 +1410,11 @@ void sim_t::analyze_player( player_t* p )
 
       if ( s -> type == STATS_DMG )
       {
-        s -> portion_amount = s -> compound_amount / p -> compound_dmg.mean;
+        s -> portion_amount = p -> compound_dmg.mean ? s -> compound_amount / p -> compound_dmg.mean : 0 ;
       }
       else
       {
-        s -> portion_amount = s -> compound_amount / p -> compound_heal.mean;
+        s -> portion_amount = p -> compound_heal.mean ? s -> compound_amount / p -> compound_heal.mean : 0;
       }
     }
   }
@@ -1564,11 +1564,22 @@ void sim_t::analyze_player( player_t* p )
   chart_t::timeline_dps_error( p -> timeline_dps_error_chart,        p );
   chart_t::dps_error         ( p -> dps_error_chart,                 p );
 
+  if ( p -> primary_role() == ROLE_HEAL )
+  {
+    chart_t::distribution      ( p -> distribution_dps_chart,          this,
+                                 p -> hps.distribution, encoded_name + " HPS",
+                                 p -> hps.mean,
+                                 p -> hps.min,
+                                 p -> hps.max );
+  }
+  else
+  {
   chart_t::distribution      ( p -> distribution_dps_chart,          this,
                                p -> dps.distribution, encoded_name + " DPS",
                                p -> dps.mean,
                                p -> dps.min,
                                p -> dps.max );
+  }
 
   chart_t::distribution      ( p -> distribution_deaths_chart,       this,
                                p -> deaths.distribution, encoded_name + " Death",
@@ -2202,6 +2213,7 @@ void sim_t::create_options()
     { "druid",                            OPT_FUNC,   ( void* ) ::parse_player                      },
     { "hunter",                           OPT_FUNC,   ( void* ) ::parse_player                      },
     { "mage",                             OPT_FUNC,   ( void* ) ::parse_player                      },
+    { "monk",                             OPT_FUNC,   ( void* ) ::parse_player                      },
     { "priest",                           OPT_FUNC,   ( void* ) ::parse_player                      },
     { "paladin",                          OPT_FUNC,   ( void* ) ::parse_player                      },
     { "rogue",                            OPT_FUNC,   ( void* ) ::parse_player                      },

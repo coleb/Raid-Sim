@@ -17,6 +17,7 @@ static const char* class_color( int type )
   case DRUID:        return "FF7D0A";
   case HUNTER:       return "336600";
   case MAGE:         return "69CCF0";
+  case MONK:         return "CEF6F5";
   case PALADIN:      return "F58CBA";
   case PRIEST:       return "C0C0C0";
   case ROGUE:        return "FFF569";
@@ -133,6 +134,9 @@ static const char* chart_resource_type_string( int type )
   case RESOURCE_RUNE_FROST:   return "Frost Rune";
   case RESOURCE_SOUL_SHARDS:  return "Soul Shards";
   case RESOURCE_HOLY_POWER:   return "Holy Power";
+  case RESOURCE_CHI:          return "Chi";
+  case RESOURCE_LIGHT_FORCE:  return "Light Force";
+  case RESOURCE_DARK_FORCE:   return "Dark Force";
   }
   return "Unknown";
 }
@@ -2071,6 +2075,7 @@ const char* chart_t::resource_color( int type )
   case RESOURCE_MANA:        return class_color( SHAMAN );
 
   case RESOURCE_ENERGY:
+  case RESOURCE_CHI:
   case RESOURCE_FOCUS:       return class_text_color( ROGUE );
 
   case RESOURCE_RAGE:
@@ -2080,7 +2085,10 @@ const char* chart_t::resource_color( int type )
 
   case RESOURCE_HOLY_POWER:  return class_color( PALADIN );
 
+  case RESOURCE_DARK_FORCE:
   case RESOURCE_SOUL_SHARDS: return class_color( WARLOCK );
+
+  case RESOURCE_LIGHT_FORCE:  return class_color( MONK );
 
   case RESOURCE_NONE:
   default:                   return "000000";

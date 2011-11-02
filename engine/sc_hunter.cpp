@@ -393,8 +393,8 @@ struct hunter_pet_t : public pet_t
     attribute_base[ ATTR_STRENGTH  ] = rating_t::interpolate( level, 0, 162, 331, 476 );
     attribute_base[ ATTR_AGILITY   ] = rating_t::interpolate( level, 0, 54, 113, 438 );
     attribute_base[ ATTR_STAMINA   ] = rating_t::interpolate( level, 0, 307, 361 ); // stamina is different for every pet type
-    attribute_base[ ATTR_INTELLECT ] = 100; // FIXME
-    attribute_base[ ATTR_SPIRIT    ] = 100; // FIXME
+    attribute_base[ ATTR_INTELLECT ] = 100; // FIXME: is 61 at lvl 75. Use /script print(UnitStats("pet",x)); 1=str,2=agi,3=stam,4=int,5=spi
+    attribute_base[ ATTR_SPIRIT    ] = 100; // FIXME: is 101 at lvl 75. Values are equal for a cat and a gorilla.
 
     base_attack_power = -20;
     initial_attack_power_per_strength = 2.0;
@@ -1236,13 +1236,6 @@ struct pet_kill_command_t : public hunter_pet_attack_t
     hunter_t*     o = p -> owner -> cast_hunter();
     background = true;
     proc=true;
-    trigger_gcd = 0.0;
-    stats->school = SCHOOL_PHYSICAL;
-    school = SCHOOL_PHYSICAL;
-
-    //base damage from http://elitistjerks.com/f74/t110306-hunter_faq_cataclysm_edition_read_before_asking_questions/
-    base_dd_min = 926;
-    base_dd_max = 926;
 
     base_crit += o -> talents.improved_kill_command -> effect1().percent();
   }

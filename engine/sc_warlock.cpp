@@ -1402,7 +1402,7 @@ struct felguard_pet_t : public warlock_main_pet_t
     felstorm_tick_t( player_t* player ) :
       warlock_pet_attack_t( "felstorm_tick", 89753, player )
     {
-      direct_power_mod = 0.33; // hardcoded from the tooltip
+      direct_power_mod = 0.231; // hardcoded from the tooltip
       dual        = true;
       background  = true;
       aoe         = -1;
@@ -1430,8 +1430,9 @@ struct felguard_pet_t : public warlock_main_pet_t
 
     virtual void tick( dot_t* d )
     {
-      warlock_pet_attack_t::tick( d );
       felstorm_tick -> execute();
+
+      stats -> add_tick( d -> time_to_tick );
     }
   };
 

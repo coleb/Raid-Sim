@@ -33,7 +33,7 @@ static void print_html_contents( FILE*  file, sim_t* sim )
     }
   }
 
-  fputs( "\t\t<div id=\"table-of-contents\" class=\"section\">\n"
+  fputs( "\t\t<div id=\"table-of-contents\" class=\"section grouped-first grouped-last\">\n"
          "\t\t\t<h2 class=\"toggle\">Table of Contents</h2>\n"
          "\t\t\t<div class=\"toggle-content hide\">\n", file );
 
@@ -372,8 +372,6 @@ static void print_html_raid_summary( FILE*  file, sim_t* sim )
   }
   fprintf( file,
            "\t\t\t</ul><p>&nbsp;</p>\n" );
-
-  assert( sim ->  dps_charts.size() == sim -> gear_charts.size() );
 
   // Left side charts: dps, raid events
   fprintf( file,

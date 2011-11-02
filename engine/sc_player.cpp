@@ -368,7 +368,7 @@ player_t::player_t( sim_t*             s,
   region_str( s -> default_region_str ), server_str( s -> default_server_str ), origin_str( "unknown" ),
   next( 0 ), index( -1 ), type( t ), role( ROLE_HYBRID ), target( 0 ), level( is_enemy() ? 88 : 85 ), use_pre_potion( 1 ),
   party( 0 ), member( 0 ),
-  skill( 0 ), initial_skill( s -> default_skill ), distance( 0 ), gcd_ready( 0 ), base_gcd( 1.5 ),
+  skill( 0 ), initial_skill( s -> default_skill ), distance( 0 ), default_distance( 0 ), gcd_ready( 0 ), base_gcd( 1.5 ),
   potion_used( 0 ), sleeping( 1 ), initial_sleeping( 0 ), initialized( 0 ),
   pet_list( 0 ), bugs( true ), specialization( TALENT_TAB_NONE ), invert_scaling( 0 ),
   vengeance_enabled( false ), vengeance_damage( 0.0 ), vengeance_value( 0.0 ), vengeance_max( 0.0 ),
@@ -398,7 +398,7 @@ player_t::player_t( sim_t*             s,
   spell_crit_per_intellect( 0 ),  initial_spell_crit_per_intellect( 0 ),
   mp5_per_intellect( 0 ),
   mana_regen_base( 0 ), mana_regen_while_casting( 0 ),
-  base_energy_regen_per_second( 0 ), base_focus_regen_per_second( 0 ),
+  base_energy_regen_per_second( 0 ), base_focus_regen_per_second( 0 ), base_chi_regen_per_second( 0 ),
   last_cast( 0 ),
   // Attack Mechanics
   base_attack_power( 0 ),       initial_attack_power( 0 ),        attack_power( 0 ),       buffed_attack_power( 0 ),
@@ -634,6 +634,7 @@ bool player_t::init( sim_t* sim )
   player_t::druid_init       ( sim );
   player_t::hunter_init      ( sim );
   player_t::mage_init        ( sim );
+  player_t::monk_init        ( sim );
   player_t::paladin_init     ( sim );
   player_t::priest_init      ( sim );
   player_t::rogue_init       ( sim );
@@ -801,6 +802,7 @@ void player_t::init_items()
 
   std::vector<std::string> splits;
   int num_splits = util_t::string_split( splits, items_str, "/" );
+  int num_ilvl_items = 0;
   for ( int i=0; i < num_splits; i++ )
   {
     if ( find_item( splits[ i ] ) )
@@ -844,7 +846,11 @@ void player_t::init_items()
       return;
     }
 
-    avg_ilvl += item.ilevel;
+    if ( item.slot != SLOT_SHIRT && item.slot != SLOT_TABARD && item.active() )
+    {
+      avg_ilvl += item.ilevel;
+      num_ilvl_items++;
+    }
 
     slots[ item.slot ] = item.matching_type();
 
@@ -854,7 +860,8 @@ void player_t::init_items()
     }
   }
 
-  avg_ilvl /= num_items;
+  if ( num_ilvl_items > 1 )
+    avg_ilvl /= num_ilvl_items;
 
   switch ( type )
   {
@@ -1593,21 +1600,21 @@ void player_t::init_spells()
 void player_t::init_buffs()
 {
   buffs.berserking                = new buff_t( this, 26297, "berserking"                   );
-  buffs.corruption_absolute       = new buff_t( this, 82170, "corruption_absolute"          );
-  buffs.essence_of_the_red        = new buff_t( this,        "essence_of_the_red"           );
-  buffs.heroic_presence           = new buff_t( this,        "heroic_presence",     1       );
-  buffs.replenishment             = new buff_t( this, 57669, "replenishment"                );
-  buffs.stoneform                 = new buff_t( this, 65116, "stoneform"                    );
-  buffs.hellscreams_warsong       = new buff_t( this,        "hellscreams_warsong", 1       );
-  buffs.strength_of_wrynn         = new buff_t( this,        "strength_of_wrynn",   1       );
-  buffs.dark_intent               = new buff_t( this, 85767, "dark_intent"                  );
-  buffs.dark_intent_feedback      = new buff_t( this, 85759, "dark_intent_feedback"         );
-  buffs.furious_howl              = new buff_t( this, 24604, "furious_howl"                 );
-  buffs.hymn_of_hope = new hymn_of_hope_buff_t( this, 64904, "hymn_of_hope"                 );
-  buffs.body_and_soul             = new buff_t( this,        "body_and_soul",       1,  4.0 );
-  buffs.grace                     = new buff_t( this,        "grace",               3, 15.0 );
   buffs.blessing_of_ancient_kings = new buff_t( this, 64411, "blessing_of_ancient_kings"    );
   buffs.blessing_of_ancient_kings -> buff_duration = 15.0; // FIXME: remove once buff is in dbc
+  buffs.body_and_soul             = new buff_t( this,        "body_and_soul",       1,  4.0 );
+  buffs.corruption_absolute       = new buff_t( this, 82170, "corruption_absolute"          );
+  buffs.dark_intent               = new buff_t( this, 85767, "dark_intent"                  );
+  buffs.dark_intent_feedback      = new buff_t( this, 85759, "dark_intent_feedback"         );
+  buffs.essence_of_the_red        = new buff_t( this,        "essence_of_the_red"           );
+  buffs.furious_howl              = new buff_t( this, 24604, "furious_howl"                 );
+  buffs.grace                     = new buff_t( this,        "grace",               3, 15.0 );
+  buffs.hellscreams_warsong       = new buff_t( this,        "hellscreams_warsong", 1       );
+  buffs.heroic_presence           = new buff_t( this,        "heroic_presence",     1       );
+  buffs.hymn_of_hope = new hymn_of_hope_buff_t( this, 64904, "hymn_of_hope"                 );
+  buffs.replenishment             = new buff_t( this, 57669, "replenishment"                );
+  buffs.stoneform                 = new buff_t( this, 65116, "stoneform"                    );
+  buffs.strength_of_wrynn         = new buff_t( this,        "strength_of_wrynn",   1       );
 
   buffs.raid_movement = new buff_t( this, "raid_movement", 1 );
   buffs.self_movement = new buff_t( this, "self_movement", 1 );
@@ -1615,17 +1622,16 @@ void player_t::init_buffs()
   // stat_buff_t( sim, name, stat, amount, max_stack, duration, cooldown, proc_chance, quiet )
   buffs.blood_fury_ap          = new stat_buff_t( this, "blood_fury_ap",          STAT_ATTACK_POWER, is_enemy() ? 0 : floor( sim -> dbc.effect_average( sim -> dbc.spell( 33697 ) -> effect1().id(), sim -> max_player_level ) ), 1, 15.0 );
   buffs.blood_fury_sp          = new stat_buff_t( this, "blood_fury_sp",          STAT_SPELL_POWER,  is_enemy() ? 0 : floor( sim -> dbc.effect_average( sim -> dbc.spell( 33697 ) -> effect2().id(), sim -> max_player_level ) ), 1, 15.0 );
-
-  buffs.destruction_potion     = new stat_buff_t( this, "destruction_potion",     STAT_SPELL_POWER,   120.0,            1, 15.0, 60.0 );
-  buffs.indestructible_potion  = new stat_buff_t( this, "indestructible_potion",  STAT_ARMOR,        3500.0,            1, 15.0, 60.0 );
-  buffs.lifeblood              = new stat_buff_t( this, "lifeblood",              STAT_HASTE_RATING,  480.0,            1, 20.0       );
-  buffs.speed_potion           = new stat_buff_t( this, "speed_potion",           STAT_HASTE_RATING,  500.0,            1, 15.0, 60.0 );
-  buffs.earthen_potion         = new stat_buff_t( this, "earthen_potion",         STAT_ARMOR,        4800.0,            1, 25.0, 60.0 );
-  buffs.golemblood_potion      = new stat_buff_t( this, "golemblood_potion",      STAT_STRENGTH,     1200.0,            1, 25.0, 60.0 );
-  buffs.tolvir_potion          = new stat_buff_t( this, "tolvir_potion",          STAT_AGILITY,      1200.0,            1, 25.0, 60.0 );
-  buffs.volcanic_potion        = new stat_buff_t( this, "volcanic_potion",        STAT_INTELLECT,    1200.0,            1, 25.0, 60.0 );
-  buffs.wild_magic_potion_sp   = new stat_buff_t( this, "wild_magic_potion_sp",   STAT_SPELL_POWER,   200.0,            1, 15.0, 60.0 );
-  buffs.wild_magic_potion_crit = new stat_buff_t( this, "wild_magic_potion_crit", STAT_CRIT_RATING,   200.0,            1, 15.0, 60.0 );
+  buffs.destruction_potion     = new stat_buff_t( this, "destruction_potion",     STAT_SPELL_POWER,   120.0, 1, 15.0, 60.0 );
+  buffs.earthen_potion         = new stat_buff_t( this, "earthen_potion",         STAT_ARMOR,        4800.0, 1, 25.0, 60.0 );
+  buffs.golemblood_potion      = new stat_buff_t( this, "golemblood_potion",      STAT_STRENGTH,     1200.0, 1, 25.0, 60.0 );
+  buffs.indestructible_potion  = new stat_buff_t( this, "indestructible_potion",  STAT_ARMOR,        3500.0, 1, 15.0, 60.0 );
+  buffs.lifeblood              = new stat_buff_t( this, "lifeblood",              STAT_HASTE_RATING,  480.0, 1, 20.0 );
+  buffs.speed_potion           = new stat_buff_t( this, "speed_potion",           STAT_HASTE_RATING,  500.0, 1, 15.0, 60.0 );
+  buffs.tolvir_potion          = new stat_buff_t( this, "tolvir_potion",          STAT_AGILITY,      1200.0, 1, 25.0, 60.0 );
+  buffs.volcanic_potion        = new stat_buff_t( this, "volcanic_potion",        STAT_INTELLECT,    1200.0, 1, 25.0, 60.0 );
+  buffs.wild_magic_potion_crit = new stat_buff_t( this, "wild_magic_potion_crit", STAT_CRIT_RATING,   200.0, 1, 15.0, 60.0 );
+  buffs.wild_magic_potion_sp   = new stat_buff_t( this, "wild_magic_potion_sp",   STAT_SPELL_POWER,   200.0, 1, 15.0, 60.0 );
 
   buffs.mongoose_mh = NULL;
   buffs.mongoose_oh = NULL;
@@ -1645,10 +1651,12 @@ void player_t::init_gains()
 {
   gains.arcane_torrent         = get_gain( "arcane_torrent" );
   gains.blessing_of_might      = get_gain( "blessing_of_might" );
+  gains.chi_regen              = get_gain( "chi_regen" );
   gains.dark_rune              = get_gain( "dark_rune" );
   gains.energy_regen           = get_gain( "energy_regen" );
   gains.essence_of_the_red     = get_gain( "essence_of_the_red" );
   gains.focus_regen            = get_gain( "focus_regen" );
+  gains.hymn_of_hope           = get_gain( "hymn_of_hope_max_mana" );
   gains.innervate              = get_gain( "innervate" );
   gains.mana_potion            = get_gain( "mana_potion" );
   gains.mana_spring_totem      = get_gain( "mana_spring_totem" );
@@ -1660,7 +1668,6 @@ void player_t::init_gains()
   gains.vampiric_embrace       = get_gain( "vampiric_embrace" );
   gains.vampiric_touch         = get_gain( "vampiric_touch" );
   gains.water_elemental        = get_gain( "water_elemental" );
-  gains.hymn_of_hope           = get_gain( "hymn_of_hope_max_mana" );
 }
 
 // player_t::init_procs =====================================================
@@ -1674,7 +1681,6 @@ void player_t::init_procs()
 
 void player_t::init_uptimes()
 {
-
   primary_resource_cap = get_uptime( util_t::resource_type_string( primary_resource() ) + (std::string) "_cap" );
 }
 
@@ -1688,12 +1694,12 @@ void player_t::init_benefits()
 void player_t::init_rng()
 {
   rngs.lag_channel  = get_rng( "lag_channel"  );
+  rngs.lag_ability  = get_rng( "lag_ability"  );
+  rngs.lag_brain    = get_rng( "lag_brain"    );
   rngs.lag_gcd      = get_rng( "lag_gcd"      );
   rngs.lag_queue    = get_rng( "lag_queue"    );
-  rngs.lag_ability  = get_rng( "lag_ability"  );
   rngs.lag_reaction = get_rng( "lag_reaction" );
   rngs.lag_world    = get_rng( "lag_world"    );
-  rngs.lag_brain    = get_rng( "lag_brain"    );
 }
 
 // player_t::init_stats =====================================================
@@ -1723,9 +1729,7 @@ void player_t::init_stats()
 // player_t::init_values ====================================================
 
 void player_t::init_values()
-{
-
-}
+{ }
 
 // player_t::init_scaling ===================================================
 
@@ -1850,7 +1854,6 @@ void player_t::init_scaling()
 
           double mult = new_speed / ranged_weapon.swing_time;
 
-
           ranged_weapon.min_dmg *= mult;
           ranged_weapon.max_dmg *= mult;
           ranged_weapon.damage  *= mult;
@@ -1924,6 +1927,16 @@ double player_t::energy_regen_per_second() SC_CONST
 double player_t::focus_regen_per_second() SC_CONST
 {
   double r = base_focus_regen_per_second * ( 1.0 / composite_attack_haste() );
+
+  return r;
+}
+
+// player_t::chi_regen_per_second ========================================
+
+double player_t::chi_regen_per_second() SC_CONST
+{
+  // FIXME: Just assuming it scale with haste right now.
+  double r = base_chi_regen_per_second * ( 1.0 / composite_attack_haste() );
 
   return r;
 }
@@ -2619,7 +2632,6 @@ double player_t::haste_rating() SC_CONST
   return a;
 }
 
-
 // player_t::crit_rating() ==================================================
 
 double player_t::crit_rating() SC_CONST
@@ -2628,7 +2640,6 @@ double player_t::crit_rating() SC_CONST
 
   return a;
 }
-
 
 // player_t::mastery_rating() ===============================================
 
@@ -2639,7 +2650,6 @@ double player_t::mastery_rating() SC_CONST
   return a;
 }
 
-
 // player_t::hit_rating() ===================================================
 
 double player_t::hit_rating() SC_CONST
@@ -2648,7 +2658,6 @@ double player_t::hit_rating() SC_CONST
 
   return a;
 }
-
 
 // player_t::expertise_rating() =============================================
 
@@ -2659,7 +2668,6 @@ double player_t::expertise_rating() SC_CONST
   return a;
 }
 
-
 // player_t::dodge_rating() =================================================
 
 double player_t::dodge_rating() SC_CONST
@@ -2668,7 +2676,6 @@ double player_t::dodge_rating() SC_CONST
 
   return a;
 }
-
 
 // player_t::parry_rating() =================================================
 
@@ -2690,6 +2697,7 @@ void player_t::combat_begin( sim_t* sim )
   player_t::druid_combat_begin       ( sim );
   player_t::hunter_combat_begin      ( sim );
   player_t::mage_combat_begin        ( sim );
+  player_t::monk_combat_begin        ( sim );
   player_t::paladin_combat_begin     ( sim );
   player_t::priest_combat_begin      ( sim );
   player_t::rogue_combat_begin       ( sim );
@@ -2771,6 +2779,7 @@ void player_t::combat_end( sim_t* sim )
   player_t::druid_combat_end       ( sim );
   player_t::hunter_combat_end      ( sim );
   player_t::mage_combat_end        ( sim );
+  player_t::monk_combat_end        ( sim );
   player_t::paladin_combat_end     ( sim );
   player_t::priest_combat_end      ( sim );
   player_t::rogue_combat_end       ( sim );
@@ -2805,7 +2814,8 @@ void player_t::combat_end()
 
   // DMG
   dmg.add( iteration_dmg );
-  sim -> iteration_dmg += iteration_dmg;
+  if ( ! is_enemy() && ! is_add() )
+    sim -> iteration_dmg += iteration_dmg;
   for ( pet_t* pet = pet_list; pet; pet = pet -> next_pet )
   {
     iteration_dmg += pet -> iteration_dmg;
@@ -2819,7 +2829,8 @@ void player_t::combat_end()
 
   // Heal
   heal.add( iteration_heal );
-  sim -> iteration_heal += iteration_heal;
+  if ( ! is_enemy() && ! is_add() )
+    sim -> iteration_heal += iteration_heal;
   for ( pet_t* pet = pet_list; pet; pet = pet -> next_pet )
   {
     iteration_heal += pet -> iteration_heal;
@@ -2828,7 +2839,6 @@ void player_t::combat_end()
 
   hps.add( iteration_fight_length ? iteration_heal / iteration_fight_length : 0 );
   hpse.add( sim -> current_time ? iteration_heal / current_time : 0 );
-
 
   dmg_taken.add( iteration_dmg_taken );
   dtps.add( iteration_fight_length ? iteration_dmg_taken / iteration_fight_length : 0 );
@@ -2840,7 +2850,6 @@ void player_t::combat_end()
   {
     b -> combat_end();
   }
-
 }
 
 // player_t::merge ==========================================================
@@ -2999,7 +3008,6 @@ void player_t::reset()
   channeling = 0;
   readying = 0;
   in_combat = false;
-  iteration_heal = 0;
 
   cast_delay_reaction = 0;
   cast_delay_occurred = 0;
@@ -3060,7 +3068,11 @@ void player_t::reset()
 void player_t::schedule_ready( double delta_time,
                                bool   waiting )
 {
-  assert( ! readying );
+  if ( readying )
+  {
+    sim -> errorf( "\nplayer_t::schedule_ready assertion error: readying == true ( player %s )\n", name() );
+    assert( 0 );
+  }
   action_t* was_executing = ( channeling ? channeling : executing );
 
   executing = 0;
@@ -3185,7 +3197,6 @@ void player_t::demise()
 
   if ( sim -> log )
     log_t::output( sim, "%s demises.", name() );
-
 
   assert( arise_time >= 0 );
   iteration_fight_length += ( sim -> current_time - arise_time );
@@ -3344,6 +3355,13 @@ void player_t::regen( double periodicity )
     double energy_regen = periodicity * energy_regen_per_second();
 
     resource_gain( RESOURCE_ENERGY, energy_regen, gains.energy_regen );
+  }
+
+  else if ( resource_type == RESOURCE_CHI )
+  {
+    double chi_regen = periodicity * chi_regen_per_second();
+
+    resource_gain( RESOURCE_CHI, chi_regen, gains.chi_regen );
   }
 
   else if ( resource_type == RESOURCE_FOCUS )
@@ -3669,7 +3687,6 @@ double player_t::time_to_die() SC_CONST
 
 double player_t::total_reaction_time() SC_CONST
 {
-
   return rngs.lag_reaction -> exgauss( reaction_mean, reaction_stddev, reaction_nu );
 }
 
@@ -3906,6 +3923,10 @@ double player_t::assess_damage( double            amount,
                                 int               result,
                                 action_t*         action )
 {
+
+  if ( buffs.pain_supression -> up() )
+    amount *= 1.0 + buffs.pain_supression -> effect1().percent();
+
   double mitigated_amount = target_mitigation( amount, school, dmg_type, result, action );
 
   size_t num_absorbs = absorb_buffs.size();
@@ -3931,12 +3952,27 @@ double player_t::assess_damage( double            amount,
 
   if ( resource_current[ RESOURCE_HEALTH ] <= 0 && !is_enemy() && infinite_resource[ RESOURCE_HEALTH ] == 0 )
   {
-    if ( !sleeping )
+    // This can only save the target, if the damage is less than 200% of the target's health as of 4.0.6
+    if ( buffs.guardian_spirit -> check() && actual_amount <= ( resource_max[ RESOURCE_HEALTH] * 2 ) )
     {
-      deaths.add( current_time );
+      // Just assume that this is used so rarely that a strcmp hack will do
+      stats_t* s = buffs.guardian_spirit -> source ? buffs.guardian_spirit -> source -> get_stats( "guardian_spirit" ) : 0;
+      double gs_amount = resource_max[ RESOURCE_HEALTH ] * buffs.guardian_spirit -> effect2().percent();
+      resource_gain( RESOURCE_HEALTH, amount );
+      if ( s )
+        s -> add_result( gs_amount, gs_amount, HEAL_DIRECT, RESULT_HIT );
+
+      buffs.guardian_spirit -> expire();
     }
-    if ( sim -> log ) log_t::output( sim, "%s has died.", name() );
-    demise();
+    else
+    {
+      if ( ! sleeping )
+      {
+        deaths.add( current_time );
+      }
+      if ( sim -> log ) log_t::output( sim, "%s has died.", name() );
+      demise();
+    }
   }
 
   if ( vengeance_enabled )
@@ -3997,6 +4033,8 @@ double player_t::target_mitigation( double            amount,
   return mitigated_amount;
 }
 
+// player_t::assess_heal ====================================================
+
 player_t::heal_info_t player_t::assess_heal(  double            amount,
                                               const school_type /* school */,
                                               int               /* dmg_type */,
@@ -4005,13 +4043,15 @@ player_t::heal_info_t player_t::assess_heal(  double            amount,
 {
   heal_info_t heal;
 
+  if ( buffs.guardian_spirit -> up() )
+    amount *= 1.0 + buffs.guardian_spirit -> effect1().percent();
+
   heal.amount = resource_gain( RESOURCE_HEALTH, amount, 0, action );
   heal.actual = amount;
 
   iteration_heal_taken += amount;
 
   return heal;
-
 }
 // player_t::summon_pet =====================================================
 
@@ -4139,7 +4179,6 @@ void player_t::register_harmful_spell_callback( int64_t mask,
     }
   }
 }
-
 
 // player_t::register_tick_damage_callback ==================================
 
@@ -6603,6 +6642,10 @@ player_t* player_t::create( sim_t*             sim,
   else if ( type == "mage" )
   {
     return player_t::create_mage( sim, name, r );
+  }
+  else if ( type == "monk" )
+  {
+    return player_t::create_monk( sim, name, r );
   }
   else if ( type == "priest" )
   {

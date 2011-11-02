@@ -359,6 +359,7 @@ const char* util_t::player_type_string( int type )
   case DRUID:           return "druid";
   case HUNTER:          return "hunter";
   case MAGE:            return "mage";
+  case MONK:            return "monk";
   case PALADIN:         return "paladin";
   case PRIEST:          return "priest";
   case ROGUE:           return "rogue";
@@ -383,6 +384,7 @@ int util_t::translate_class_str( std::string& s )
   else if ( fmt_s == "druid"        ) return DRUID;
   else if ( fmt_s == "hunter"       ) return HUNTER;
   else if ( fmt_s == "mage"         ) return MAGE;
+  else if ( fmt_s == "monk"         ) return MONK;
   else if ( fmt_s == "paladin"      ) return PALADIN;
   else if ( fmt_s == "priest"       ) return PRIEST;
   else if ( fmt_s == "rogue"        ) return ROGUE;
@@ -672,6 +674,9 @@ const char* util_t::resource_type_string( int type )
   case RESOURCE_RUNE_FROST:   return "frost_runes";
   case RESOURCE_SOUL_SHARDS:  return "soul_shards";
   case RESOURCE_HOLY_POWER:   return "holy_power";
+  case RESOURCE_CHI:          return "chi";
+  case RESOURCE_LIGHT_FORCE:  return "light_force";
+  case RESOURCE_DARK_FORCE:   return "dark_Force";
   }
   return "unknown";
 }
@@ -1255,6 +1260,7 @@ const char* util_t::armor_type_string( player_type ptype, int slot_type )
     return ( has_armor_type ? "mail" : NULL );
   case DRUID:
   case ROGUE:
+  case MONK:
     return ( has_armor_type ? "leather" : NULL );
   case MAGE:
   case PRIEST:
