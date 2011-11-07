@@ -408,7 +408,6 @@ struct water_elemental_pet_t : public pet_t
       may_crit = true;
       crit_multiplier *= 1.33;
       base_cost = 0;
-      if ( player -> cast_pet() -> owner -> race == RACE_ORC ) base_multiplier *= 1.05;
     }
 
     virtual void player_buff()
@@ -446,7 +445,6 @@ struct water_elemental_pet_t : public pet_t
       may_crit = true;
       crit_multiplier *= 1.33;
       direct_power_mod = 0.833;
-      if ( player -> cast_pet() -> owner -> race == RACE_ORC ) base_multiplier *= 1.05;
     }
 
     virtual void player_buff()
@@ -1759,7 +1757,7 @@ struct combustion_t : public mage_spell_t
 
     mage_t* p = player -> cast_mage();
 
-    ignite_dmg = calculate_dot_dps( p -> dots_ignite );
+    ignite_dmg = calculate_dot_dps( p -> dots_ignite         );
     ignite_dmg /= 1.0 + p -> specializations.flashburn * p -> dots_ignite -> action -> snapshot_mastery;
     ignite_dmg *= 1.0 + p -> specializations.flashburn * p -> composite_mastery();
 
@@ -3621,7 +3619,9 @@ void mage_t::init_buffs()
 {
   player_t::init_buffs();
 
-  // buff_t( sim, player, name, max_stack, duration, cooldown, proc_chance, quiet )
+  // buff_t( player, name, max_stack, duration, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
+  // buff_t( player, id, name, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
+  // buff_t( player, name, spellname, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
 
   buffs_arcane_blast         = new buff_t( this, spells.arcane_blast,          NULL );
   buffs_arcane_missiles      = new buff_t( this, spells.arcane_missiles,       "chance", 0.40, NULL );

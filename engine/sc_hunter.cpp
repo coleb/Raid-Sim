@@ -187,7 +187,6 @@ struct hunter_t : public player_t
   action_t* flaming_arrow;
 
   double merge_piercing_shots;
-  double tier13_4pc_proc_chance;
   double tier13_4pc_cooldown;
 
   hunter_t( sim_t* sim, const std::string& name, race_type r = RACE_NONE ) : player_t( sim, HUNTER, name, r )
@@ -218,7 +217,6 @@ struct hunter_t : public player_t
     base_gcd = 1.0;
     flaming_arrow = NULL;
 
-    tier13_4pc_proc_chance = dbc.ptr ? dbc.spell( 105921 )-> proc_chance() : 0;
     tier13_4pc_cooldown = 45.0;
 
     create_talents();
@@ -238,6 +236,7 @@ struct hunter_t : public player_t
   virtual void      init_rng();
   virtual void      init_scaling();
   virtual void      init_actions();
+  virtual void      register_callbacks();
   virtual void      combat_begin();
   virtual void      reset();
   virtual double    composite_attack_power() SC_CONST;
@@ -787,7 +786,7 @@ static void trigger_go_for_the_throat( attack_t* a )
   p -> active_pet -> resource_gain( RESOURCE_FOCUS, p -> talents.go_for_the_throat -> effect1().base_value(), p -> active_pet -> gains_go_for_the_throat );
 }
 
-// trigger_piercing_shots ==
+// trigger_piercing_shots ===================================================
 
 static void trigger_piercing_shots( action_t* a, double dmg )
 {
@@ -841,7 +840,7 @@ static void trigger_piercing_shots( action_t* a, double dmg )
       return sim -> gauss( sim -> aura_delay, 0.25 * sim -> aura_delay );
     }
 
-    virtual double total_td_multiplier() SC_CONST { return 1.0; }
+    virtual double total_td_multiplier() SC_CONST { return target_multiplier; }
   };
 
   double piercing_shots_dmg = p -> talents.piercing_shots -> effect1().percent() * dmg;
@@ -943,11 +942,7 @@ struct hunter_pet_attack_t : public attack_t
   void _init_hunter_pet_attack_t()
   {
     hunter_pet_t* p = ( hunter_pet_t* ) player -> cast_pet();
-    hunter_t*     o = p -> owner -> cast_hunter();
     may_crit = true;
-
-    if ( o -> race == RACE_ORC )
-      base_multiplier *= 1.05;
 
     base_crit += p -> talents.spiders_bite -> effect1().percent();
 
@@ -1283,10 +1278,6 @@ struct hunter_pet_spell_t : public spell_t
   void _init_hunter_pet_spell_t()
   {
     hunter_pet_t* p = ( hunter_pet_t* ) player -> cast_pet();
-    hunter_t* o = p -> owner -> cast_hunter();
-
-    if ( o -> race == RACE_ORC )
-      base_multiplier *= 1.05;
 
     base_crit += p -> talents.spiders_bite -> effect1().percent();
 
@@ -2965,6 +2956,7 @@ struct wild_quiver_shot_t : public ranged_t
     repeating   = false;
     proc = true;
     normalize_weapon_speed=true;
+    init();
   }
 
   virtual void execute()
@@ -3826,11 +3818,6 @@ void hunter_t::init_base()
   diminished_dodge_capi = 0.006870;
   diminished_parry_capi = 0.006870;
 
-  if ( passive_spells.wild_quiver -> ok() )
-  {
-    register_attack_callback( RESULT_ALL_MASK, new wild_quiver_trigger_t( this, new wild_quiver_shot_t( this ) ) );
-  }
-
   flaming_arrow = new flaming_arrow_t( this );
 }
 
@@ -3839,6 +3826,10 @@ void hunter_t::init_base()
 void hunter_t::init_buffs()
 {
   player_t::init_buffs();
+
+  // buff_t( player, name, max_stack, duration, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
+  // buff_t( player, id, name, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
+  // buff_t( player, name, spellname, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
 
   buffs_aspect_of_the_hawk          = new buff_t( this, 13165, "aspect_of_the_hawk" );
   buffs_beast_within                = new buff_t( this, 34471, "beast_within", talents.the_beast_within -> rank() );
@@ -3860,13 +3851,10 @@ void hunter_t::init_buffs()
   buffs_pre_improved_steady_shot    = new buff_t( this, "pre_improved_steady_shot",    2, 0, 0, 1, true );
 
   buffs_tier12_4pc                  = new buff_t( this, "tier12_4pc", 1, dbc.spell( 99060 ) -> duration(), 0, dbc.spell( 99059 ) -> proc_chance() * set_bonus.tier12_4pc_melee() );
-  buffs_tier13_4pc                  = new buff_t( this, 105919, "tier13_4pc", tier13_4pc_proc_chance * set_bonus.tier13_4pc_melee(), tier13_4pc_cooldown );
+  buffs_tier13_4pc                  = new buff_t( this, 105919, "tier13_4pc", sets -> set( SET_T13_4PC_MELEE ) -> proc_chance(), tier13_4pc_cooldown );
 
   // Own TSA for Glyph of TSA
   buffs_trueshot_aura               = new buff_t( this, 19506, "trueshot_aura" );
-
-  // buff_t( player, name, max_stack, duration, cd, chance )
-  // buff_t( player, id, name, chance, cd )
 }
 
 // hunter_t::init_values ====================================================
@@ -4101,6 +4089,18 @@ void hunter_t::init_actions()
   player_t::init_actions();
 }
 
+// hunter_t::register_callbacks ==============================================
+
+void hunter_t::register_callbacks()
+{
+  player_t::register_callbacks();
+
+  if ( passive_spells.wild_quiver -> ok() )
+  {
+    register_attack_callback( RESULT_ALL_MASK, new wild_quiver_trigger_t( this, new wild_quiver_shot_t( this ) ) );
+  }
+}
+
 // hunter_t::combat_begin ===================================================
 
 void hunter_t::combat_begin()
@@ -4220,7 +4220,6 @@ void hunter_t::create_options()
   {
     { "summon_pet", OPT_STRING, &( summon_pet_str  ) },
     { "merge_piercing_shots", OPT_FLT, &( merge_piercing_shots ) },
-    { "tier13_4pc_proc_chance", OPT_FLT, &( tier13_4pc_proc_chance ) },
     { "tier13_4pc_cooldown", OPT_FLT, &( tier13_4pc_cooldown ) },
     { NULL, OPT_UNKNOWN, NULL }
   };

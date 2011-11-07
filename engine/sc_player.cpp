@@ -1600,8 +1600,6 @@ void player_t::init_spells()
 void player_t::init_buffs()
 {
   buffs.berserking                = new buff_t( this, 26297, "berserking"                   );
-  buffs.blessing_of_ancient_kings = new buff_t( this, 64411, "blessing_of_ancient_kings"    );
-  buffs.blessing_of_ancient_kings -> buff_duration = 15.0; // FIXME: remove once buff is in dbc
   buffs.body_and_soul             = new buff_t( this,        "body_and_soul",       1,  4.0 );
   buffs.corruption_absolute       = new buff_t( this, 82170, "corruption_absolute"          );
   buffs.dark_intent               = new buff_t( this, 85767, "dark_intent"                  );
@@ -3470,7 +3468,7 @@ double player_t::resource_loss( int       resource,
     last_cast = sim -> current_time;
   }
 
-  if ( action ) action_callback_t::trigger( resource_loss_callbacks[ resource ], action, ( void* ) &actual_amount );
+  action_callback_t::trigger( resource_loss_callbacks[ resource ], action, ( void* ) &actual_amount );
 
   if ( sim -> debug )
     log_t::output( sim, "Player %s loses %.2f (%.2f) %s. health pct: %.2f",
@@ -3515,7 +3513,7 @@ double player_t::resource_gain( int       resource,
     source -> add( actual_amount, amount - actual_amount );
   }
 
-  if ( action ) action_callback_t::trigger( resource_gain_callbacks[ resource ], action, ( void* ) &actual_amount );
+  action_callback_t::trigger( resource_gain_callbacks[ resource ], action, ( void* ) &actual_amount );
 
   if ( sim -> log )
   {
@@ -3948,7 +3946,7 @@ double player_t::assess_damage( double            amount,
 
   iteration_dmg_taken += mitigated_amount;
 
-  double actual_amount = resource_loss( RESOURCE_HEALTH, mitigated_amount );
+  double actual_amount = resource_loss( RESOURCE_HEALTH, mitigated_amount, action );
 
   if ( resource_current[ RESOURCE_HEALTH ] <= 0 && !is_enemy() && infinite_resource[ RESOURCE_HEALTH ] == 0 )
   {

@@ -88,7 +88,7 @@
 #include "data_definitions.hh"
 
 #define SC_MAJOR_VERSION "422"
-#define SC_MINOR_VERSION "4"
+#define SC_MINOR_VERSION "5"
 #define SC_USE_PTR ( 1 )
 #define SC_BETA ( 0 )
 #define SC_EPSILON ( 0.000001 )
@@ -2468,6 +2468,8 @@ struct sample_data_t
   std::vector<int> distribution;
   const bool simple;
   const bool min_max;
+
+friend struct sim_t;
 private:
   int count;
 
@@ -2565,12 +2567,12 @@ public:
 
   // Player Buff as spell_id_t by name
   buff_t( player_t*, const std::string& name, const char* sname,
-          double chance=-1, double duration=-1.0,
+          double chance=-1, double cd=-1.0,
           bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC, bool activated=true );
 
   // Player Buff as spell_id_t by id
   buff_t( player_t*, const uint32_t id, const std::string& name,
-          double chance=-1, double duration=-1.0,
+          double chance=-1, double cd=-1.0,
           bool quiet=false, bool reverse=false, int rng_type=RNG_CYCLIC, bool activated=true );
 
   // Use check() inside of ready() methods to prevent skewing of "benefit" calculations.
@@ -3415,7 +3417,7 @@ struct item_t
   sim_t* sim;
   player_t* player;
   int slot, quality, ilevel;
-  bool unique, unique_enchant, unique_addon, is_heroic, is_ptr, is_matching_type, is_reforged;
+  bool unique, unique_enchant, unique_addon, is_heroic, is_lfr, is_ptr, is_matching_type, is_reforged;
   stat_type reforged_from;
   stat_type reforged_to;
 
@@ -3430,6 +3432,7 @@ struct item_t
   std::string option_use_str;
   std::string option_weapon_str;
   std::string option_heroic_str;
+  std::string option_lfr_str;
   std::string option_armor_type_str;
   std::string option_reforge_str;
   std::string option_random_suffix_str;
@@ -3447,6 +3450,7 @@ struct item_t
   std::string armory_addon_str;
   std::string armory_weapon_str;
   std::string armory_heroic_str;
+  std::string armory_lfr_str;
   std::string armory_armor_type_str;
   std::string armory_reforge_str;
   std::string armory_ilevel_str;
@@ -3464,6 +3468,7 @@ struct item_t
   std::string encoded_use_str;
   std::string encoded_weapon_str;
   std::string encoded_heroic_str;
+  std::string encoded_lfr_str;
   std::string encoded_armor_type_str;
   std::string encoded_reforge_str;
   std::string encoded_ilevel_str;
@@ -3498,10 +3503,12 @@ struct item_t
     bool active() { return stat || school; }
   } use, equip, enchant, addon;
 
-  item_t() : sim( 0 ), player( 0 ), slot( SLOT_NONE ), quality( 0 ), ilevel( 0 ), unique( false ), unique_enchant( false ), unique_addon( false ), is_heroic( false ), is_matching_type( false ), is_reforged( false ) {}
+  item_t() : sim( 0 ), player( 0 ), slot( SLOT_NONE ), quality( 0 ), ilevel( 0 ), unique( false ), unique_enchant( false ),
+    unique_addon( false ), is_heroic( false ), is_lfr( false ), is_matching_type( false ), is_reforged( false ) {}
   item_t( player_t*, const std::string& options_str );
   bool active() SC_CONST;
   bool heroic() SC_CONST;
+  bool lfr() SC_CONST;
   bool ptr() SC_CONST;
   bool reforged() SC_CONST;
   bool matching_type();
@@ -3519,6 +3526,7 @@ struct item_t
   bool decode_special( special_effect_t&, const std::string& encoding );
   bool decode_weapon();
   bool decode_heroic();
+  bool decode_lfr();
   bool decode_armor_type();
   bool decode_reforge();
   bool decode_random_suffix();
@@ -3894,6 +3902,7 @@ struct player_t : public noncopyable
   {
     buff_t* arcane_brilliance;
     buff_t* battle_shout;
+    buff_t* beacon_of_light;
     buff_t* berserking;
     buff_t* blessing_of_kings;
     buff_t* blessing_of_might;
@@ -3919,6 +3928,7 @@ struct player_t : public noncopyable
     buff_t* hellscreams_warsong;
     buff_t* heroic_presence;
     buff_t* hymn_of_hope;
+    buff_t* illuminated_healing;
     buff_t* indestructible_potion;
     buff_t* innervate;
     buff_t* inspiration;
@@ -3943,7 +3953,6 @@ struct player_t : public noncopyable
     buff_t* weakened_soul;
     buff_t* wild_magic_potion_crit;
     buff_t* wild_magic_potion_sp;
-    buff_t* blessing_of_ancient_kings;
     std::vector<buff_t*> power_word_shield;
     std::vector<buff_t*> divine_aegis;
   };
@@ -4395,6 +4404,7 @@ public:
   virtual double composite_attack_expertise() SC_CONST { return floor( floor( 100.0 * owner -> attack_hit ) * 26.0 / 8.0 ) / 100.0; }
   virtual double composite_attack_hit()       SC_CONST { return floor( 100.0 * owner -> composite_attack_hit() ) / 100.0; }
   virtual double composite_spell_hit()        SC_CONST { return floor( 100.0 * owner -> composite_spell_hit() ) / 100.0;  }
+  virtual double composite_player_multiplier( const school_type school, action_t* a ) SC_CONST;
 
   virtual double stamina() SC_CONST;
   virtual double intellect() SC_CONST;
@@ -4733,8 +4743,6 @@ struct heal_t : public spell_t
 {
   std::vector<player_t*> heal_target;
 
-  spell_t* valanyr;
-
   // Reporting
   double total_heal, total_actual;
 
@@ -4893,7 +4901,7 @@ struct action_callback_t
 
   static void trigger( std::vector<action_callback_t*>& v, action_t* a, void* call_data=0 )
   {
-    if ( ! a -> player -> in_combat ) return;
+    if ( a && ! a -> player -> in_combat ) return;
 
     std::size_t size = v.size();
     for ( std::size_t i=0; i < size; i++ )
@@ -4901,8 +4909,8 @@ struct action_callback_t
       action_callback_t* cb = v[ i ];
       if ( cb -> active )
       {
-        if ( ! cb -> allow_item_procs && a -> item_proc ) return;
-        if ( ! cb -> allow_procs && a -> proc ) return;
+        if ( ! cb -> allow_item_procs && a && a -> item_proc ) return;
+        if ( ! cb -> allow_procs && a && a -> proc ) return;
         cb -> trigger( a, call_data );
       }
     }
@@ -5016,12 +5024,14 @@ struct unique_gear_t
   static bool get_equip_encoding( std::string& encoding,
                                   const std::string& item_name,
                                   const bool         item_heroic,
+                                  const bool         item_lfr,
                                   const bool         ptr,
                                   const std::string& item_id=std::string() );
 
   static bool get_use_encoding  ( std::string& encoding,
                                   const std::string& item_name,
-                                  const bool         item_heroic,
+                                  const bool         heroic,
+                                  const bool         lfr,
                                   const bool         ptr,
                                   const std::string& item_id=std::string() );
 };

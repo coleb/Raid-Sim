@@ -290,6 +290,7 @@ void action_t::parse_effect_data( int spell_id, int effect_nr )
     // Direct Damage
   case E_HEAL:
   case E_SCHOOL_DAMAGE:
+  case E_HEALTH_LEECH:
     direct_power_mod = effect -> coeff();
     base_dd_min      = player -> dbc.effect_min( effect -> id(), player -> level );
     base_dd_max      = player -> dbc.effect_max( effect -> id(), player -> level );
@@ -978,7 +979,11 @@ void action_t::consume_resource()
 
 void action_t::execute()
 {
-  assert( initialized );
+  if ( ! initialized )
+  {
+    sim -> errorf( "action_t::execute: action %s from player %s is not initialized.\n", name(), player -> name() );
+    assert( 0 );
+  }
 
   if ( sim -> log && ! dual )
   {
@@ -1197,7 +1202,7 @@ void action_t::schedule_execute()
       // So we simply reschedule the auto_attack by the ability's casttime
       double time_to_next_hit;
       // Mainhand
-      if ( player -> main_hand_attack )
+      if ( player -> main_hand_attack && player -> main_hand_attack -> execute_event )
       {
         time_to_next_hit  = player -> main_hand_attack -> execute_event -> occurs();
         time_to_next_hit -= sim -> current_time;
@@ -1205,7 +1210,7 @@ void action_t::schedule_execute()
         player -> main_hand_attack -> execute_event -> reschedule( time_to_next_hit );
       }
       // Offhand
-      if ( player -> off_hand_attack )
+      if ( player -> off_hand_attack && player -> off_hand_attack -> execute_event )
       {
         time_to_next_hit  = player -> off_hand_attack -> execute_event -> occurs();
         time_to_next_hit -= sim -> current_time;

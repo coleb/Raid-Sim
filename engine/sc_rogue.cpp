@@ -3309,10 +3309,10 @@ double rogue_t::composite_attack_speed() SC_CONST
   if ( talents.lightning_reflexes -> rank() )
     h *= 1.0 / ( 1.0 + talents.lightning_reflexes -> effect2().percent() );
 
-  if ( buffs_slice_and_dice -> up() )
+  if ( buffs_slice_and_dice -> check() )
     h *= 1.0 / ( 1.0 + buffs_slice_and_dice -> value() );
 
-  if ( buffs_adrenaline_rush -> up() )
+  if ( buffs_adrenaline_rush -> check() )
     h *= 1.0 / ( 1.0 + buffs_adrenaline_rush -> value() );
 
   return h;
@@ -3857,7 +3857,10 @@ void rogue_t::init_buffs()
 {
   player_t::init_buffs();
 
-  // buff_t( sim, player, name, max_stack, duration, cooldown, proc_chance, quiet )
+  // buff_t( player, name, max_stack, duration, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
+  // buff_t( player, id, name, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
+  // buff_t( player, name, spellname, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
+
   buffs_bandits_guile      = new buff_t( this, "bandits_guile", 12, 15.0, 0.0, 1.0, true );
   buffs_deadly_proc        = new buff_t( this, "deadly_proc",   1  );
   buffs_overkill           = new buff_t( this, "overkill",      1, 20.0 );
@@ -4021,6 +4024,7 @@ void rogue_t::combat_begin()
 void rogue_t::reset()
 {
   player_t::reset();
+
   expirations_.reset();
   tricks_of_the_trade_target = 0;
   combo_points -> clear();

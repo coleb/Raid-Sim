@@ -2597,7 +2597,7 @@ struct shadow_word_death_t : public priest_spell_t
       health_loss *= 1.0 - p -> sets -> set( SET_T13_2PC_CASTER ) -> effect_base_value( 2 ) / 100.0;
     }
 
-    p -> resource_loss( RESOURCE_HEALTH, health_loss );
+    p -> assess_damage( health_loss, school, DMG_DIRECT, RESULT_HIT, this );
 
     if ( ( ( health_loss > 0.0 ) || ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_caster() )  ) && p -> talents.masochism -> rank() )
     {
@@ -3988,7 +3988,7 @@ struct power_word_shield_t : public priest_absorb_t
 
   virtual bool ready()
   {
-    if ( !ignore_debuff & target -> buffs.weakened_soul -> check() )
+    if ( ! ignore_debuff & target -> buffs.weakened_soul -> check() )
       return false;
 
     return priest_absorb_t::ready();
@@ -4857,6 +4857,10 @@ void priest_t::init_spells()
 void priest_t::init_buffs()
 {
   player_t::init_buffs();
+
+  // buff_t( player, name, max_stack, duration, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
+  // buff_t( player, id, name, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
+  // buff_t( player, name, spellname, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
 
   // Discipline
   buffs_borrowed_time              = new buff_t( this, talents.borrowed_time -> effect1().trigger_spell_id(), "borrowed_time", talents.borrowed_time -> rank() );

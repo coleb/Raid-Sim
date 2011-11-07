@@ -422,14 +422,6 @@ struct spirit_wolf_pet_t : public pet_t
       repeating = true;
       may_crit = true;
 
-      pet_t* p = player -> cast_pet();
-
-      // Orc Command Racial
-      if ( p -> owner -> race == RACE_ORC )
-      {
-        base_multiplier *= 1.05;
-      }
-
       // Wolves have a base multiplier of 1.49835 approximately, and there are
       // two wolves. Verified using paper doll damage range values on a
       // level 85 enhancement shaman, with and without Glyph
@@ -601,7 +593,6 @@ struct earth_elemental_pet_t : public pet_t
       weapon_power_mod  = 0.098475 / base_execute_time;
 
       base_attack_power_multiplier = 0;
-      if ( player -> cast_pet() -> owner -> race == RACE_ORC ) base_multiplier *= 1.05;
     }
 
     virtual double swing_haste() SC_CONST
@@ -4238,6 +4229,10 @@ void shaman_t::init_scaling()
 void shaman_t::init_buffs()
 {
   player_t::init_buffs();
+
+  // buff_t( player, name, max_stack, duration, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
+  // buff_t( player, id, name, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
+  // buff_t( player, name, spellname, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
 
   buffs_earth_elemental         = new buff_t                 ( this, "earth_elemental", 1 );
   buffs_elemental_devastation   = new elemental_devastation_t( this, talent_elemental_devastation -> spell_id(),               "elemental_devastation" ); buffs_elemental_devastation -> activated = false;

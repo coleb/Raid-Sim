@@ -102,7 +102,8 @@ static int parse_meta_gem( const std::string& prefix,
 // item_t::item_t ===========================================================
 
 item_t::item_t( player_t* p, const std::string& o ) :
-  sim( p->sim ), player( p ), slot( SLOT_NONE ), quality( 0 ), ilevel( 0 ), unique( false ), unique_enchant( false ), unique_addon( false ), is_heroic( false ), is_ptr( p -> ptr ),
+  sim( p->sim ), player( p ), slot( SLOT_NONE ), quality( 0 ), ilevel( 0 ), unique( false ), unique_enchant( false ),
+  unique_addon( false ), is_heroic( false ), is_lfr( false ), is_ptr( p -> ptr ),
   is_matching_type( false ), is_reforged( false ), reforged_from( STAT_NONE ), reforged_to( STAT_NONE ),
   options_str( o )
 {
@@ -123,6 +124,14 @@ bool item_t::heroic() SC_CONST
 {
   if ( slot == SLOT_NONE ) return false;
   return is_heroic;
+}
+
+// item_t::lfr ==============================================================
+
+bool item_t::lfr() SC_CONST
+{
+  if ( slot == SLOT_NONE ) return false;
+  return is_lfr;
 }
 
 // item_t::ptr ==============================================================
@@ -209,6 +218,7 @@ bool item_t::parse_options()
     { "use",     OPT_STRING, &option_use_str           },
     { "weapon",  OPT_STRING, &option_weapon_str        },
     { "heroic",  OPT_STRING, &option_heroic_str        },
+    { "lfr",     OPT_STRING, &option_lfr_str           },
     { "type",    OPT_STRING, &option_armor_type_str    },
     { "reforge", OPT_STRING, &option_reforge_str       },
     { "suffix",  OPT_STRING, &option_random_suffix_str },
@@ -231,6 +241,7 @@ bool item_t::parse_options()
   util_t::tolower( option_use_str           );
   util_t::tolower( option_weapon_str        );
   util_t::tolower( option_heroic_str        );
+  util_t::tolower( option_lfr_str           );
   util_t::tolower( option_armor_type_str    );
   util_t::tolower( option_reforge_str       );
   util_t::tolower( option_random_suffix_str );
@@ -251,6 +262,7 @@ void item_t::encode_options()
   o = encoded_name_str;
 
   if ( heroic() )                            { o += ",heroic=1";                                 }
+  if ( lfr() )                               { o += ",lfr=1";                                    }
   if ( armor_type() )                        { o += ",type=";    o += encoded_armor_type_str;    }
   if ( ! encoded_ilevel_str.empty()        ) { o += ",ilevel=";  o += encoded_ilevel_str;        }
   if ( ! encoded_quality_str.empty()       ) { o += ",quality="; o += encoded_quality_str;       }
@@ -302,6 +314,7 @@ bool item_t::init()
     encoded_addon_str         = armory_addon_str;
     encoded_weapon_str        = armory_weapon_str;
     encoded_heroic_str        = armory_heroic_str;
+    encoded_lfr_str           = armory_lfr_str;
     encoded_armor_type_str    = armory_armor_type_str;
     encoded_ilevel_str        = armory_ilevel_str;
     encoded_quality_str       = armory_quality_str;
@@ -311,6 +324,10 @@ bool item_t::init()
   if ( ! option_heroic_str.empty()  ) encoded_heroic_str  = option_heroic_str;
 
   if ( ! decode_heroic()  ) return false;
+
+  if ( ! option_lfr_str.empty() ) encoded_lfr_str = option_lfr_str;
+
+  if ( ! decode_lfr() ) return false;
 
   if ( ! option_armor_type_str.empty() ) encoded_armor_type_str = option_armor_type_str;
 
@@ -324,8 +341,8 @@ bool item_t::init()
 
   if ( ! decode_quality() ) return false;
 
-  unique_gear_t::get_equip_encoding( encoded_equip_str, encoded_name_str, heroic(), player -> dbc.ptr, id_str );
-  unique_gear_t::get_use_encoding  ( encoded_use_str,   encoded_name_str, heroic(), player -> dbc.ptr, id_str );
+  unique_gear_t::get_equip_encoding( encoded_equip_str, encoded_name_str, heroic(), lfr(), player -> dbc.ptr, id_str );
+  unique_gear_t::get_use_encoding  ( encoded_use_str,   encoded_name_str, heroic(), lfr(), player -> dbc.ptr, id_str );
 
   if ( ! option_stats_str.empty()   ) encoded_stats_str   = option_stats_str;
   if ( ! option_reforge_str.empty() ) encoded_reforge_str = option_reforge_str;
@@ -375,7 +392,16 @@ bool item_t::decode_heroic()
   return true;
 }
 
-// item_t::decode_heroic ====================================================
+// item_t::decode_lfr =======================================================
+
+bool item_t::decode_lfr()
+{
+  is_lfr = ! ( encoded_lfr_str.empty() || ( encoded_lfr_str == "0" ) || ( encoded_lfr_str == "no" ) );
+
+  return true;
+}
+
+// item_t::decode_armor_type ================================================
 
 bool item_t::decode_armor_type()
 {
@@ -728,7 +754,7 @@ bool item_t::decode_enchant()
   }
 
   std::string use_str;
-  if( unique_gear_t::get_use_encoding( use_str, encoded_enchant_str, heroic(), player -> dbc.ptr ) )
+  if( unique_gear_t::get_use_encoding( use_str, encoded_enchant_str, heroic(), lfr(), player -> dbc.ptr ) )
   {
     unique_enchant = true;
     use.name_str = encoded_enchant_str;
@@ -736,7 +762,7 @@ bool item_t::decode_enchant()
   }
 
   std::string equip_str;
-  if( unique_gear_t::get_equip_encoding( equip_str, encoded_enchant_str, heroic(), player -> dbc.ptr ) )
+  if( unique_gear_t::get_equip_encoding( equip_str, encoded_enchant_str, heroic(), lfr(), player -> dbc.ptr ) )
   {
     unique_enchant = true;
     enchant.name_str = encoded_enchant_str;
@@ -778,7 +804,7 @@ bool item_t::decode_addon()
   }
 
   std::string use_str;
-  if( unique_gear_t::get_use_encoding( use_str, encoded_addon_str, heroic(), player -> dbc.ptr ) )
+  if( unique_gear_t::get_use_encoding( use_str, encoded_addon_str, heroic(), lfr(), player -> dbc.ptr ) )
   {
     unique_addon = true;
     use.name_str = encoded_addon_str;
@@ -786,7 +812,7 @@ bool item_t::decode_addon()
   }
 
   std::string equip_str;
-  if( unique_gear_t::get_equip_encoding( equip_str, encoded_addon_str, heroic(), player -> dbc.ptr ) )
+  if( unique_gear_t::get_equip_encoding( equip_str, encoded_addon_str, heroic(), lfr(), player -> dbc.ptr ) )
   {
     unique_addon = true;
     addon.name_str = encoded_addon_str;

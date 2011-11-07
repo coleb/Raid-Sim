@@ -807,14 +807,9 @@ struct warlock_main_pet_t : public warlock_pet_t
 
   virtual double composite_player_multiplier( const school_type school, action_t* a ) SC_CONST
   {
-    double m = player_t::composite_player_multiplier( school, a );
+    double m = warlock_pet_t::composite_player_multiplier( school, a );
 
     warlock_t* o = owner -> cast_warlock();
-
-    if ( o -> race == RACE_ORC )
-    {
-      m  *= 1.05;
-    }
 
     double mastery_value = (ptr) ? 230 : o -> mastery_spells.master_demonologist -> effect_base_value( 3 );
 
@@ -825,7 +820,7 @@ struct warlock_main_pet_t : public warlock_pet_t
 
   virtual double composite_mp5() SC_CONST
   {
-    double h = player_t::composite_mp5();
+    double h = warlock_pet_t::composite_mp5();
     h += mp5_per_intellect * owner -> intellect();
     return h;
   }
@@ -902,7 +897,7 @@ struct warlock_guardian_pet_t : public warlock_pet_t
 
   virtual double composite_spell_power_multiplier() SC_CONST
   {
-    double m = pet_t::composite_spell_power_multiplier();
+    double m = warlock_pet_t::composite_spell_power_multiplier();
     warlock_t* o = owner -> cast_warlock();
 
     // Guardians normally don't gain demonic pact, but when they provide it they also provide it to themselves
@@ -2267,6 +2262,7 @@ void trigger_burning_embers ( spell_t* s, double dmg )
         background = true;
         tick_may_crit = false;
         hasted_ticks = false;
+        may_trigger_dtr = false;
         init();
       }
 
@@ -2932,7 +2928,16 @@ struct incinerate_t : public warlock_spell_t
   {
     warlock_t* p = player -> cast_warlock();
 
-    base_dd_adder = ( p -> dots_immolate -> ticking ? ( base_dd_min + base_dd_max ) / 12.0 : 0 );
+    if ( p -> ptr )
+    {
+      if ( p -> dots_immolate -> ticking ) {
+        base_dd_adder = ( sim -> range( base_dd_min, base_dd_max ) + direct_power_mod * total_power() ) / 6;
+      }
+    }
+    else
+    {
+      base_dd_adder = ( p -> dots_immolate -> ticking ? ( base_dd_min + base_dd_max ) / 12.0 : 0 );
+    }
 
     warlock_spell_t::execute();
 
@@ -4383,6 +4388,10 @@ void warlock_t::init_buffs()
 {
   player_t::init_buffs();
 
+  // buff_t( player, name, max_stack, duration, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
+  // buff_t( player, id, name, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
+  // buff_t( player, name, spellname, chance=-1, cd=-1, quiet=false, reverse=false, rng_type=RNG_CYCLIC, activated=true )
+
   buffs_backdraft             = new buff_t( this, talent_backdraft -> effect_trigger_spell( 1 ), "backdraft" );
   buffs_decimation            = new buff_t( this, talent_decimation -> effect_trigger_spell( 1 ), "decimation", talent_decimation -> ok() );
   buffs_demonic_empowerment   = new buff_t( this, "demonic_empowerment",   1 );
@@ -4675,7 +4684,7 @@ void warlock_t::init_actions()
       if ( level >= 64 ) action_list_str += "/incinerate,if=buff.molten_core.react";
       if ( level >= 54 ) action_list_str += "/soul_fire,if=buff.decimation.up";
       action_list_str += "/life_tap,if=mana_pct<=30&buff.bloodlust.down&buff.metamorphosis.down&buff.demon_soul_felguard.down";
-      action_list_str += "/shadow_bolt";
+      action_list_str += ( talent_bane -> ok() ) ? "/shadow_bolt" : "/incinerate";
 
       break;
 
