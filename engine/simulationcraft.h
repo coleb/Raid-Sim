@@ -88,7 +88,7 @@
 #include "data_definitions.hh"
 
 #define SC_MAJOR_VERSION "422"
-#define SC_MINOR_VERSION "5"
+#define SC_MINOR_VERSION "6"
 #define SC_USE_PTR ( 1 )
 #define SC_BETA ( 0 )
 #define SC_EPSILON ( 0.000001 )
@@ -2579,9 +2579,9 @@ public:
   // Use up() where the presence of the buff affects the action mechanics.
 
   int    check() { return current_stack; }
-  inline bool   up()    { if( current_stack > 0 ) { up_count++; } else { down_count++; } return current_stack > 0; }
-  inline int    stack() { if( current_stack > 0 ) { up_count++; } else { down_count++; } return current_stack; }
-  inline double value() { if( current_stack > 0 ) { up_count++; } else { down_count++; } return current_value; }
+  inline bool   up()    { if ( current_stack > 0 ) { up_count++; } else { down_count++; } return current_stack > 0; }
+  inline int    stack() { if ( current_stack > 0 ) { up_count++; } else { down_count++; } return current_stack; }
+  inline double value() { if ( current_stack > 0 ) { up_count++; } else { down_count++; } return current_value; }
   double remains();
   bool   remains_gt( double time );
   bool   remains_lt( double time );
@@ -3621,7 +3621,6 @@ public:
 struct player_t : public noncopyable
 {
   sim_t*      sim;
-  bool        ptr;
   std::string name_str, talents_str, glyphs_str, id_str, target_str;
   std::string region_str, server_str, origin_str;
   player_t*   next;
@@ -4075,6 +4074,7 @@ struct player_t : public noncopyable
   virtual void init_enchant();
   virtual void init_resources( bool force = false );
   virtual void init_professions();
+  virtual void init_professions_bonus();
   virtual std::string init_use_item_actions( const std::string& append = std::string() );
   virtual std::string init_use_profession_actions( const std::string& append = std::string() );
   virtual std::string init_use_racial_actions( const std::string& append = std::string() );
@@ -5636,13 +5636,13 @@ struct ability_t : public action_t
     actor_t* targets[ AOE_CAP ];
     int num_targets = area_of_effect( targets );
     results.resize( num_targets );
-    for( int i=0; i < num_targets; i++ )
+    for ( int i=0; i < num_targets; i++ )
     {
       calculate_result( results[ i ], targets[ i ] );
       // "result" callbacks
     }
     consume_resource();
-    for( int i=0; i < num_targets; i++ )
+    for ( int i=0; i < num_targets; i++ )
     {
       schedule_travel( results[ i ] );
     }
@@ -5651,7 +5651,7 @@ struct ability_t : public action_t
   }
   virtual void impact( result_t& result )
   {
-    if( result.hit )
+    if ( result.hit )
     {
       if ( result.amount > 0 )
       {
@@ -5659,7 +5659,7 @@ struct ability_t : public action_t
         {
           assess_damage( result );
         }
-        else if( healing )
+        else if ( healing )
         {
           assess_healing( result );
         }

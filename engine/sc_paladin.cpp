@@ -602,7 +602,7 @@ struct paladin_attack_t : public attack_t
     }
     if ( p -> set_bonus.tier13_4pc_melee() && p -> buffs_zealotry -> check() )
     {
-      player_multiplier *= 1.12;
+      player_multiplier *= 1.18;
     }
     
     if ( p -> buffs_conviction -> up() )
@@ -969,7 +969,7 @@ static void trigger_tier12_2pc_melee( attack_t* s, double dmg )
     total_dot_dmg += p -> active_flames_of_the_faithful_proc -> base_td * dot -> ticks();
   }
 
-  if( ( p -> dbc.spell( 99092 ) -> duration() + sim -> aura_delay ) < dot -> remains() )
+  if ( ( p -> dbc.spell( 99092 ) -> duration() + sim -> aura_delay ) < dot -> remains() )
   {
     if ( sim -> log ) log_t::output( sim, "Player %s munches Flames of the Faithful due to Max Duration.", p -> name() );
     p -> procs_munched_tier12_2pc_melee -> occur();
@@ -1634,7 +1634,7 @@ struct seal_of_truth_judgement_t : public paladin_attack_t
   {
     paladin_t* p = player -> cast_paladin();
     paladin_attack_t::player_buff();
-    player_multiplier *= 1.0 + p -> buffs_censure -> stack() * ( p -> ptr ? 0.20 : 0.10 );
+    player_multiplier *= 1.0 + p -> buffs_censure -> stack() * ( p -> dbc.ptr ? 0.20 : 0.10 );
   }
 };
 
@@ -1739,7 +1739,7 @@ struct judgement_t : public paladin_attack_t
   virtual bool ready()
   {
     action_t* seal = active_seal();
-    if( ! seal ) return false;
+    if ( ! seal ) return false;
     return paladin_attack_t::ready();
   }
 };
@@ -3204,14 +3204,14 @@ void paladin_t::init_actions()
       if ( level >= 81 )
         action_list_str += "/inquisition,if=(buff.inquisition.down|buff.inquisition.remains<5)&(holy_power=3|buff.divine_purpose.react)";
       action_list_str += "/crusader_strike,if=holy_power<3";  // CS before TV if <3 power, even with DP up
-      if ( ptr )
+      if ( dbc.ptr )
         action_list_str += "/judgement,if=set_bonus.tier13_2pc_melee&holy_power<3";
       action_list_str += "/templars_verdict,if=buff.divine_purpose.react";
       action_list_str += "/templars_verdict,if=holy_power=3";
-      if ( ! ptr )
+      if ( ! dbc.ptr )
         action_list_str += "/hammer_of_wrath";
       action_list_str += "/exorcism,if=buff.the_art_of_war.react";
-      if ( ptr )
+      if ( dbc.ptr )
         action_list_str += "/hammer_of_wrath";
       action_list_str += "/judgement";
       action_list_str += "/holy_wrath";
@@ -3844,8 +3844,8 @@ void player_t::paladin_combat_begin( sim_t* sim )
   double devo = sim -> dbc.effect_average( sim -> dbc.spell( 465   ) -> effect1().id(), sim -> max_player_level );
   double bow  = sim -> dbc.effect_average( sim -> dbc.spell( 79101 ) -> effect3().id(), sim -> max_player_level );
 
-  if( sim -> overrides.communion     ) sim -> auras.communion     -> override();
-  if( sim -> overrides.devotion_aura ) sim -> auras.devotion_aura -> override( 1, devo );
+  if ( sim -> overrides.communion     ) sim -> auras.communion     -> override();
+  if ( sim -> overrides.devotion_aura ) sim -> auras.devotion_aura -> override( 1, devo );
 
   for ( player_t* p = sim -> player_list; p; p = p -> next )
   {

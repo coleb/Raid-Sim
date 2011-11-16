@@ -178,7 +178,7 @@ struct discharge_proc_callback_t : public action_callback_t
     cooldown = p -> get_cooldown( name_str );
     cooldown -> duration = cd;
 
-    if( amount > 0 )
+    if ( amount > 0 )
     {
       discharge_action = new discharge_spell_t( name_str.c_str(), p, amount, scaling, school, no_crit, no_buffs, no_debuffs );
     }
@@ -300,7 +300,7 @@ struct chance_discharge_proc_callback_t : public action_callback_t
     cooldown = p -> get_cooldown( name_str );
     cooldown -> duration = cd;
 
-    if( amount > 0 )
+    if ( amount > 0 )
     {
       discharge_action = new discharge_spell_t( name_str.c_str(), p, amount, scaling, school, no_crit, no_buffs, no_debuffs );
     }
@@ -470,7 +470,7 @@ static void register_apparatus_of_khazgoroth( item_t* item )
     {
       double amount = heroic ? 2875 : 2540;
 
-      apparatus_of_khazgoroth = new buff_t( p, "apparatus_of_khazgoroth", 5, 30.0, 0.0, 1, true ); // TODO: Duration, cd, etc.?
+      apparatus_of_khazgoroth = new buff_t( p, 96923, "titanic_power" ); // TODO: Duration, cd, etc.?
       apparatus_of_khazgoroth -> activated = false;
       blessing_of_khazgoroth  = new stat_buff_t( p, "blessing_of_khazgoroth", STAT_CRIT_RATING, amount, 1, 15.0, 120.0 );
       proc_apparatus_of_khazgoroth_haste   = p -> get_proc( "apparatus_of_khazgoroth_haste"   );
@@ -480,15 +480,15 @@ static void register_apparatus_of_khazgoroth( item_t* item )
 
     virtual void trigger( action_t* a, void* /* call_data */ )
     {
-      if( ! a -> weapon ) return;
-      if( a -> proc ) return;
+      if ( ! a -> weapon ) return;
+      if ( a -> proc ) return;
 
-      if( apparatus_of_khazgoroth -> trigger() )
+      if ( apparatus_of_khazgoroth -> trigger() )
       {
-        if( blessing_of_khazgoroth -> cooldown -> remains() > 0 ) return;
+        if ( blessing_of_khazgoroth -> cooldown -> remains() > 0 ) return;
 
         // FIXME: This really should be a /use action
-        if( apparatus_of_khazgoroth -> check() == 5 )
+        if ( apparatus_of_khazgoroth -> check() == 5 )
         {
           // Highest of Crits/Master/haste is chosen
           blessing_of_khazgoroth -> stat = STAT_CRIT_RATING;
@@ -571,15 +571,15 @@ static void register_fury_of_angerforge( item_t* item )
 
     virtual void trigger( action_t* a, void* /* call_data */ )
     {
-      if( ! a -> weapon ) return;
-      if( a -> proc ) return;
+      if ( ! a -> weapon ) return;
+      if ( a -> proc ) return;
 
-      if( raw_fury -> trigger() )
+      if ( raw_fury -> trigger() )
       {
-        if( blackwing_dragonkin -> cooldown -> remains() > 0 ) return;
+        if ( blackwing_dragonkin -> cooldown -> remains() > 0 ) return;
 
         // FIXME: This really should be a /use action
-        if( raw_fury -> check() == 5 )
+        if ( raw_fury -> check() == 5 )
         {
           raw_fury -> expire();
           blackwing_dragonkin -> trigger();
@@ -613,9 +613,9 @@ static void register_heart_of_ignacious( item_t* item )
     virtual void trigger( action_t* /* a */, void* /* call_data */ )
     {
       buff -> trigger();
-      if( buff -> stack() == buff -> max_stack )
+      if ( buff -> stack() == buff -> max_stack )
       {
-        if( haste_buff -> trigger( buff -> max_stack ) )
+        if ( haste_buff -> trigger( buff -> max_stack ) )
         {
           buff -> expire();
         }
@@ -780,10 +780,10 @@ static void register_tyrandes_favorite_doll( item_t* item )
       double mana_spent = *( ( double* ) call_data );
 
       mana_stored += mana_spent * 0.20;
-      if( mana_stored > max_mana ) mana_stored = max_mana;
+      if ( mana_stored > max_mana ) mana_stored = max_mana;
 
       // FIXME! For now trigger as soon as the cooldown is up.
-      if( ( mana_stored >= max_mana ) && ( discharge_spell -> cooldown -> remains() <= 0 ) )
+      if ( ( mana_stored >= max_mana ) && ( discharge_spell -> cooldown -> remains() <= 0 ) )
       {
         discharge_spell -> execute();
         a -> player -> resource_gain( RESOURCE_MANA, mana_stored, gain_source, discharge_spell );
@@ -888,9 +888,9 @@ static void register_dragonwrath_tarecgosas_rest( item_t* item )
     // Until we get actual numbers adjust each spec's chance based off testing done against Tier 11 sets.
     // Should probably be re-done when all the Tier 12 sets are available.
     case TREE_BALANCE:      chance = 0.11; break; // http://elitistjerks.com/f73/t110353-balance_cataclysm_4_2_a/p13/#post1998686
-    case TREE_ARCANE:       chance *= 1.3; break;
-    case TREE_FIRE:         chance *= 1.3; break;
-    case TREE_FROST:        chance *= 1.3; break;
+    case TREE_ARCANE:       chance *= 1.25; break;
+    case TREE_FIRE:         chance *= 1.25; break;
+    case TREE_FROST:        chance *= 1.25; break;
     case TREE_SHADOW:
     case TREE_DISCIPLINE:   chance = 0.136; break;
     case TREE_ELEMENTAL:    chance = 0.17; break; // Needs more data
@@ -908,7 +908,7 @@ static void register_dragonwrath_tarecgosas_rest( item_t* item )
   }
 
   // FIXME: 4.3 PTR nerf seems to be roughly a halving of the proc chance - only tested warlocks so far, 2011/10/26
-  if ( p -> ptr )
+  if ( p -> dbc.ptr )
   {
     chance *= 0.67;
   }
@@ -1114,7 +1114,7 @@ static void register_indomitable_pride( item_t* item )
         cd -> start();
         double amount = heroic ? 0.56 : lfr ? 0.43 : 0.50;
         if ( call_data )
-          amount *= *((double *) call_data);
+          amount *= *( ( double * ) call_data );
         else
           assert( 0 );
         buff -> trigger( 1, amount );
@@ -1220,16 +1220,15 @@ static void register_fury_of_the_beast( item_t* item )
 
     virtual void trigger( action_t* a, void* /* call_data */ )
     {
-      if( ! a -> weapon ) return;
-      if( a -> proc ) return;
+      if ( ! a -> weapon ) return;
+      if ( a -> proc ) return;
 
-      if( fury_of_the_beast -> cooldown -> remains() > 0 ) return;
+      if ( fury_of_the_beast -> cooldown -> remains() > 0 ) return;
 
-      if( fury_of_the_beast -> trigger() )
+      if ( fury_of_the_beast -> trigger() )
       {
         // FIXME: check if the stacking buff ticks at 0s or 1s
         new ( sim ) fury_of_the_beast_event_t( listener, fury_of_the_beast, fury_of_the_beast_stack );
-
       }
     }
   };
@@ -1241,9 +1240,9 @@ static void register_fury_of_the_beast( item_t* item )
 
 static void register_nokaled( item_t* item )
 {
-  player_t* p = item -> player;
-  bool heroic = item -> heroic();
-  bool lfr    = item -> lfr();
+  player_t* p   = item -> player;
+  bool heroic   = item -> heroic();
+  bool lfr      = item -> lfr();
                                       //Fire  Frost   Shadow
   static uint32_t    lfr_spells[] = { 109871, 109869, 109867 };
   static uint32_t normal_spells[] = { 107785, 107789, 107787 };
@@ -1251,12 +1250,15 @@ static void register_nokaled( item_t* item )
 
   uint32_t* spell_ids = heroic ? heroic_spells : lfr ? lfr_spells : normal_spells;
 
+  uint32_t proc_spell_id = heroic ? 109873 : lfr ? 109866 : 107786;
+
   struct nokaled_callback_t : public action_callback_t
   {
+    double chance;
     spell_t* spells[3];
     rng_t* rng;
-    
-    // FIXME: Verfiy if spells can crit/miss and if they benefit from mastery, talents, etc.
+
+    // FIXME: Verify if spells can miss
     struct nokaled_fire_t : public spell_t
     {
       nokaled_fire_t( player_t* p, uint32_t spell_id ) :
@@ -1264,8 +1266,8 @@ static void register_nokaled( item_t* item )
       {
         trigger_gcd = 0;
         background = true;
-        may_miss = false; 
-        may_crit = false;
+        may_miss = false;
+        may_crit = true;
         proc = true;
         init();
       }
@@ -1278,8 +1280,8 @@ static void register_nokaled( item_t* item )
       {
         trigger_gcd = 0;
         background = true;
-        may_miss = false; 
-        may_crit = false;
+        may_miss = false;
+        may_crit = true;
         proc = true;
         init();
       }
@@ -1292,15 +1294,15 @@ static void register_nokaled( item_t* item )
       {
         trigger_gcd = 0;
         background = true;
-        may_miss = false; 
-        may_crit = false;
+        may_miss = false;
+        may_crit = true;
         proc = true;
         init();
       }
     };
 
-    nokaled_callback_t( player_t* p, uint32_t ids[] ) :
-      action_callback_t( p -> sim, p )
+    nokaled_callback_t( player_t* p, uint32_t ids[], uint32_t proc_spell_id ) :
+      action_callback_t( p -> sim, p ), chance( p -> dbc.spell( proc_spell_id ) -> proc_chance() )
     {
       spells[ 0 ] = new   nokaled_fire_t( p, ids[ 0 ] );
       spells[ 1 ] = new  nokaled_frost_t( p, ids[ 1 ] );
@@ -1310,17 +1312,19 @@ static void register_nokaled( item_t* item )
       rng -> average_range = false; // Otherwise we'll always get the mean
     }
 
-    virtual void trigger( action_t* /* a */, void* /* call_data */ )
+    virtual void trigger( action_t* a, void* /* call_data */ )
     {
-      // FIXME: Does it have an ICD or not? If not, it's quite OP
-      if ( rng -> roll( 0.15 ) )
-      { 
+      if ( a -> proc )
+        return;
+
+      if ( rng -> roll( chance ) )
+      {
         spells[ ( int ) ( rng -> range( 0.0, 2.999 ) ) ] -> execute();
       }
     }
   };
 
-  p -> register_attack_callback( RESULT_HIT_MASK, new nokaled_callback_t( p, spell_ids ) );
+  p -> register_attack_callback( RESULT_HIT_MASK, new nokaled_callback_t( p, spell_ids, proc_spell_id ) );
 }
 
 // register_rathrak =========================================================
@@ -1339,12 +1343,12 @@ static void register_rathrak( item_t* item )
     {
       trigger_gcd = 0;
       background = true;
-      may_miss = false; // FIXME: Verfiy this
-      may_crit = false; // FIXME: Verfiy this
+      may_miss = false; // FIXME: Verify this
+      may_crit = false; // FIXME: Verify this
       proc = true;
       init();
     }
-    // FIXME does this double dip in talents/masterys/etc?    
+    // FIXME does this double dip in talents/masterys/etc?
   };
 
   struct rathrak_callback_t : public action_callback_t
@@ -1362,7 +1366,7 @@ static void register_rathrak( item_t* item )
     {
       // FIXME: Does it have an ICD or not?
       if ( rng -> roll( 0.15 ) )
-      { 
+      {
         spell -> execute();
       }
     }
@@ -1424,6 +1428,51 @@ static void register_souldrinker( item_t* item )
   p -> register_attack_callback( RESULT_HIT_MASK, new souldrinker_callback_t( p, new souldrinker_spell_t( p, heroic, lfr ) ) );
 }
 
+// register_titahk ==========================================================
+
+static void register_titahk( item_t* item )
+{
+  player_t* p = item -> player;
+  bool heroic = item -> heroic();
+  bool lfr    = item -> lfr();
+
+  uint32_t spell_id = heroic ? 109846 : lfr ? 109843 : 107805;
+  uint32_t buff_id = p -> dbc.spell( spell_id ) -> effect1().trigger_spell_id();
+
+  const spell_data_t* spell = p -> dbc.spell( spell_id );
+  const spell_data_t* buff  = p -> dbc.spell( buff_id );
+
+  struct titahk_callback_t : public action_callback_t
+  {
+    double proc_chance;
+    rng_t* rng;
+    buff_t* buff_self;
+    buff_t* buff_radius; // This buff should be in 20 yards radius but it is contained only on the player for simulation.
+
+    titahk_callback_t( player_t* p, const spell_data_t* spell, const spell_data_t* buff ) :
+      action_callback_t( p -> sim, p ),
+      proc_chance( spell -> proc_chance() ),
+      rng( p -> get_rng( "titahk" ) )
+    {
+      double duration = buff -> duration();
+      buff_self   = new stat_buff_t( p, "titahk_self", STAT_HASTE_RATING, buff -> effect1().base_value(), 1, duration );
+      buff_radius = new stat_buff_t( p, "titahk_aoe",  STAT_HASTE_RATING, buff -> effect2().base_value(), 1, duration ); // FIXME: Apply aoe buff to other players
+    }
+
+    virtual void trigger( action_t* /* a */, void* /* call_data */ )
+    {
+      // FIXME: Does this have an ICD?
+      if ( rng -> roll( proc_chance ) )
+      {
+        buff_self -> trigger();
+        buff_radius -> trigger();
+      }
+    }
+  };
+
+  p -> register_spell_callback( SCHOOL_SPELL_MASK, new titahk_callback_t( p, spell, buff ) );
+}
+
 // ==========================================================================
 // unique_gear_t::init
 // ==========================================================================
@@ -1477,6 +1526,7 @@ void unique_gear_t::init( player_t* p )
     if ( ! strcmp( item.name(), "symbiotic_worm"                      ) ) register_symbiotic_worm                    ( &item );
     if ( ! strcmp( item.name(), "tyrandes_favorite_doll"              ) ) register_tyrandes_favorite_doll            ( &item );
     if ( ! strcmp( item.name(), "windward_heart"                      ) ) register_windward_heart                    ( &item );
+    if ( ! strcmp( item.name(), "titahk_the_steps_of_time"            ) ) register_titahk                            ( &item );
   }
 }
 
@@ -1980,15 +2030,14 @@ bool unique_gear_t::get_equip_encoding( std::string&       encoding,
   else if ( name == "wrath_of_unchaining"                 ) e = ( heroic ? "OnAttackHit_99Agi_100%_10Dur_10Stack" : lfr ? "OnAttackHit_78Agi_100%_10Dur_10Stack" : "OnAttackHit_88Agi_100%_10Dur_10Stack" );
   else if ( name == "heart_of_unliving"                   ) e = ( heroic ? "OnHealCast_99Spi_100%_10Dur_10Stack" : lfr ? "OnHealCast_78Spi_100%_10Dur_10Stack" : "OnHealCast_88Spi_100%_10Dur_10Stack" );
   else if ( name == "resolve_of_undying"                  ) e = ( heroic ? "OnAttackHit_99Dodge_100%_10Dur_10Stack" : lfr ? "OnAttackHit_99Dodge_100%_10Dur_10Stack" : "OnAttackHit_88Dodge_100%_10Dur_10Stack" );
-  else if ( name == "creche_of_the_final_dragon"          ) e = ( heroic ? "OnDamage_3278Crit_15%_20Dur_75Cd" : lfr ? "OnDamage_2573Crit_15%_20Dur_75Cd" : "OnDamage_2904Crit_15%_20Dur_75Cd" ); // FIXME: CD, just a guessed placeholder right now
-  else if ( name == "starcatcher_compass"                 ) e = ( heroic ? "OnDamage_3278Haste_15%_20Dur_75Cd" : lfr ? "OnDamage_2573Haste_15%_20Dur_75Cd" : "OnDamage_2904Haste_15%_20Dur_75Cd" ); // FIXME: CD, just a guessed placeholder right now
-  else if ( name == "seal_of_the_seven_signs"             ) e = ( heroic ? "OnHeal_3278Haste_15%_20Dur_75Cd" : lfr ? "OnHeal_2573Haste_15%_20Dur_75Cd" : "OnHeal_2904Haste_15%_20Dur_75Cd" ); // FIXME: CD, just a guessed placeholder right now
-  else if ( name == "soulshifter_vortex"                  ) e = ( heroic ? "OnDamage_3278Mastery_15%_20Dur_75Cd" : lfr ? "OnDamage_2573Mastery_15%_20Dur_75Cd" : "OnDamage_2904Mastery_15%_20Dur_75Cd" ); // FIXME: CD, just a guessed placeholder right now
-  else if ( name == "insignia_of_the_corrupted_mind"      ) e = ( heroic ? "OnDamage_3278Haste_15%_20Dur_75Cd" : lfr ? "OnDamage_2573Haste_15%_20Dur_75Cd" : "OnDamage_2904Haste_15%_20Dur_75Cd" ); // FIXME: CD, just a guessed placeholder right now
+  else if ( name == "creche_of_the_final_dragon"          ) e = ( heroic ? "OnDamage_3278Crit_15%_20Dur_115Cd" : lfr ? "OnDamage_2573Crit_15%_20Dur_115Cd" : "OnDamage_2904Crit_15%_20Dur_115Cd" ); // FIXME: ICD needs testing, assuming same as insignia of corrupted mind
+  else if ( name == "starcatcher_compass"                 ) e = ( heroic ? "OnDamage_3278Haste_15%_20Dur_115Cd" : lfr ? "OnDamage_2573Haste_15%_20Dur_115Cd" : "OnDamage_2904Haste_15%_20Dur_115Cd" ); // FIXME: ICD needs testing, assuming same as insignia of corrupted mind
+  else if ( name == "seal_of_the_seven_signs"             ) e = ( heroic ? "OnHeal_3278Haste_15%_20Dur_115Cd" : lfr ? "OnHeal_2573Haste_15%_20Dur_115Cd" : "OnHeal_2904Haste_15%_20Dur_115Cd" ); // FIXME: ICD needs testing, assuming same as insignia of corrupted mind
+  else if ( name == "soulshifter_vortex"                  ) e = ( heroic ? "OnDamage_3278Mastery_15%_20Dur_115Cd" : lfr ? "OnDamage_2573Mastery_15%_20Dur_115Cd" : "OnDamage_2904Mastery_15%_20Dur_115Cd" ); // FIXME: ICD needs testing, assuming same as insignia of corrupted mind
+  else if ( name == "insignia_of_the_corrupted_mind"      ) e = ( heroic ? "OnDamage_3278Haste_15%_20Dur_115Cd" : lfr ? "OnDamage_2573Haste_15%_20Dur_115Cd" : "OnDamage_2904Haste_15%_20Dur_115Cd" ); // ICD confirmed on PTR 2011/11/14
 
   // Stat Procs with Tick Increases
   else if ( name == "dislodged_foreign_object"            ) e = ( heroic ? "OnSpellCast_121SP_10Stack_10%_20Dur_45Cd_2Tick" : "OnSpellCast_105SP_10Stack_10%_20Dur_45Cd_2Tick" );
-
 
   // Discharge Procs
   else if ( name == "bandits_insignia"                    ) e = "OnAttackHit_1880Arcane_15%_45Cd";
@@ -2001,7 +2050,7 @@ bool unique_gear_t::get_equip_encoding( std::string&       encoding,
   else if ( name == "bryntroll_the_bone_arbiter"          ) e = ( heroic ? "OnAttackHit_2538Drain_11%" : "OnAttackHit_2250Drain_11%" );
   else if ( name == "cunning_of_the_cruel"                ) e = ( heroic ? "OnHarmfulSpellHit_11937Shadow_15%_45Cd" : lfr ? "OnHarmfulSpellHit_9369Shadow_15%_45Cd" : "OnHarmfulSpellHit_10575Shadow_15%_45Cd" ); // Confirm ICD, AoE?
   else if ( name == "bone-link_fetish"                    ) e = ( heroic ? "OnAttackHit_12788Physical_15%_45Cd" : lfr ? "OnAttackHit_10037Physical_15%_45Cd" : "OnAttackHit_11329Physical_15%_45Cd" ); // Confirm ICD, AoE?
-  else if ( name == "vial_of_shadows"                     ) e = ( heroic ? "OnAttackHit_17051Physical_15%_45Cd" : lfr ? "OnAttackHit_13383Physical_15%_45Cd" : "OnAttackHit_15106Physical_15%_45Cd" ); // Confirm ICD
+  else if ( name == "vial_of_shadows"                     ) e = ( heroic ? "OnAttackHit_17051+101.6Physical_15%_45Cd" : lfr ? "OnAttackHit_13383+79.7Physical_15%_45Cd" : "OnAttackHit_15106+90Physical_15%_45Cd" ); // Confirm ICD
   else if ( name == "reign_of_the_unliving"               ) e = ( heroic ? "OnSpellDirectCrit_2117Fire_3Stack_2.0Cd" : "OnSpellDirectCrit_1882Fire_3Stack_2.0Cd" );
   else if ( name == "reign_of_the_dead"                   ) e = ( heroic ? "OnSpellDirectCrit_2117Fire_3Stack_2.0Cd" : "OnSpellDirectCrit_1882Fire_3Stack_2.0Cd" );
   else if ( name == "solace_of_the_defeated"              ) e = ( heroic ? "OnSpellCast_18MP5_8Stack_10Dur" : "OnSpellCast_16MP5_8Stack_10Dur" );
@@ -2009,7 +2058,6 @@ bool unique_gear_t::get_equip_encoding( std::string&       encoding,
 
   // Variable Stack Discharge Procs
   else if ( name == "variable_pulse_lightning_capacitor"  ) e = ( heroic ? "OnSpellCrit_3300.7Nature_15%_10Stack_2.5Cd_chance" : "OnSpellCrit_2926.3Nature_15%_10Stack_2.5Cd_chance" );
-
 
   // Enchants
   else if ( name == "lightweave_old"                      ) e = "OnSpellCast_295SP_35%_15Dur_60Cd";

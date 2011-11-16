@@ -485,7 +485,7 @@ void dk_rune_t::regen_rune( player_t* p, double periodicity )
   {
     // we shouldn't ever overflow the paired rune, but take care just in case
     paired_rune -> value += overflow;
-    if( paired_rune -> value > 1.0 )
+    if ( paired_rune -> value > 1.0 )
     {
       overflow = paired_rune -> value - 1.0;
       paired_rune -> value = 1.0;
@@ -927,6 +927,12 @@ struct army_ghoul_pet_t : public pet_t
     base_energy_regen_per_second  = 10;
   }
 
+  virtual double energy_regen_per_second() SC_CONST
+  {
+    // Doesn't benefit from haste
+    return base_energy_regen_per_second;
+  }
+
   virtual double strength() SC_CONST
   {
     death_knight_t* o = owner -> cast_death_knight();
@@ -1057,6 +1063,8 @@ struct gargoyle_pet_t : public pet_t
       // FIX ME!
       // Resist (can be partial)? Scaling?
       may_crit    = true;
+      trigger_gcd = true;
+      min_gcd     = 1.5; // issue961
 
       base_spell_power_multiplier  = 0;
       base_attack_power_multiplier = 1;
@@ -1254,7 +1262,7 @@ struct ghoul_pet_t : public pet_t
   {
     death_knight_t* o = owner -> cast_death_knight();
     assert( o -> primary_tree() != TREE_NONE );
-    if ( primary_tree() == TREE_UNHOLY )
+    if ( o -> primary_tree() == TREE_UNHOLY )
       type = PLAYER_PET;
 
     // Value for the ghoul of a naked worgen as of 4.2
@@ -1272,6 +1280,12 @@ struct ghoul_pet_t : public pet_t
 
     resource_base[ RESOURCE_ENERGY ] = 100;
     base_energy_regen_per_second  = 10;
+  }
+
+  virtual double energy_regen_per_second() SC_CONST
+  {
+    // Doesn't benefit from haste
+    return base_energy_regen_per_second;
   }
 
   virtual double strength() SC_CONST
@@ -2254,7 +2268,7 @@ struct blood_boil_t : public death_knight_spell_t
     if ( p -> buffs_dancing_rune_weapon -> check() )
       p -> active_dancing_rune_weapon -> drw_blood_boil -> execute();
 
-    if( p -> buffs_crimson_scourge -> up() )
+    if ( p -> buffs_crimson_scourge -> up() )
       p -> buffs_crimson_scourge -> expire();
   }
 
@@ -2569,7 +2583,8 @@ struct death_and_decay_t : public death_knight_spell_t
     tick_zero        = true;
     hasted_ticks     = false;
     base_multiplier *= 1.0 + p -> talents.morbidity -> effect2().percent();
-    num_ticks       *= 1.0 + p -> glyphs.death_and_decay -> effect1().percent();
+    double n_ticks   = num_ticks * ( 1.0 + p -> glyphs.death_and_decay -> effect1().percent() );
+    num_ticks        = ( int ) n_ticks;
   }
 };
 
@@ -2857,7 +2872,7 @@ struct frost_strike_t : public death_knight_attack_t
     death_knight_t* p = player -> cast_death_knight();
     death_knight_attack_t::execute();
 
-    if( result_is_hit() )
+    if ( result_is_hit() )
       p -> trigger_runic_empowerment();
 
     if ( oh_attack )
@@ -4509,7 +4524,7 @@ void death_knight_t::init_actions()
       action_list_str += "/howling_blast,if=dot.frost_fever.remains<=" + drefresh;
       action_list_str += "/plague_strike,if=dot.blood_plague.remains<=" + drefresh;
       action_list_str += "/obliterate,if=death>=1&frost>=1&unholy>=1";
-      action_list_str += "/obliterate,if=(death=2&frost=2)|(death=2&unholy=2)|(frost=2|unholy=2)";
+      action_list_str += "/obliterate,if=(death=2&frost=2)|(death=2&unholy=2)|(frost=2&unholy=2)";
       // XXX TODO 110 is based on MAXRP - FSCost + a little, as a break point. should be varialble based on RPM GoFS etc
       action_list_str += "/frost_strike,if=runic_power>=110";
       if ( talents.howling_blast -> rank() && talents.rime -> rank() )
@@ -4537,21 +4552,18 @@ void death_knight_t::init_actions()
         action_list_str += "/unholy_frenzy,if=!buff.bloodlust.react|target.time_to_die<=45";
       if ( level > 81 )
         action_list_str += "/outbreak,if=dot.frost_fever.remains<=2|dot.blood_plague.remains<=2";
-      action_list_str += "/icy_touch,if=dot.frost_fever.remains<3";
-      action_list_str += "/plague_strike,if=dot.blood_plague.remains<3";
+      action_list_str += "/icy_touch,if=dot.frost_fever.remains<2&cooldown.outbreak.remains>2";
+      action_list_str += "/plague_strike,if=dot.blood_plague.remains<2&cooldown.outbreak.remains>2";
       if ( talents.dark_transformation -> rank() )
         action_list_str += "/dark_transformation";
       if ( talents.summon_gargoyle -> rank() )
       {
         action_list_str += "/summon_gargoyle,time<=60";
-        action_list_str += "/summon_gargoyle,if=buff.bloodlust.react";
-        action_list_str += "/summon_gargoyle,if=buff.unholy_frenzy.react";
+        action_list_str += "/summon_gargoyle,if=buff.bloodlust.react|buff.unholy_frenzy.react";
       }
-      action_list_str += "/death_and_decay,if=death=4";
-      action_list_str += "/death_and_decay,if=unholy=2";
-      action_list_str += "/scourge_strike,if=death=4";
-      action_list_str += "/scourge_strike,if=unholy=2";
-      action_list_str += "/festering_strike,if=blood=2&frost=2";
+      action_list_str += "/death_and_decay,if=unholy=2&runic_power<110";
+      action_list_str += "/scourge_strike,if=unholy=2&runic_power<110";
+      action_list_str += "/festering_strike,if=blood=2&frost=2&runic_power<110";
       action_list_str += "/death_coil,if=runic_power>90";
       if ( talents.sudden_doom -> rank() )
         action_list_str += "/death_coil,if=buff.sudden_doom.react";
@@ -4559,8 +4571,8 @@ void death_knight_t::init_actions()
       action_list_str += "/scourge_strike";
       action_list_str += "/festering_strike";
       action_list_str += "/death_coil";
-      action_list_str += "/blood_tap,if=unholy=0&inactive_death=1";
-      action_list_str += "/empower_rune_weapon,if=unholy=0";
+      action_list_str += "/blood_tap";
+      action_list_str += "/empower_rune_weapon";
       action_list_str += "/horn_of_winter";
       break;
     default: break;

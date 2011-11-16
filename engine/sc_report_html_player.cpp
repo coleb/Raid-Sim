@@ -254,8 +254,8 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
            s -> frequency,
            s -> ape,
            s -> apet,
-           s -> direct_results[ RESULT_HIT  ].avg_actual_amount.mean,
-           s -> direct_results[ RESULT_CRIT ].avg_actual_amount.mean,
+           s -> direct_results[ RESULT_HIT  ].actual_amount.mean,
+           s -> direct_results[ RESULT_CRIT ].actual_amount.mean,
            s -> direct_results[ RESULT_CRIT ].actual_amount.max ? s -> direct_results[ RESULT_CRIT ].actual_amount.max : s -> direct_results[ RESULT_HIT ].actual_amount.max,
            s -> direct_results[ RESULT_CRIT ].pct,
            s -> direct_results[ RESULT_MISS ].pct +
@@ -264,8 +264,8 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
            s -> direct_results[ RESULT_GLANCE ].pct,
            s -> direct_results[ RESULT_BLOCK  ].pct,
            s -> num_ticks,
-           s -> tick_results[ RESULT_HIT  ].avg_actual_amount.mean,
-           s -> tick_results[ RESULT_CRIT ].avg_actual_amount.mean,
+           s -> tick_results[ RESULT_HIT  ].actual_amount.mean,
+           s -> tick_results[ RESULT_CRIT ].actual_amount.mean,
            s -> tick_results[ RESULT_CRIT ].pct,
            s -> tick_results[ RESULT_MISS ].pct +
            s -> tick_results[ RESULT_DODGE ].pct +
@@ -348,9 +348,10 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
                 "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Direct Results</th>\n"
                 "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Count</th>\n"
                 "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Pct</th>\n"
+                "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Mean</th>\n"
                 "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Min</th>\n"
                 "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Max</th>\n"
-                "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Average</th>\n"
+                "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Average per Iteration</th>\n"
                 "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Average Min</th>\n"
                 "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Average Max</th>\n"
                 "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Actual Amount</th>\n"
@@ -372,6 +373,7 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
                     "\t\t\t\t\t\t\t\t\t\t\t<td class=\"left small\">%s</td>\n"
                     "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f</td>\n"
                     "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f%%</td>\n"
+                    "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f</td>\n"
                     "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.0f</td>\n"
                     "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.0f</td>\n"
                     "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f</td>\n"
@@ -384,6 +386,7 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
                     util_t::result_type_string( i ),
                     s -> direct_results[ i  ].count.mean,
                     s -> direct_results[ i  ].pct,
+                    s -> direct_results[ i  ].actual_amount.mean,
                     s -> direct_results[ i  ].actual_amount.min,
                     s -> direct_results[ i  ].actual_amount.max,
                     s -> direct_results[ i  ].avg_actual_amount.mean,
@@ -405,9 +408,10 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
                 "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Tick Results</th>\n"
                 "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Count</th>\n"
                 "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Pct</th>\n"
+                "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Mean</th>\n"
                 "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Min</th>\n"
                 "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Max</th>\n"
-                "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Average</th>\n"
+                "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Average per Iteration</th>\n"
                 "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Average Min</th>\n"
                 "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Average Max</th>\n"
                 "\t\t\t\t\t\t\t\t\t\t\t<th class=\"small\">Actual Amount</th>\n"
@@ -429,6 +433,7 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
                     "\t\t\t\t\t\t\t\t\t\t\t<td class=\"left small\">%s</td>\n"
                     "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.1f</td>\n"
                     "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f%%</td>\n"
+                    "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f</td>\n"
                     "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.0f</td>\n"
                     "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.0f</td>\n"
                     "\t\t\t\t\t\t\t\t\t\t\t<td class=\"right small\">%.2f</td>\n"
@@ -441,6 +446,7 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
                     util_t::result_type_string( i ),
                     s -> tick_results[ i  ].count.mean,
                     s -> tick_results[ i  ].pct,
+                    s -> tick_results[ i  ].actual_amount.mean,
                     s -> tick_results[ i  ].actual_amount.min,
                     s -> tick_results[ i  ].actual_amount.max,
                     s -> tick_results[ i  ].avg_actual_amount.mean,
@@ -481,7 +487,7 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
       for ( size_t j = 0; j < size && !found; j++ )
         if ( processed_actions[ j ] == a -> name() )
           found = true;
-      if( found ) continue;
+      if ( found ) continue;
       processed_actions.push_back( a -> name() );
 
       fprintf ( file,
@@ -521,7 +527,7 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
                 a -> target ? a -> target -> name() : "",
                 a -> tooltip(),
                 report_t::encode_html( a -> desc() ).c_str() );
-      if( a -> direct_power_mod || a -> base_dd_min || a -> base_dd_max )
+      if ( a -> direct_power_mod || a -> base_dd_min || a -> base_dd_max )
       {
         fprintf ( file,
                   "\t\t\t\t\t\t\t\t\t\t<h5>Direct Damage</h5>\n"
@@ -536,7 +542,7 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
                   a -> base_dd_min,
                   a -> base_dd_max );
       }
-      if( a -> num_ticks )
+      if ( a -> num_ticks )
       {
         fprintf ( file,
                   "\t\t\t\t\t\t\t\t\t\t<h5>Damage Over Time</h5>\n"
@@ -575,7 +581,7 @@ static void print_html_action_damage( FILE* file, stats_t* s, player_t* p, int j
                   ( a -> rune_cost() >> 2 ) & 0x1,
                   a -> rp_gain );
       }
-      if( a -> weapon )
+      if ( a -> weapon )
       {
         fprintf ( file,
                   "\t\t\t\t\t\t\t\t\t\t<h5>Weapon</h5>\n"
@@ -1255,7 +1261,7 @@ static void print_html_player_action_priority_list( FILE* file, sim_t* sim, play
   fprintf( file,
            "\t\t\t\t\t\t\t\t</table>\n" );
 
-  if( ! p -> action_sequence.empty() )
+  if ( ! p -> action_sequence.empty() )
   {
     std::string& seq = p -> action_sequence;
     if ( seq.size() > 0 )
@@ -1680,7 +1686,7 @@ static void print_html_player_buffs( FILE* file, player_t* p )
     buff_t* b = dynamic_buffs[ i ];
 
     std::string buff_name;
-    if( b -> player && b -> player -> is_pet() )
+    if ( b -> player && b -> player -> is_pet() )
     {
       buff_name += b -> player -> name_str + '-';
     }

@@ -115,7 +115,6 @@ void action_t::init_action_t_()
   execute_event                  = NULL;
   travel_event                   = NULL;
   time_to_execute                = 0.0;
-
   time_to_travel                 = 0.0;
   travel_speed                   = 0.0;
   rank_index                     = -1;
@@ -961,7 +960,7 @@ double action_t::calculate_direct_damage()
 
 void action_t::consume_resource()
 {
-  if( resource == RESOURCE_NONE ) return;
+  if ( resource == RESOURCE_NONE ) return;
 
   resource_consumed = cost();
 
@@ -1191,7 +1190,7 @@ void action_t::schedule_execute()
   {
     player -> executing = this;
     player -> gcd_ready = sim -> current_time + gcd();
-    if( player -> action_queued && sim -> strict_gcd_queue )
+    if ( player -> action_queued && sim -> strict_gcd_queue )
     {
       player -> gcd_ready -= sim -> queue_gcd_reduction;
     }
@@ -1291,7 +1290,7 @@ void action_t::update_ready()
   }
   if ( num_ticks )
   {
-    if( result_is_miss() )
+    if ( result_is_miss() )
     {
       last_reaction_time = player -> total_reaction_time();
       if ( sim -> debug )

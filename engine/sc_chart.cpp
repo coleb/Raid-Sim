@@ -1059,9 +1059,9 @@ const char* chart_t::scale_factors( std::string& s,
 {
   std::vector<int> scaling_stats;
 
-  for( int i=0; i < ( int ) sizeof_array( p -> scales_with ); ++i )
+  for ( int i=0; i < ( int ) sizeof_array( p -> scales_with ); ++i )
   {
-    if( p -> scales_with[ i ] && p -> scaling.get_stat( i ) > 0 )
+    if ( p -> scales_with[ i ] && p -> scaling.get_stat( i ) > 0 )
       scaling_stats.push_back( i );
   }
 
@@ -1253,7 +1253,7 @@ const char* chart_t::scaling_dps( std::string& s,
   return s.c_str();
 }
 
-// chart_t::reforge_dps =====================================================
+// ternary_coords ===========================================================
 
 std::vector<double> ternary_coords( std::vector<double> xyz )
 {
@@ -1263,6 +1263,8 @@ std::vector<double> ternary_coords( std::vector<double> xyz )
   result[1] = xyz[ 2 ]/2.0 * sqrt( 3.0 );
   return result;
 }
+
+// color_temperature_gradient ===============================================
 
 std::string color_temperature_gradient( double n, double min, double range )
 {
@@ -1280,6 +1282,8 @@ std::string color_temperature_gradient( double n, double min, double range )
 
   return result;
 }
+
+// chart_t::reforge_dps =====================================================
 
 const char* chart_t::reforge_dps( std::string& s,
                                   player_t* p )
@@ -1390,7 +1394,7 @@ const char* chart_t::reforge_dps( std::string& s,
     {
       std::vector<double> scaled_dps = pd[ i ];
       int ref_plot_amount = p -> sim -> reforge_plot -> reforge_plot_amount;
-      for( int j=0; j < 3; j++ )
+      for ( int j=0; j < 3; j++ )
         scaled_dps[ j ] = ( scaled_dps[ j ] + ref_plot_amount ) / ( 3. * ref_plot_amount );
       triangle_points.push_back( ternary_coords( scaled_dps ) );
       colors.push_back( color_temperature_gradient( pd[ i ][ 3 ], min_dps, dps_range ) );
@@ -1412,7 +1416,7 @@ const char* chart_t::reforge_dps( std::string& s,
     }
 
     s += "<input type='hidden' name='chd' value='t:";
-    for( int j=0; j < 2; j++ )
+    for ( int j=0; j < 2; j++ )
     {
       for ( int i=0; i < ( int ) triangle_points.size(); i++ )
       {
@@ -1896,7 +1900,7 @@ const char* chart_t::gear_weights_wowreforge( std::string& s,
   }
   else
   {
-    if( util_t::parse_origin( region_str, server_str, name_str, p -> origin_str ) )
+    if ( util_t::parse_origin( region_str, server_str, name_str, p -> origin_str ) )
     {
       s = "http://wowreforge.com/" + region_str + "/" + server_str + "/" + name_str + "?Spec=Main&amp;template=";
     }
