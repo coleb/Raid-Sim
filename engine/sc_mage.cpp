@@ -311,15 +311,15 @@ struct mage_t : public player_t
   virtual void      create_pets();
   virtual void      copy_from( player_t* source );
   virtual int       decode_set( item_t& item );
-  virtual int       primary_resource() SC_CONST { return RESOURCE_MANA; }
-  virtual int       primary_role() SC_CONST     { return ROLE_SPELL; }
-  virtual double    composite_armor_multiplier() SC_CONST;
-  virtual double    composite_mastery() SC_CONST;
-  virtual double    composite_spell_crit() SC_CONST;
-  virtual double    composite_spell_haste() SC_CONST;
-  virtual double    composite_spell_power( const school_type school ) SC_CONST;
-  virtual double    composite_spell_resistance( const school_type school ) SC_CONST;
-  virtual double    matching_gear_multiplier( const attribute_type attr ) SC_CONST;
+  virtual int       primary_resource() const { return RESOURCE_MANA; }
+  virtual int       primary_role() const     { return ROLE_SPELL; }
+  virtual double    composite_armor_multiplier() const;
+  virtual double    composite_mastery() const;
+  virtual double    composite_spell_crit() const;
+  virtual double    composite_spell_haste() const;
+  virtual double    composite_spell_power( const school_type school ) const;
+  virtual double    composite_spell_resistance( const school_type school ) const;
+  virtual double    matching_gear_multiplier( const attribute_type attr ) const;
   virtual void      stun();
 
   // Event Tracking
@@ -380,15 +380,15 @@ struct mage_spell_t : public spell_t
 
   virtual void   parse_options( option_t*, const std::string& );
   virtual bool   ready();
-  virtual double cost() SC_CONST;
-  virtual double haste() SC_CONST;
+  virtual double cost() const;
+  virtual double haste() const;
   virtual void   execute();
-  virtual double execute_time() SC_CONST;
+  virtual double execute_time() const;
   virtual void   impact( player_t* t, int impact_result, double travel_dmg );
   virtual void   consume_resource();
   virtual void   player_buff();
   virtual void   target_debuff( player_t* t, int dmg_type );
-  virtual double total_crit() SC_CONST;
+  virtual double total_crit() const;
   virtual double hot_streak_crit() { return player_crit; }
 };
 
@@ -413,7 +413,7 @@ struct water_elemental_pet_t : public pet_t
     virtual void player_buff()
     {
       spell_t::player_buff();
-      player_spell_power = player -> cast_pet() -> owner -> composite_spell_power( SCHOOL_FROST ) * 0.4;
+      player_spell_power = player -> cast_pet() -> owner -> composite_spell_power( SCHOOL_FROST ) * player -> cast_pet() -> owner -> composite_spell_power_multiplier() * 0.4;
       player_crit = player -> cast_pet() -> owner -> composite_spell_crit(); // Needs testing, but closer than before
     }
 
@@ -450,7 +450,7 @@ struct water_elemental_pet_t : public pet_t
     virtual void player_buff()
     {
       spell_t::player_buff();
-      player_spell_power = player -> cast_pet() -> owner -> composite_spell_power( SCHOOL_FROST ) * 0.4;
+      player_spell_power = player -> cast_pet() -> owner -> composite_spell_power( SCHOOL_FROST ) * player -> cast_pet() -> owner -> composite_spell_power_multiplier() * 0.4;
       player_crit = player -> cast_pet() -> owner -> composite_spell_crit(); // Needs testing, but closer than before
     }
   };
@@ -476,7 +476,7 @@ struct water_elemental_pet_t : public pet_t
     mana_per_intellect = 5;
   }
 
-  virtual double composite_spell_haste() SC_CONST
+  virtual double composite_spell_haste() const
   {
     double h = player_t::composite_spell_haste();
     h *= owner -> spell_haste;
@@ -686,7 +686,7 @@ struct mirror_image_pet_t : public pet_t
     pet_t::init_actions();
   }
 
-  virtual double composite_spell_power( const school_type school ) SC_CONST
+  virtual double composite_spell_power( const school_type school ) const
   {
     if ( school == SCHOOL_ARCANE )
     {
@@ -756,12 +756,12 @@ struct tier12_mirror_image_pet_t : public pet_t
     }
   }
 
-  virtual double composite_spell_crit() SC_CONST
+  virtual double composite_spell_crit() const
   {
     return snapshot_crit;
   }
 
-  virtual double composite_spell_haste() SC_CONST
+  virtual double composite_spell_haste() const
   {
     return 1.0;
   }
@@ -937,7 +937,7 @@ static void trigger_ignite( spell_t* s, double dmg )
     {
       return sim -> gauss( sim -> aura_delay, 0.25 * sim -> aura_delay );
     }
-    virtual double total_td_multiplier() SC_CONST { return 1.0; }
+    virtual double total_td_multiplier() const { return 1.0; }
   };
 
   double ignite_dmg = dmg * p -> talents.ignite -> effect1().percent();
@@ -1081,7 +1081,7 @@ bool mage_spell_t::ready()
 
 // mage_spell_t::cost =======================================================
 
-double mage_spell_t::cost() SC_CONST
+double mage_spell_t::cost() const
 {
   mage_t* p = player -> cast_mage();
 
@@ -1107,7 +1107,7 @@ double mage_spell_t::cost() SC_CONST
 
 // mage_spell_t::haste ======================================================
 
-double mage_spell_t::haste() SC_CONST
+double mage_spell_t::haste() const
 {
   mage_t* p = player -> cast_mage();
   double h = spell_t::haste();
@@ -1178,7 +1178,7 @@ void mage_spell_t::execute()
 
 // mage_spell_t::execute_time ===============================================
 
-double mage_spell_t::execute_time() SC_CONST
+double mage_spell_t::execute_time() const
 {
   mage_t* p = player -> cast_mage();
 
@@ -1304,7 +1304,7 @@ void mage_spell_t::target_debuff( player_t* t, int dmg_type )
 
 // mage_spell_t::total_crit =================================================
 
-double mage_spell_t::total_crit() SC_CONST
+double mage_spell_t::total_crit() const
 {
   mage_t* p = player -> cast_mage();
 
@@ -1362,7 +1362,7 @@ struct arcane_blast_t : public mage_spell_t
     }
   }
 
-  virtual double cost() SC_CONST
+  virtual double cost() const
   {
     mage_t* p = player -> cast_mage();
 
@@ -1418,8 +1418,7 @@ struct arcane_blast_t : public mage_spell_t
 
     if ( result_is_hit() )
     {
-      // PTR
-      if ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_caster() )
+      if ( p -> set_bonus.tier13_2pc_caster() )
         p -> buffs_tier13_2pc -> trigger( 1, -1, 1 );
 
       if ( ! target -> debuffs.snared() )
@@ -1435,7 +1434,7 @@ struct arcane_blast_t : public mage_spell_t
     trigger_tier12_mirror_image( this );
   }
 
-  virtual double execute_time() SC_CONST
+  virtual double execute_time() const
   {
     mage_t* p = player -> cast_mage();
     double t = mage_spell_t::execute_time();
@@ -1628,7 +1627,7 @@ struct arcane_power_t : public mage_spell_t
   {
     mage_t* p = player -> cast_mage();
 
-    if ( p -> dbc.ptr && p -> set_bonus.tier13_4pc_caster() )
+    if ( p -> set_bonus.tier13_4pc_caster() )
       cooldown -> duration = orig_duration + 
         p -> buffs_tier13_2pc -> check() * p -> spells.stolen_time -> effect1().seconds() *
         (1.0 + p -> talents.arcane_flows -> effect1().percent());
@@ -1679,7 +1678,7 @@ struct blink_t : public mage_spell_t
     player -> buffs.stunned -> expire();
   }
 
-  virtual double gcd() SC_CONST
+  virtual double gcd() const
   {
     mage_t* p = player -> cast_mage();
     if ( p -> buffs_arcane_power -> check() && p -> glyphs.arcane_power -> ok() ) return 0;
@@ -1739,7 +1738,7 @@ struct combustion_t : public mage_spell_t
 
     orig_duration = cooldown -> duration;
 
-    may_trigger_dtr = p -> dbc.ptr; // Disable the dot ticks procing DTR, fixed on PTR
+    may_trigger_dtr = true;
 
     if ( ! dtr && player -> has_dtr )
     {
@@ -1767,7 +1766,7 @@ struct combustion_t : public mage_spell_t
     base_td += calculate_dot_dps( p -> dots_living_bomb    ) * ( 1.0 + p -> specializations.flashburn * p -> composite_mastery() );
     base_td += calculate_dot_dps( p -> dots_pyroblast      ) * ( 1.0 + p -> specializations.flashburn * p -> composite_mastery() );
 
-    if ( p -> dbc.ptr && p -> set_bonus.tier13_4pc_caster() )
+    if ( p -> set_bonus.tier13_4pc_caster() )
       cooldown -> duration = orig_duration + p -> buffs_tier13_2pc -> check() * p -> spells.stolen_time -> effect2().seconds();
 
     mage_spell_t::execute();
@@ -1780,7 +1779,7 @@ struct combustion_t : public mage_spell_t
     p -> buffs_tier13_2pc -> expire();
   }
 
-  virtual double total_td_multiplier() SC_CONST { return 1.0; } // No double-dipping!
+  virtual double total_td_multiplier() const { return 1.0; } // No double-dipping!
 };
 
 // Cone of Cold Spell =======================================================
@@ -1907,7 +1906,7 @@ struct dragons_breath_t : public mage_spell_t
   {
     parse_options( NULL, options_str );
     aoe = -1;
-    cooldown -> duration += p -> glyphs.dragons_breath -> effect1().percent();
+    cooldown -> duration += p -> glyphs.dragons_breath -> effect1().seconds();
   }
 };
 
@@ -2009,7 +2008,7 @@ struct fireball_t : public mage_spell_t
     }
   }
 
-  virtual double cost() SC_CONST
+  virtual double cost() const
   {
     mage_t* p = player -> cast_mage();
     if ( p -> buffs_brain_freeze -> check() )
@@ -2018,7 +2017,7 @@ struct fireball_t : public mage_spell_t
     return mage_spell_t::cost();
   }
 
-  virtual double execute_time() SC_CONST
+  virtual double execute_time() const
   {
     mage_t* p = player -> cast_mage();
     if ( p -> buffs_brain_freeze -> check() )
@@ -2034,8 +2033,7 @@ struct fireball_t : public mage_spell_t
     trigger_tier12_mirror_image( this );
     if ( result_is_hit() )
     {
-      // PTR
-      if ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_caster() )
+      if ( p -> set_bonus.tier13_2pc_caster() )
         p -> buffs_tier13_2pc -> trigger( 1, -1, 0.5 );
     }
   }
@@ -2292,8 +2290,7 @@ struct frostbolt_t : public mage_spell_t
     {
       trigger_replenishment( this );
 
-      // PTR
-      if ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_caster() )
+      if ( p -> set_bonus.tier13_2pc_caster() )
         p -> buffs_tier13_2pc -> trigger( 1, -1, 0.5 );
 
       if ( result == RESULT_CRIT )
@@ -2314,7 +2311,7 @@ struct frostbolt_t : public mage_spell_t
     trigger_tier12_mirror_image( this );
   }
 
-  virtual double execute_time() SC_CONST
+  virtual double execute_time() const
   {
     mage_t* p = player -> cast_mage();
     double ct = mage_spell_t::execute_time();
@@ -2328,7 +2325,7 @@ struct frostbolt_t : public mage_spell_t
     return ct;
   }
 
-  virtual double gcd() SC_CONST
+  virtual double gcd() const
   {
     mage_t* p = player -> cast_mage();
 
@@ -2384,7 +2381,7 @@ struct frostfire_bolt_t : public mage_spell_t
     dot_stack=0;
   }
 
-  virtual double cost() SC_CONST
+  virtual double cost() const
   {
     mage_t* p = player -> cast_mage();
     if ( p -> buffs_brain_freeze -> check() )
@@ -2393,7 +2390,7 @@ struct frostfire_bolt_t : public mage_spell_t
     return mage_spell_t::cost();
   }
 
-  virtual double execute_time() SC_CONST
+  virtual double execute_time() const
   {
     mage_t* p = player -> cast_mage();
     if ( p -> buffs_brain_freeze -> check() )
@@ -2410,8 +2407,7 @@ struct frostfire_bolt_t : public mage_spell_t
     trigger_tier12_mirror_image( this );
     if ( result_is_hit() )
     {
-      // PTR
-      if ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_caster() )
+      if ( p -> set_bonus.tier13_2pc_caster() )
         p -> buffs_tier13_2pc -> trigger( 1, -1, 0.5 );
     }
   }
@@ -2430,7 +2426,7 @@ struct frostfire_bolt_t : public mage_spell_t
     mage_spell_t::impact( t, impact_result, travel_dmg );
   }
 
-  virtual double total_td_multiplier() SC_CONST { return 1.0; } // No double-dipping!
+  virtual double total_td_multiplier() const { return 1.0; } // No double-dipping!
 
   virtual void tick( dot_t* d )
   {
@@ -2598,7 +2594,7 @@ struct icy_veins_t : public mage_spell_t
   {
     mage_t* p = player -> cast_mage();
     if ( sim -> log ) log_t::output( sim, "%s performs %s", p -> name(), name() );
-    if ( p -> dbc.ptr && p -> set_bonus.tier13_4pc_caster() )
+    if ( p -> set_bonus.tier13_4pc_caster() )
       cooldown -> duration = orig_duration +
         p -> buffs_tier13_2pc -> check() * p -> spells.stolen_time -> effect3().seconds() *
         (1.0 + p -> talents.ice_floes -> effect1().percent());
@@ -2814,7 +2810,7 @@ struct mirror_image_t : public mage_spell_t
     p -> pet_mirror_image_3 -> summon();
   }
 
-  virtual double gcd() SC_CONST
+  virtual double gcd() const
   {
     mage_t* p = player -> cast_mage();
     if ( p -> buffs_arcane_power -> check() && p -> glyphs.arcane_power -> ok() ) return 0;
@@ -2916,8 +2912,7 @@ struct pyroblast_t : public mage_spell_t
       target -> debuffs.critical_mass -> trigger( 1, 1.0, p -> talents.critical_mass -> proc_chance() );
       target -> debuffs.critical_mass -> source = p;
 
-      // PTR
-      if ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_caster() )
+      if ( p -> set_bonus.tier13_2pc_caster() )
         p -> buffs_tier13_2pc -> trigger( 1, -1, 0.5 );
     }
   }
@@ -2957,13 +2952,12 @@ struct pyroblast_hs_t : public mage_spell_t
       target -> debuffs.critical_mass -> trigger( 1, 1.0, p -> talents.critical_mass -> proc_chance() );
       target -> debuffs.critical_mass -> source = p;
 
-      // PTR
-      if ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_caster() )
+      if ( p -> set_bonus.tier13_2pc_caster() )
         p -> buffs_tier13_2pc -> trigger( 1, -1, 0.5 );
     }
   }
 
-  virtual double cost() SC_CONST
+  virtual double cost() const
   {
     mage_t* p = player -> cast_mage();
     if ( p -> buffs_hot_streak -> check() )
@@ -2971,7 +2965,7 @@ struct pyroblast_hs_t : public mage_spell_t
     return mage_spell_t::cost();
   }
 
-  virtual double execute_time() SC_CONST
+  virtual double execute_time() const
   {
     mage_t* p = player -> cast_mage();
     if ( p -> buffs_hot_streak -> check() )
@@ -3517,10 +3511,7 @@ void mage_t::init_spells()
 
   spells.blink = spell_data_t::find( 1953, "Blink", dbc.ptr );
 
-  if ( dbc.ptr )
-  {
-    spells.stolen_time = spell_data_t::find( 105791, "Stolen Time", dbc.ptr );
-  }
+  spells.stolen_time = spell_data_t::find( 105791, "Stolen Time", dbc.ptr );
 
   memset( ( void* ) &specializations, 0x00, sizeof( specializations_t ) );
 
@@ -3818,7 +3809,7 @@ void mage_t::init_actions()
     {
       action_list_str += "/berserking";
     }
-    else if ( race == RACE_BLOOD_ELF )
+    else if ( race == RACE_BLOOD_ELF && primary_tree() != TREE_ARCANE )
     {
       action_list_str += "/arcane_torrent,if=mana_pct<91";
     }
@@ -3847,8 +3838,12 @@ void mage_t::init_actions()
       {
         action_list_str += "/conjure_mana_gem,if=cooldown.evocation.remains<20&target.time_to_die>105&mana_gem_charges=0";
       }
+      if ( race == RACE_BLOOD_ELF )
+      {
+        action_list_str += "/arcane_torrent,if=mana_pct<91&(buff.arcane_power.up|target.time_to_die<120)";
+      }
       //Mana Gem
-      if ( dbc.ptr && set_bonus.tier13_4pc_caster() )
+      if ( set_bonus.tier13_4pc_caster() )
       {
         action_list_str += "/mana_gem,if=buff.arcane_blast.stack=4&buff.tier13_2pc.stack>=7&(cooldown.arcane_power.remains<=0|target.time_to_die<=50)";
       }
@@ -3862,7 +3857,7 @@ void mage_t::init_actions()
       //Arcane Power
       if ( talents.arcane_power -> rank() )
       {
-        if ( dbc.ptr && set_bonus.tier13_4pc_caster() )
+        if ( set_bonus.tier13_4pc_caster() )
         {
           action_list_str += "/arcane_power,if=(buff.improved_mana_gem.up&buff.tier13_2pc.stack>=9)|(buff.tier13_2pc.stack>=10&cooldown.mana_gem.remains>30&cooldown.evocation.remains>10)|target.time_to_die<=50";
         }
@@ -3884,7 +3879,7 @@ void mage_t::init_actions()
         action_list_str += "/arcane_blast,if=buff.presence_of_mind.up";
       }
 
-      if ( dbc.ptr && set_bonus.tier13_4pc_caster() )
+      if ( set_bonus.tier13_4pc_caster() )
       {
         action_list_str += "/arcane_blast,if=dps=1|target.time_to_die<20|((cooldown.evocation.remains<=20|buff.improved_mana_gem.up|cooldown.mana_gem.remains<5)&mana_pct>=22)|(buff.arcane_power.up&mana_pct_nonproc>88)";
       }
@@ -3968,7 +3963,7 @@ void mage_t::init_actions()
 
 // mage_t::composite_armor_multiplier =======================================
 
-double mage_t::composite_armor_multiplier() SC_CONST
+double mage_t::composite_armor_multiplier() const
 {
   double a = player_t::composite_armor_multiplier();
 
@@ -3982,7 +3977,7 @@ double mage_t::composite_armor_multiplier() SC_CONST
 
 // mage_t::composite_mastery ================================================
 
-double mage_t::composite_mastery() SC_CONST
+double mage_t::composite_mastery() const
 {
   double m = player_t::composite_mastery();
 
@@ -3993,7 +3988,7 @@ double mage_t::composite_mastery() SC_CONST
 
 // mage_t::composite_spell_crit =============================================
 
-double mage_t::composite_spell_crit() SC_CONST
+double mage_t::composite_spell_crit() const
 {
   double c = player_t::composite_spell_crit();
 
@@ -4014,7 +4009,7 @@ double mage_t::composite_spell_crit() SC_CONST
 
 // mage_t::composite_spell_haste ============================================
 
-double mage_t::composite_spell_haste() SC_CONST
+double mage_t::composite_spell_haste() const
 {
   double h = player_t::composite_spell_haste();
 
@@ -4028,7 +4023,7 @@ double mage_t::composite_spell_haste() SC_CONST
 
 // mage_t::composite_spell_power ============================================
 
-double mage_t::composite_spell_power( const school_type school ) SC_CONST
+double mage_t::composite_spell_power( const school_type school ) const
 {
   double sp = player_t::composite_spell_power( school );
 
@@ -4042,7 +4037,7 @@ double mage_t::composite_spell_power( const school_type school ) SC_CONST
 
 // mage_t::composite_spell_resistance =======================================
 
-double mage_t::composite_spell_resistance( const school_type school ) SC_CONST
+double mage_t::composite_spell_resistance( const school_type school ) const
 {
   double sr = player_t::composite_spell_resistance( school );
 
@@ -4060,7 +4055,7 @@ double mage_t::composite_spell_resistance( const school_type school ) SC_CONST
 
 // mage_t::matching_gear_multiplier =========================================
 
-double mage_t::matching_gear_multiplier( const attribute_type attr ) SC_CONST
+double mage_t::matching_gear_multiplier( const attribute_type attr ) const
 {
   if ( attr == ATTR_INTELLECT )
     return 0.05;

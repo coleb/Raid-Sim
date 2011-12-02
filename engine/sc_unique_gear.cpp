@@ -766,8 +766,10 @@ static void register_tyrandes_favorite_doll( item_t* item )
     double mana_stored;
     spell_t* discharge_spell;
     gain_t* gain_source;
+    player_t* player;
 
-    tyrandes_callback_t( player_t* p ) : action_callback_t( p -> sim, p ), max_mana( 4200 ), mana_stored( 0 )
+    tyrandes_callback_t( player_t* p ) :
+      action_callback_t( p -> sim, p ), max_mana( 4200 ), mana_stored( 0 ), player( p )
     {
       discharge_spell = new tyrandes_spell_t( p, max_mana );
       gain_source = p -> get_gain( "tyrandes_doll" );
@@ -775,7 +777,7 @@ static void register_tyrandes_favorite_doll( item_t* item )
 
     virtual void reset() { action_callback_t::reset(); mana_stored=0; }
 
-    virtual void trigger( action_t* a, void* call_data )
+    virtual void trigger( action_t* /* a */, void* call_data )
     {
       double mana_spent = *( ( double* ) call_data );
 
@@ -786,7 +788,7 @@ static void register_tyrandes_favorite_doll( item_t* item )
       if ( ( mana_stored >= max_mana ) && ( discharge_spell -> cooldown -> remains() <= 0 ) )
       {
         discharge_spell -> execute();
-        a -> player -> resource_gain( RESOURCE_MANA, mana_stored, gain_source, discharge_spell );
+        player -> resource_gain( RESOURCE_MANA, mana_stored, gain_source, discharge_spell );
         mana_stored = 0;
       }
     }
@@ -907,11 +909,12 @@ static void register_dragonwrath_tarecgosas_rest( item_t* item )
     break;
   }
 
-  // FIXME: 4.3 PTR nerf seems to be roughly a halving of the proc chance - only tested warlocks so far, 2011/10/26
-  if ( p -> dbc.ptr )
-  {
-    chance *= 0.67;
-  }
+  // 4.3 PTR nerf seems to be roughly a 2/3rding of the proc chance - only tested warlocks so far, 2011/10/26
+  chance *= 0.67;
+
+  // Moonkin was nerfed to 8% http://elitistjerks.com/f73/t114017-balance_wrathcalcs/p14/#post2041883 and followup posts
+  if ( p -> primary_tree() == TREE_BALANCE )
+    chance = 0.08;
 
   // Allow for override
   if ( p -> dtr_proc_chance >= 0.0 )
@@ -1170,6 +1173,70 @@ static void register_spidersilk_spindle( item_t* item )
   p -> register_resource_loss_callback( RESOURCE_HEALTH, cb );
 }
 
+// register_bonelink_fetish =================================================
+
+static void register_bonelink_fetish( item_t* item )
+{
+  player_t* p   = item -> player;
+  bool heroic   = item -> heroic();
+  bool lfr      = item -> lfr();
+
+  uint32_t spell_id = heroic ? 109755 : lfr ? 109753 : 107998;
+
+  struct bonelink_fetish_callback_t : public action_callback_t
+  {
+    double chance;
+    attack_t* attack;
+    cooldown_t* cooldown;
+    rng_t* rng;
+
+    struct whirling_maw_t : public attack_t
+    {
+      whirling_maw_t( player_t* p, uint32_t spell_id ) :
+        attack_t( "bonelink_fetish", spell_id, p )
+      {
+        trigger_gcd = 0;
+        background = true;
+        may_miss = false;
+        may_glance = false;
+        may_crit = true;
+        proc = true;
+        aoe = -1;
+        direct_power_mod = extra_coeff();
+        init();
+      }
+    };
+
+    bonelink_fetish_callback_t( player_t* p, uint32_t id ) :
+      action_callback_t( p -> sim, p ), chance( p -> dbc.spell( id ) -> proc_chance() )
+    {
+      attack = new whirling_maw_t( p, p -> dbc.spell( id ) -> effect1().trigger_spell_id() );
+
+      cooldown = p -> get_cooldown( "bonelink_fetish" );
+      cooldown -> duration = 25.0; // 25 second ICD
+
+      rng = p -> get_rng ( "bonelink_fetish" );
+    }
+
+    virtual void trigger( action_t* a, void* /* call_data */ )
+    {
+      if ( a -> proc )
+        return;
+
+      if ( cooldown -> remains() > 0 )
+        return;
+
+      if ( rng -> roll( chance ) )
+      {
+        attack -> execute();
+        cooldown -> start();
+      }
+    }
+  };
+
+  p -> register_attack_callback( RESULT_HIT_MASK, new bonelink_fetish_callback_t( p, spell_id ) );
+}
+
 // register_fury_of_the_beast ===============================================
 
 static void register_fury_of_the_beast( item_t* item )
@@ -1236,6 +1303,76 @@ static void register_fury_of_the_beast( item_t* item )
   p -> register_attack_callback( RESULT_CRIT_MASK, new fury_of_the_beast_callback_t( p, item -> heroic(), item -> lfr() ) );
 }
 
+// register_gurthalak =======================================================
+
+static void register_gurthalak( item_t* item )
+{
+  player_t* p   = item -> player;
+  bool heroic   = item -> heroic();
+  bool lfr      = item -> lfr();
+
+  uint32_t spell_id = heroic ? 68044 : lfr ? 52586 : 68043;
+
+  // Currently it appears all of the spawns are using the same spell id
+  if ( p -> bugs ) spell_id = 52586;
+
+  uint32_t proc_spell_id = heroic ? 109839 : lfr ? 109841 : 107810;
+
+  struct gurthalak_callback_t : public action_callback_t
+  {
+    double chance;
+    spell_t* spell;
+    rng_t* rng;
+
+    // FIXME: Verify if spell can miss
+    struct gurthalak_t : public spell_t
+    {
+      gurthalak_t( player_t* p, uint32_t spell_id ) :
+        spell_t( "gurthalak_voice_of_the_deeps", spell_id, p )
+      {
+        trigger_gcd = 0;
+        background = true;
+        may_miss = false;
+        tick_may_crit = true;
+        hasted_ticks = false;
+        proc = true;
+        base_attack_power_multiplier = 1.0;
+        base_spell_power_multiplier = 0;
+        init();
+      }
+
+      virtual void player_buff()
+      {
+        spell_t::player_buff();
+
+        // Doesn't appear to inherit any of the player's crit, crit debuff still works
+        player_crit = 0;
+      }
+    };
+
+    gurthalak_callback_t( player_t* p, uint32_t id, uint32_t proc_spell_id ) :
+      action_callback_t( p -> sim, p ), chance( p -> dbc.spell( proc_spell_id ) -> proc_chance() )
+    {
+      spell = new gurthalak_t( p, id );
+
+      rng = p -> get_rng ( "gurthalak" );
+    }
+
+    virtual void trigger( action_t* a, void* /* call_data */ )
+    {
+      if ( a -> proc )
+        return;
+
+      if ( rng -> roll( chance ) )
+      {
+        spell -> execute();
+      }
+    }
+  };
+
+  p -> register_attack_callback( RESULT_HIT_MASK, new gurthalak_callback_t( p, spell_id, proc_spell_id ) );
+}
+
 // register_nokaled =========================================================
 
 static void register_nokaled( item_t* item )
@@ -1243,6 +1380,7 @@ static void register_nokaled( item_t* item )
   player_t* p   = item -> player;
   bool heroic   = item -> heroic();
   bool lfr      = item -> lfr();
+  int slot      = item -> slot;
                                       //Fire  Frost   Shadow
   static uint32_t    lfr_spells[] = { 109871, 109869, 109867 };
   static uint32_t normal_spells[] = { 107785, 107789, 107787 };
@@ -1257,6 +1395,7 @@ static void register_nokaled( item_t* item )
     double chance;
     spell_t* spells[3];
     rng_t* rng;
+    int slot;
 
     // FIXME: Verify if spells can miss
     struct nokaled_fire_t : public spell_t
@@ -1301,8 +1440,9 @@ static void register_nokaled( item_t* item )
       }
     };
 
-    nokaled_callback_t( player_t* p, uint32_t ids[], uint32_t proc_spell_id ) :
-      action_callback_t( p -> sim, p ), chance( p -> dbc.spell( proc_spell_id ) -> proc_chance() )
+    nokaled_callback_t( player_t* p, uint32_t ids[], uint32_t proc_spell_id, int slot ) :
+      action_callback_t( p -> sim, p ), chance( p -> dbc.spell( proc_spell_id ) -> proc_chance() ),
+      slot( slot )
     {
       spells[ 0 ] = new   nokaled_fire_t( p, ids[ 0 ] );
       spells[ 1 ] = new  nokaled_frost_t( p, ids[ 1 ] );
@@ -1317,6 +1457,14 @@ static void register_nokaled( item_t* item )
       if ( a -> proc )
         return;
 
+      // Have to have a weapon to trigger
+      if ( ! a -> weapon )
+        return;
+
+      // Only attacks from the weapon that have No'Kaled can trigger it
+      if ( a -> weapon -> slot != slot )
+        return;
+
       if ( rng -> roll( chance ) )
       {
         spells[ ( int ) ( rng -> range( 0.0, 2.999 ) ) ] -> execute();
@@ -1324,7 +1472,7 @@ static void register_nokaled( item_t* item )
     }
   };
 
-  p -> register_attack_callback( RESULT_HIT_MASK, new nokaled_callback_t( p, spell_ids, proc_spell_id ) );
+  p -> register_attack_callback( RESULT_HIT_MASK, new nokaled_callback_t( p, spell_ids, proc_spell_id, slot ) );
 }
 
 // register_rathrak =========================================================
@@ -1344,9 +1492,10 @@ static void register_rathrak( item_t* item )
       trigger_gcd = 0;
       background = true;
       may_miss = false; // FIXME: Verify this
-      may_crit = false; // FIXME: Verify this
+      may_crit = true; 
       proc = true;
       init();
+      cooldown -> duration = 17.0; // FIXME: Verify this. Got 17.188sec after 545 procs.
     }
     // FIXME does this double dip in talents/masterys/etc?
   };
@@ -1364,14 +1513,13 @@ static void register_rathrak( item_t* item )
 
     virtual void trigger( action_t* /* a */, void* /* call_data */ )
     {
-      // FIXME: Does it have an ICD or not?
-      if ( rng -> roll( 0.15 ) )
+      if ( ( spell -> cooldown -> remains() <= 0.0 ) && rng -> roll( 0.15 ) )
       {
         spell -> execute();
       }
     }
   };
-  // FIXME: Does this proc from ticks too?
+
   p -> register_harmful_spell_callback( RESULT_HIT_MASK, new rathrak_callback_t( p, new rathrak_poison_t( p, trigger_spell_id ) ) );
 }
 
@@ -1401,7 +1549,7 @@ static void register_souldrinker( item_t* item )
       spell_t::execute();
     }
     virtual void player_buff() { }
-    virtual double total_dd_multiplier() SC_CONST { return 1.0; }
+    virtual double total_dd_multiplier() const { return 1.0; }
   };
 
   struct souldrinker_callback_t : public action_callback_t
@@ -1456,13 +1604,15 @@ static void register_titahk( item_t* item )
     {
       double duration = buff -> duration();
       buff_self   = new stat_buff_t( p, "titahk_self", STAT_HASTE_RATING, buff -> effect1().base_value(), 1, duration );
+      buff_self -> cooldown -> duration = 45.0; // FIXME: Confirm ICD
       buff_radius = new stat_buff_t( p, "titahk_aoe",  STAT_HASTE_RATING, buff -> effect2().base_value(), 1, duration ); // FIXME: Apply aoe buff to other players
+      buff_radius -> cooldown -> duration = 45.0; // FIXME: Confirm ICD
     }
 
     virtual void trigger( action_t* /* a */, void* /* call_data */ )
     {
       // FIXME: Does this have an ICD?
-      if ( rng -> roll( proc_chance ) )
+      if ( ( buff_self -> cooldown -> remains() <= 0.0 ) && rng -> roll( proc_chance ) )
       {
         buff_self -> trigger();
         buff_radius -> trigger();
@@ -1509,10 +1659,12 @@ void unique_gear_t::init( player_t* p )
     }
 
     if ( ! strcmp( item.name(), "apparatus_of_khazgoroth"             ) ) register_apparatus_of_khazgoroth           ( &item );
+    if ( ! strcmp( item.name(), "bonelink_fetish"                     ) ) register_bonelink_fetish                   ( &item );
     if ( ! strcmp( item.name(), "darkmoon_card_greatness"             ) ) register_darkmoon_card_greatness           ( &item );
     if ( ! strcmp( item.name(), "dragonwrath_tarecgosas_rest"         ) ) register_dragonwrath_tarecgosas_rest       ( &item );
     if ( ! strcmp( item.name(), "eye_of_blazing_power"                ) ) register_blazing_power                     ( &item );
     if ( ! strcmp( item.name(), "fury_of_angerforge"                  ) ) register_fury_of_angerforge                ( &item );
+    if ( ! strcmp( item.name(), "gurthalak_voice_of_the_deeps"        ) ) register_gurthalak                         ( &item );
     if ( ! strcmp( item.name(), "heart_of_ignacious"                  ) ) register_heart_of_ignacious                ( &item );
     if ( ! strcmp( item.name(), "indomitable_pride"                   ) ) register_indomitable_pride                 ( &item );
     if ( ! strcmp( item.name(), "kiril_fury_of_beasts"                ) ) register_fury_of_the_beast                 ( &item );
@@ -2035,6 +2187,10 @@ bool unique_gear_t::get_equip_encoding( std::string&       encoding,
   else if ( name == "seal_of_the_seven_signs"             ) e = ( heroic ? "OnHeal_3278Haste_15%_20Dur_115Cd" : lfr ? "OnHeal_2573Haste_15%_20Dur_115Cd" : "OnHeal_2904Haste_15%_20Dur_115Cd" ); // FIXME: ICD needs testing, assuming same as insignia of corrupted mind
   else if ( name == "soulshifter_vortex"                  ) e = ( heroic ? "OnDamage_3278Mastery_15%_20Dur_115Cd" : lfr ? "OnDamage_2573Mastery_15%_20Dur_115Cd" : "OnDamage_2904Mastery_15%_20Dur_115Cd" ); // FIXME: ICD needs testing, assuming same as insignia of corrupted mind
   else if ( name == "insignia_of_the_corrupted_mind"      ) e = ( heroic ? "OnDamage_3278Haste_15%_20Dur_115Cd" : lfr ? "OnDamage_2573Haste_15%_20Dur_115Cd" : "OnDamage_2904Haste_15%_20Dur_115Cd" ); // ICD confirmed on PTR 2011/11/14
+  else if ( name == "foul_gift_of_the_demon_lord"         ) e = "OnSpellCast_1149Mastery_15%_20Dur_45Cd"; // TO-DO: Confirm ICD. Min seen 50.112sec
+  else if ( name == "arrow_of_time"                       ) e = "OnAttackHit_1149Haste_20%_20Dur_45Cd";   // TO-DO: Confirm ICD
+  else if ( name == "rosary_of_light"                     ) e = "OnAttackHit_1149Crit_15%_20Dur_45Cd";   // TO-DO: Confirm ICD. Min seen 50.934sec.
+  else if ( name == "varothens_brooch"                    ) e = "OnAttackHit_1149Mastery_20%_20Dur_45Cd";   // TO-DO: Confirm ICD. Min seen 50.192sec.
 
   // Stat Procs with Tick Increases
   else if ( name == "dislodged_foreign_object"            ) e = ( heroic ? "OnSpellCast_121SP_10Stack_10%_20Dur_45Cd_2Tick" : "OnSpellCast_105SP_10Stack_10%_20Dur_45Cd_2Tick" );
@@ -2048,9 +2204,8 @@ bool unique_gear_t::get_equip_encoding( std::string&       encoding,
   else if ( name == "timbals_crystal"                     ) e = "OnSpellTickDamage_380Shadow_10%_15Cd";
   else if ( name == "thunder_capacitor"                   ) e = "OnSpellCrit_1276Nature_4Stack_2.5Cd";
   else if ( name == "bryntroll_the_bone_arbiter"          ) e = ( heroic ? "OnAttackHit_2538Drain_11%" : "OnAttackHit_2250Drain_11%" );
-  else if ( name == "cunning_of_the_cruel"                ) e = ( heroic ? "OnHarmfulSpellHit_11937Shadow_15%_45Cd" : lfr ? "OnHarmfulSpellHit_9369Shadow_15%_45Cd" : "OnHarmfulSpellHit_10575Shadow_15%_45Cd" ); // Confirm ICD, AoE?
-  else if ( name == "bone-link_fetish"                    ) e = ( heroic ? "OnAttackHit_12788Physical_15%_45Cd" : lfr ? "OnAttackHit_10037Physical_15%_45Cd" : "OnAttackHit_11329Physical_15%_45Cd" ); // Confirm ICD, AoE?
-  else if ( name == "vial_of_shadows"                     ) e = ( heroic ? "OnAttackHit_17051+101.6Physical_15%_45Cd" : lfr ? "OnAttackHit_13383+79.7Physical_15%_45Cd" : "OnAttackHit_15106+90Physical_15%_45Cd" ); // Confirm ICD
+  else if ( name == "cunning_of_the_cruel"                ) e = ( heroic ? "OnSpellDamage_11937+105.8Shadow_15%_25Cd" : lfr ? "OnSpellDamage_9369+83.1Shadow_15%_25Cd" : "OnSpellDamage_10575+93.8Shadow_15%_25Cd" ); // Confirm ICD, AoE? Saw a 26.862sec ICD on PTR.
+  else if ( name == "vial_of_shadows"                     ) e = ( heroic ? "OnAttackHit_17051+101.6Physical_15%_25Cd" : lfr ? "OnAttackHit_13383+79.7Physical_15%_25Cd" : "OnAttackHit_15106+90Physical_15%_25Cd" ); // Confirm ICD. Saw a 27.271sec ICD on PTR.
   else if ( name == "reign_of_the_unliving"               ) e = ( heroic ? "OnSpellDirectCrit_2117Fire_3Stack_2.0Cd" : "OnSpellDirectCrit_1882Fire_3Stack_2.0Cd" );
   else if ( name == "reign_of_the_dead"                   ) e = ( heroic ? "OnSpellDirectCrit_2117Fire_3Stack_2.0Cd" : "OnSpellDirectCrit_1882Fire_3Stack_2.0Cd" );
   else if ( name == "solace_of_the_defeated"              ) e = ( heroic ? "OnSpellCast_18MP5_8Stack_10Dur" : "OnSpellCast_16MP5_8Stack_10Dur" );

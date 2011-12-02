@@ -117,7 +117,6 @@ void action_t::init_action_t_()
   time_to_execute                = 0.0;
   time_to_travel                 = 0.0;
   travel_speed                   = 0.0;
-  rank_index                     = -1;
   bloodlust_active               = 0;
   max_haste                      = 0.0;
   haste_gain_percentage          = 0.0;
@@ -146,7 +145,7 @@ void action_t::init_action_t_()
 
   if ( sim -> debug ) log_t::output( sim, "Player %s creates action %s", player -> name(), name() );
 
-  if ( ! player -> initialized )
+  if ( unlikely( ! player -> initialized ) )
   {
     sim -> errorf( "Actions must not be created before player_t::init().  Culprit: %s %s\n", player -> name(), name() );
     sim -> cancel();
@@ -177,9 +176,6 @@ void action_t::init_action_t_()
 
     background = true; // prevent action from being executed
   }
-
-  if ( sim -> travel_variance && travel_speed && player -> distance )
-    rng_travel = player -> get_rng( name_str + "_travel", RNG_DISTRIBUTED );
 }
 
 action_t::action_t( int               ty,
@@ -241,8 +237,6 @@ void action_t::parse_data()
   {
     base_execute_time    = spell -> cast_time( player -> level );
     cooldown -> duration = spell -> cooldown();
-    if ( cooldown -> duration > ( sim -> wheel_seconds - 2.0 ) )
-      cooldown -> duration = sim -> wheel_seconds - 2.0;
     range                = spell -> max_range();
     travel_speed         = spell -> missile_speed();
     trigger_gcd          = spell -> gcd();
@@ -273,10 +267,10 @@ void action_t::parse_effect_data( int spell_id, int effect_nr )
     return;
   }
 
-  const spell_data_t* spell = player -> dbc.spell( spell_id );
-  const spelleffect_data_t* effect = player -> dbc.effect( spell -> effect_id( effect_nr ) );
-
   assert( spell );
+
+  const spelleffect_data_t* effects[4] = { 0, spell -> _effect1, spell -> _effect2, spell -> _effect3 };
+  const spelleffect_data_t* effect = effects[ effect_nr ];
 
   if ( ! effect )
   {
@@ -382,7 +376,6 @@ void action_t::parse_options( option_t*          options,
     { "interrupt",              OPT_BOOL,   &interrupt             },
     { "invulnerable",           OPT_BOOL,   &invulnerable          },
     { "moving",                 OPT_BOOL,   &moving                },
-    { "rank",                   OPT_INT,    &rank_index            },
     { "sync",                   OPT_STRING, &sync_str              },
     { "time<",                  OPT_FLT,    &max_current_time      },
     { "time>",                  OPT_FLT,    &min_current_time      },
@@ -429,53 +422,9 @@ void action_t::parse_options( option_t*          options,
   }
 }
 
-// action_t::init_rank ======================================================
-
-rank_t* action_t::init_rank( rank_t* rank_list,
-                             int     id_override )
-{
-  if ( resource == RESOURCE_MANA )
-  {
-    for ( int i=0; rank_list[ i ].level; i++ )
-    {
-      rank_t& r = rank_list[ i ];
-
-      // Look for ranks in which the cost of an action is a percentage of base mana
-      if ( r.cost > 0 && r.cost < 1 )
-      {
-        r.cost *= player -> resource_base[ RESOURCE_MANA ];
-      }
-    }
-  }
-
-  for ( int i=0; rank_list[ i ].level; i++ )
-  {
-    if ( ( rank_index <= 0 && player -> level >= rank_list[ i ].level ) ||
-         ( rank_index >  0 &&      rank_index == rank_list[ i ].index  ) )
-    {
-      rank_t* rank = &( rank_list[ i ] );
-
-      base_dd_min  = rank -> dd_min;
-      base_dd_max  = rank -> dd_max;
-      base_td_init = rank -> tick;
-      base_td      = base_td_init;
-      base_cost    = rank -> cost;
-
-      if ( id_override ) id = id_override;
-
-      return rank;
-    }
-  }
-
-  sim -> errorf( "%s unable to find valid rank for %s\n", player -> name(), name() );
-  sim -> cancel();
-
-  return 0;
-}
-
 // action_t::cost ===========================================================
 
-double action_t::cost() SC_CONST
+double action_t::cost() const
 {
   if ( ! harmful && ! player -> in_combat )
     return 0;
@@ -500,7 +449,7 @@ double action_t::cost() SC_CONST
 
 // action_t::gcd ============================================================
 
-double action_t::gcd() SC_CONST
+double action_t::gcd() const
 {
   if ( ! harmful && ! player -> in_combat )
     return 0;
@@ -522,11 +471,6 @@ double action_t::travel_time()
 
   if ( v )
   {
-    if ( ! rng_travel )
-    {
-      std::string buffer = name_str + "_travel";
-      rng_travel = player -> get_rng( buffer, RNG_DISTRIBUTED );
-    }
     t = rng_travel -> gauss( t, v );
   }
 
@@ -685,7 +629,7 @@ void action_t::snapshot()
 
 // action_t::result_is_hit ==================================================
 
-bool action_t::result_is_hit( int r ) SC_CONST
+bool action_t::result_is_hit( int r ) const
 {
   if ( r == RESULT_UNKNOWN ) r = result;
 
@@ -699,7 +643,7 @@ bool action_t::result_is_hit( int r ) SC_CONST
 
 // action_t::result_is_miss =================================================
 
-bool action_t::result_is_miss( int r ) SC_CONST
+bool action_t::result_is_miss( int r ) const
 {
   if ( r == RESULT_UNKNOWN ) r = result;
 
@@ -711,16 +655,17 @@ bool action_t::result_is_miss( int r ) SC_CONST
 
 // action_t::armor ==========================================================
 
-double action_t::armor() SC_CONST
+double action_t::armor() const
 {
   return target -> composite_armor();
 }
 
 // action_t::resistance =====================================================
 
-double action_t::resistance() SC_CONST
+double action_t::resistance() const
 {
-  if ( ! may_resist ) return 0;
+  if ( ! may_resist )
+    return 0;
 
   player_t* t = target;
   double resist=0;
@@ -785,7 +730,7 @@ double action_t::resistance() SC_CONST
 
 // action_t::total_crit_bonus ===============================================
 
-double action_t::total_crit_bonus() SC_CONST
+double action_t::total_crit_bonus() const
 {
   double bonus = ( ( 1.0 + crit_bonus ) * crit_multiplier - 1.0 ) * crit_bonus_multiplier;
 
@@ -800,7 +745,7 @@ double action_t::total_crit_bonus() SC_CONST
 
 // action_t::total_power ====================================================
 
-double action_t::total_power() SC_CONST
+double action_t::total_power() const
 {
   double power=0;
 
@@ -862,7 +807,8 @@ double action_t::calculate_tick_damage()
     dmg *= 1.0 - resistance();
   }
 
-  if ( ! sim -> average_range ) dmg = floor( dmg + sim -> real() );
+  if ( ! sim -> average_range )
+    dmg = floor( dmg + sim -> real() );
 
   if ( sim -> debug )
   {
@@ -942,8 +888,6 @@ double action_t::calculate_direct_damage()
     dmg *= 1.0 - resistance();
   }
 
-
-
   if ( ! sim -> average_range ) dmg = floor( dmg + sim -> real() );
 
   if ( sim -> debug )
@@ -978,7 +922,7 @@ void action_t::consume_resource()
 
 void action_t::execute()
 {
-  if ( ! initialized )
+  if ( unlikely( ! initialized ) )
   {
     sim -> errorf( "action_t::execute: action %s from player %s is not initialized.\n", name(), player -> name() );
     assert( 0 );
@@ -1072,7 +1016,7 @@ void action_t::impact( player_t* t, int impact_result, double travel_dmg=0 )
   {
     if ( num_ticks > 0 )
     {
-      if ( dot_behavior != DOT_REFRESH ) cancel();
+      if ( dot_behavior != DOT_REFRESH ) dot -> cancel();
       dot -> action = this;
       dot -> num_ticks = hasted_num_ticks();
       dot -> current_tick = 0;
@@ -1326,7 +1270,7 @@ bool action_t::ready()
 {
   player_t* t = target;
 
-  if ( is_dtr_action )
+  if ( unlikely( is_dtr_action ) )
     assert( 0 );
 
   if ( player -> skill < 1.0 )
@@ -1365,7 +1309,7 @@ bool action_t::ready()
   if ( sync_action && ! sync_action -> ready() )
     return false;
 
-  if ( t -> sleeping )
+  if ( unlikely( t -> sleeping ) )
     return false;
 
   if ( target -> debuffs.invulnerable -> check() )
@@ -1435,6 +1379,9 @@ void action_t::init()
     interrupt_if_expr = action_expr_t::parse( this, interrupt_if_expr_str );
   }
 
+  if ( sim -> travel_variance && travel_speed && player -> distance )
+    rng_travel = player -> get_rng( name_str + "_travel", RNG_DISTRIBUTED );
+
   if ( is_dtr_action )
   {
     cooldown = player -> get_cooldown( name_str + "_DTR" );
@@ -1465,15 +1412,17 @@ void action_t::cancel()
 {
   if ( sim -> debug ) log_t::output( sim, "action %s of %s is canceled", name(), player -> name() );
 
-  if ( dot -> ticking ) last_tick( dot );
+  if ( channeled && dot -> ticking )
+  {
+    last_tick( dot );
+    event_t::cancel( dot -> tick_event );
+    dot -> reset();
+  }
 
   if ( player -> executing  == this ) player -> executing  = 0;
   if ( player -> channeling == this ) player -> channeling = 0;
 
   event_t::cancel( execute_event );
-  event_t::cancel( dot -> tick_event );
-
-  dot -> reset();
 
   player -> debuffs.casting -> expire();
 }
@@ -1708,13 +1657,31 @@ action_expr_t* action_t::create_expression( const std::string& name_str )
       return buff -> create_expression( this, splits[ 2 ] );
     }
   }
+  else if ( num_splits == 2 )
+  {
+    if ( splits[ 0 ] == "prev" )
+    {
+      struct prev_expr_t : public action_expr_t
+      {
+        std::string prev_action;
+        prev_expr_t( action_t* a, const std::string& prev_action ) : action_expr_t( a, "prev", TOK_NUM ), prev_action( prev_action ) {}
+        virtual int evaluate()
+        {
+          result_num = ( action -> player -> last_foreground_action ) ? action -> player -> last_foreground_action -> name_str == prev_action : 0;
+          return TOK_NUM;
+        }
+      };
+
+      return new prev_expr_t( this, splits[ 1 ] );
+    }
+  }
 
   return player -> create_expression( this, name_str );
 }
 
 // action_t::ppm_proc_chance ================================================
 
-double action_t::ppm_proc_chance( double PPM ) SC_CONST
+double action_t::ppm_proc_chance( double PPM ) const
 {
   if ( weapon )
   {
@@ -1732,7 +1699,7 @@ double action_t::ppm_proc_chance( double PPM ) SC_CONST
 
 // action_t::tick_time ======================================================
 
-double action_t::tick_time() SC_CONST
+double action_t::tick_time() const
 {
   double t = base_tick_time;
   if ( channeled || hasted_ticks )
@@ -1744,7 +1711,7 @@ double action_t::tick_time() SC_CONST
 
 // action_t::hasted_num_ticks ===============================================
 
-int action_t::hasted_num_ticks( double d ) SC_CONST
+int action_t::hasted_num_ticks( double d ) const
 {
   if ( ! hasted_ticks ) return num_ticks;
 

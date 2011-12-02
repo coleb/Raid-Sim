@@ -805,12 +805,13 @@ sim_t::~sim_t()
 void sim_t::add_event( event_t* e,
                        double   delta_time )
 {
-  if ( delta_time <= 0 ) delta_time = SC_EPSILON;
+  if ( delta_time < 0 )
+    delta_time = 0;
 
   e -> time = current_time + delta_time;
   e -> id   = ++id;
 
-  if ( ! ( delta_time <= wheel_seconds ) )
+  if ( unlikely( ! ( delta_time <= wheel_seconds ) ) )
   {
     errorf( "sim_t::add_event assertion error! delta_time > wheel_seconds, event %s from %s.\n", e -> name, e -> player ? e -> player -> name() : "no-one" );
     assert( 0 );
@@ -822,7 +823,7 @@ void sim_t::add_event( event_t* e,
 
   event_t** prev = &( timing_wheel[ slice ] );
 
-  while ( ( *prev ) && ( *prev ) -> time < e -> time ) prev = &( ( *prev ) -> next );
+  while ( ( *prev ) && ( *prev ) -> time <= e -> time ) prev = &( ( *prev ) -> next );
 
   e -> next = *prev;
   *prev = e;
@@ -855,7 +856,7 @@ event_t* sim_t::next_event()
 {
   if ( events_remaining == 0 ) return 0;
 
-  while ( 1 )
+  while ( true )
   {
     event_t*& event_list = timing_wheel[ timing_slice ];
 
@@ -869,7 +870,11 @@ event_t* sim_t::next_event()
     }
 
     timing_slice++;
-    if ( timing_slice == wheel_size ) timing_slice = 0;
+    if ( timing_slice == wheel_size )
+    {
+      timing_slice = 0;
+      if ( debug ) log_t::output( this, "Time Wheel turns around." );
+    }
   }
 
   return 0;
@@ -891,7 +896,11 @@ void sim_t::flush_events()
         // not technically matter
         e -> canceled = 1;
         e -> player -> events--;
-        assert( e -> player -> events >= 0 );
+        if( e -> player -> events < 0 )
+        {
+          errorf( "sim_t::flush_events assertion error! flushing event %s leaves negative event count for user %s.\n", e -> name, e -> player -> name() );
+          assert( 0 );
+        }
       }
       timing_wheel[ i ] = e -> next;
       delete e;
@@ -912,14 +921,13 @@ void sim_t::cancel_events( player_t* p )
 
   if ( debug ) log_t::output( this, "Canceling events for player %s, events to cancel %d", p -> name(), p -> events );
 
-  int begin_slice = ( uint32_t ) ( current_time * wheel_granularity ) & wheel_mask,
-        end_slice = ( uint32_t ) ( last_event * wheel_granularity ) & wheel_mask;
+  int end_slice = ( uint32_t ) ( last_event * wheel_granularity ) & wheel_mask;
 
   // Loop only partial wheel, [current_time..last_event], as that's the range where there
   // are events for actors in the sim
-  if ( begin_slice <= end_slice )
+  if ( timing_slice <= end_slice )
   {
-    for ( int i = begin_slice; i <= end_slice && p -> events > 0; i++ )
+    for ( int i = timing_slice; i <= end_slice && p -> events > 0; i++ )
     {
       for ( event_t* e = timing_wheel[ i ]; e && p -> events > 0; e = e -> next )
       {
@@ -937,7 +945,7 @@ void sim_t::cancel_events( player_t* p )
   // current time is still at the tail-end, [begin_slice..wheel_size[ and [0..last_event]
   else
   {
-    for ( int i = begin_slice; i < wheel_size && p -> events > 0; i++ )
+    for ( int i = timing_slice; i < wheel_size && p -> events > 0; i++ )
     {
       for ( event_t* e = timing_wheel[ i ]; e && p -> events > 0; e = e -> next )
       {
@@ -987,7 +995,11 @@ void sim_t::combat( int iteration )
     if ( e -> player && ! e -> canceled )
     {
       e -> player -> events--;
-      assert( e -> player -> events >= 0 );
+      if( e -> player -> events < 0 )
+      {
+        errorf( "sim_t::combat assertion error! canceling event %s leaves negative event count for user %s.\n", e -> name, e -> player -> name() );
+        assert( 0 );
+      }
     }
 
     if ( fixed_time || ( target -> resource_base[ RESOURCE_HEALTH ] == 0 ) )
@@ -995,6 +1007,7 @@ void sim_t::combat( int iteration )
       // The first iteration is always time-limited since we do not yet have inferred health
       if ( current_time > expected_time )
       {
+        if ( debug ) log_t::output( this, "Reached expected_time=%.2f, ending simulation", expected_time );
         // Set this last event as canceled, so asserts dont fire when odd things happen at the
         // tail-end of the simulation iteration
         e -> canceled = 1;
@@ -1025,11 +1038,11 @@ void sim_t::combat( int iteration )
       }
     }
 
-    if ( e -> canceled )
+    if ( unlikely( e -> canceled ) )
     {
       if ( debug ) log_t::output( this, "Canceled event: %s", e -> name );
     }
-    else if ( e -> reschedule_time > e -> time )
+    else if ( unlikely( e -> reschedule_time > e -> time ) )
     {
       reschedule_event( e );
       continue;
@@ -1037,7 +1050,6 @@ void sim_t::combat( int iteration )
     else
     {
       if ( debug ) log_t::output( this, "Executing event: %s", e -> name );
-      if ( e -> player ) e -> player -> current_time = current_time;
       e -> execute();
     }
     delete e;
@@ -1114,7 +1126,7 @@ void sim_t::combat_begin()
         player_t* t = sim -> target;
         if ( ( sim -> bloodlust_percent  > 0 && t -> health_percentage() <  sim -> bloodlust_percent ) ||
              ( sim -> bloodlust_time     < 0 && t -> time_to_die()       < -sim -> bloodlust_time ) ||
-             ( sim -> bloodlust_time     > 0 && t -> current_time        >  sim -> bloodlust_time ) )
+             ( sim -> bloodlust_time     > 0 && sim -> current_time      >  sim -> bloodlust_time ) )
         {
           for ( player_t* p = sim -> player_list; p; p = p -> next )
           {
@@ -1277,7 +1289,7 @@ bool sim_t::init()
 
 struct compare_dps
 {
-  bool operator()( player_t* l, player_t* r ) SC_CONST
+  bool operator()( player_t* l, player_t* r ) const
   {
     return l -> dps.mean > r -> dps.mean;
   }
@@ -1287,7 +1299,7 @@ struct compare_dps
 
 struct compare_hps
 {
-  bool operator()( player_t* l, player_t* r ) SC_CONST
+  bool operator()( player_t* l, player_t* r ) const
   {
     return l -> hps.mean > r -> hps.mean;
   }
@@ -1297,7 +1309,7 @@ struct compare_hps
 
 struct compare_name
 {
-  bool operator()( player_t* l, player_t* r ) SC_CONST
+  bool operator()( player_t* l, player_t* r ) const
   {
     if ( l -> type != r -> type )
     {

@@ -56,7 +56,7 @@ pet_t::pet_t( sim_t*             s,
 
 // pet_t::stamina ===========================================================
 
-double pet_t::stamina() SC_CONST
+double pet_t::stamina() const
 {
   double a = composite_attribute_multiplier( ATTR_STAMINA ) * ( stamina_per_owner * owner -> stamina() );
 
@@ -65,7 +65,7 @@ double pet_t::stamina() SC_CONST
 
 // pet_t::intellect =========================================================
 
-double pet_t::intellect() SC_CONST
+double pet_t::intellect() const
 {
   double a = composite_attribute_multiplier( ATTR_INTELLECT ) * ( intellect_per_owner * owner -> intellect() );
 
@@ -111,7 +111,6 @@ void pet_t::init_talents()
 void pet_t::reset()
 {
   player_t::reset();
-  summon_time = 0;
   expiration = 0;
 }
 
@@ -128,8 +127,14 @@ void pet_t::summon( double duration )
 
   owner -> active_pets++;
 
-  summon_time = sim -> current_time;
   summoned = true;
+
+  // Take care of remaining expiration
+  if ( expiration )
+  {
+    event_t::cancel( expiration );
+    expiration = 0;
+  }
 
   if ( duration > 0 )
   {
@@ -195,7 +200,7 @@ void pet_t::combat_begin()
 
 // pet_t::composite_player_multiplier ======================================================
 
-double pet_t::composite_player_multiplier( const school_type school, action_t* a ) SC_CONST
+double pet_t::composite_player_multiplier( const school_type school, action_t* a ) const
 {
   double m = player_t::composite_player_multiplier( school, a );
 

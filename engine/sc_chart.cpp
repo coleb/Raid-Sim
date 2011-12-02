@@ -58,6 +58,7 @@ static const char* school_color( int type )
   case SCHOOL_NATURE:     	return class_color( HUNTER );
   case SCHOOL_PHYSICAL:   	return class_color( WARRIOR );
   case SCHOOL_SHADOW:     	return class_color( WARLOCK );
+  case SCHOOL_FROSTSTORM:   return "2C6080";
   case SCHOOL_SPELLSTORM: 	return "8AD0B1"; // Half way between Hunter "green" and Mage "blue" (spellstorm = arcane/nature damage)
   case SCHOOL_SHADOWFROST: 	return "000066"; // Shadowfrost???
   case SCHOOL_SHADOWFLAME:	return "435133";
@@ -454,7 +455,7 @@ int chart_t::raid_gear( std::vector<std::string>& images,
 
 struct compare_downtime
 {
-  bool operator()( player_t* l, player_t* r ) SC_CONST
+  bool operator()( player_t* l, player_t* r ) const
   {
     return l -> waiting_time.mean > r -> waiting_time.mean;
   }
@@ -544,7 +545,7 @@ const char* chart_t::raid_downtime( std::string& s,
 
 struct compare_dpet
 {
-  bool operator()( stats_t* l, stats_t* r ) SC_CONST
+  bool operator()( stats_t* l, stats_t* r ) const
   {
     return l -> apet > r -> apet;
   }
@@ -755,7 +756,7 @@ const char* chart_t::action_dpet( std::string& s,
 
 struct compare_amount
 {
-  bool operator()( stats_t* l, stats_t* r ) SC_CONST
+  bool operator()( stats_t* l, stats_t* r ) const
   {
     return l -> actual_amount.mean > r -> actual_amount.mean;
   }
@@ -969,7 +970,7 @@ const char* chart_t::time_spent( std::string& s,
 
 struct compare_gain
 {
-  bool operator()( gain_t* l, gain_t* r ) SC_CONST
+  bool operator()( gain_t* l, gain_t* r ) const
   {
     return l -> actual > r -> actual;
   }

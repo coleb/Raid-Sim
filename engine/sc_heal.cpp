@@ -139,7 +139,7 @@ void heal_t::target_debuff( player_t* /* t */, int /* dmg_type */ )
 
 // heal_t::haste ============================================================
 
-double heal_t::haste() SC_CONST
+double heal_t::haste() const
 {
   double h = spell_t::haste();
 
@@ -213,7 +213,7 @@ void heal_t::impact( player_t* t, int impact_result, double travel_heal=0 )
 
   if ( num_ticks > 0 )
   {
-    if ( dot_behavior != DOT_REFRESH ) cancel();
+    if ( dot_behavior != DOT_REFRESH ) dot -> cancel();
     dot -> action = this;
     dot -> num_ticks = hasted_num_ticks();
     dot -> current_tick = 0;
@@ -570,7 +570,7 @@ void absorb_t::target_debuff( player_t* /* t */, int /* dmg_type */ )
 
 // absorb_t::haste ==========================================================
 
-double absorb_t::haste() SC_CONST
+double absorb_t::haste() const
 {
   double h = spell_t::haste();
 

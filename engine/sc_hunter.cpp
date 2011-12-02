@@ -19,6 +19,7 @@ struct hunter_t : public player_t
   hunter_pet_t* active_pet;
   int           active_aspect;
   action_t*     active_piercing_shots;
+  action_t*     active_vishanka;
 
   // Buffs
   buff_t* buffs_aspect_of_the_hawk;
@@ -43,6 +44,7 @@ struct hunter_t : public player_t
 
   // Cooldowns
   cooldown_t* cooldowns_explosive_shot;
+  cooldown_t* cooldowns_vishanka;
 
   // Custom Parameters
   std::string summon_pet_str;
@@ -188,6 +190,7 @@ struct hunter_t : public player_t
 
   double merge_piercing_shots;
   double tier13_4pc_cooldown;
+  uint32_t vishanka;
 
   hunter_t( sim_t* sim, const std::string& name, race_type r = RACE_NONE ) : player_t( sim, HUNTER, name, r )
   {
@@ -201,11 +204,13 @@ struct hunter_t : public player_t
     active_pet             = 0;
     active_aspect          = ASPECT_NONE;
     active_piercing_shots  = 0;
+    active_vishanka        = 0;
 
     merge_piercing_shots = 0;
 
     // Cooldowns
     cooldowns_explosive_shot = get_cooldown( "explosive_shot " );
+    cooldowns_vishanka       = get_cooldown( "vishanka"        );
 
     // Dots
     dots_serpent_sting = get_dot( "serpent_sting" );
@@ -218,6 +223,7 @@ struct hunter_t : public player_t
     flaming_arrow = NULL;
 
     tier13_4pc_cooldown = 45.0;
+    vishanka = 0;
 
     create_talents();
     create_glyphs();
@@ -239,18 +245,18 @@ struct hunter_t : public player_t
   virtual void      register_callbacks();
   virtual void      combat_begin();
   virtual void      reset();
-  virtual double    composite_attack_power() SC_CONST;
-  virtual double    composite_attack_power_multiplier() SC_CONST;
-  virtual double    composite_attack_haste() SC_CONST;
-  virtual double    composite_player_multiplier( const school_type school, action_t* a = NULL ) SC_CONST;
-  virtual double    matching_gear_multiplier( const attribute_type attr ) SC_CONST;
+  virtual double    composite_attack_power() const;
+  virtual double    composite_attack_power_multiplier() const;
+  virtual double    composite_attack_haste() const;
+  virtual double    composite_player_multiplier( const school_type school, action_t* a = NULL ) const;
+  virtual double    matching_gear_multiplier( const attribute_type attr ) const;
   virtual void      create_options();
   virtual action_t* create_action( const std::string& name, const std::string& options );
   virtual pet_t*    create_pet( const std::string& name, const std::string& type = std::string() );
   virtual void      create_pets();
   virtual int       decode_set( item_t& item );
-  virtual int       primary_resource() SC_CONST { return RESOURCE_FOCUS; }
-  virtual int       primary_role() SC_CONST     { return ROLE_ATTACK; }
+  virtual int       primary_resource() const { return RESOURCE_FOCUS; }
+  virtual int       primary_role() const     { return ROLE_ATTACK; }
   virtual bool      create_profile( std::string& profile_str, int save_type=SAVE_ALL, bool save_html=false );
   virtual void      copy_from( player_t* source );
   virtual void      armory_extensions( const std::string& r, const std::string& s, const std::string& c, cache::behavior_t );
@@ -266,7 +272,6 @@ struct hunter_t : public player_t
 
 struct hunter_pet_t : public pet_t
 {
-
   action_t* kill_command;
 
   struct talents_t
@@ -549,7 +554,7 @@ struct hunter_pet_t : public pet_t
     pet_t::init_actions();
   }
 
-  virtual double composite_attack_power() SC_CONST
+  virtual double composite_attack_power() const
   {
     hunter_t* o = owner -> cast_hunter();
 
@@ -560,7 +565,7 @@ struct hunter_pet_t : public pet_t
     return ap;
   }
 
-  virtual double composite_attack_power_multiplier() SC_CONST
+  virtual double composite_attack_power_multiplier() const
   {
     double mult = pet_t::composite_attack_power_multiplier();
 
@@ -572,7 +577,7 @@ struct hunter_pet_t : public pet_t
     return mult;
   }
 
-  virtual double composite_attack_crit() SC_CONST
+  virtual double composite_attack_crit() const
   {
     hunter_t* o = owner -> cast_hunter();
 
@@ -583,7 +588,7 @@ struct hunter_pet_t : public pet_t
     return ac;
   }
 
-  virtual double composite_attack_haste() SC_CONST
+  virtual double composite_attack_haste() const
   {
     hunter_t* o = owner -> cast_hunter();
 
@@ -599,7 +604,7 @@ struct hunter_pet_t : public pet_t
     return h;
   }
 
-  virtual double composite_attack_hit() SC_CONST
+  virtual double composite_attack_hit() const
   {
     hunter_t* o = owner -> cast_hunter();
 
@@ -607,14 +612,14 @@ struct hunter_pet_t : public pet_t
     return o -> composite_attack_hit();
   }
 
-  virtual double composite_attack_expertise() SC_CONST
+  virtual double composite_attack_expertise() const
   {
     hunter_t* o = owner -> cast_hunter();
 
     return ( ( 100.0 * o -> attack_hit ) * 26.0 / 8.0 ) / 100.0;
   }
 
-  virtual double composite_spell_hit() SC_CONST
+  virtual double composite_spell_hit() const
   {
     return composite_attack_hit() * 17.0 / 8.0;
   }
@@ -637,7 +642,7 @@ struct hunter_pet_t : public pet_t
     o -> active_pet = 0;
   }
 
-  virtual double composite_player_multiplier( const school_type school, action_t* a ) SC_CONST
+  virtual double composite_player_multiplier( const school_type school, action_t* a ) const
   {
     double m = pet_t::composite_player_multiplier( school, a );
 
@@ -653,17 +658,14 @@ struct hunter_pet_t : public pet_t
     return m;
   }
 
-  virtual int primary_resource() SC_CONST { return RESOURCE_FOCUS; }
+  virtual int primary_resource() const { return RESOURCE_FOCUS; }
 
   virtual action_t* create_action( const std::string& name, const std::string& options_str );
 
   virtual void init_spells();
 };
 
-
 namespace { // ANONYMOUS NAMESPACE =========================================
-
-
 
 // ==========================================================================
 // Hunter Attack
@@ -716,25 +718,11 @@ struct hunter_attack_t : public attack_t
     }
   }
 
-  virtual void execute()
-  {
-    attack_t::execute();
-    hunter_t* p = player -> cast_hunter();
-
-    if ( p -> talents.improved_steady_shot -> rank() )
-      trigger_improved_steady_shot();
-
-    if ( p -> buffs_pre_improved_steady_shot -> stack() == 2 )
-    {
-      p -> buffs_improved_steady_shot -> trigger();
-      p -> buffs_pre_improved_steady_shot -> expire();
-    }
-  }
-
-  virtual double cost() SC_CONST;
+  virtual double cost() const;
   virtual void   consume_resource();
-  virtual double execute_time() SC_CONST;
-  virtual double swing_haste() SC_CONST;
+  virtual void   execute();
+  virtual double execute_time() const;
+  virtual double swing_haste() const;
   virtual void   player_buff();
 };
 
@@ -766,8 +754,8 @@ struct hunter_spell_t : public spell_t
     _init_hunter_spell_t();
   }
 
-  virtual double gcd() SC_CONST;
-  virtual double cost() SC_CONST;
+  virtual double gcd() const;
+  virtual double cost() const;
   virtual void consume_resource();
 };
 
@@ -840,7 +828,7 @@ static void trigger_piercing_shots( action_t* a, double dmg )
       return sim -> gauss( sim -> aura_delay, 0.25 * sim -> aura_delay );
     }
 
-    virtual double total_td_multiplier() SC_CONST { return target_multiplier; }
+    virtual double total_td_multiplier() const { return target_multiplier; }
   };
 
   double piercing_shots_dmg = p -> talents.piercing_shots -> effect1().percent() * dmg;
@@ -932,6 +920,46 @@ static void trigger_tier12_2pc_melee( attack_t* a )
   }
 }
 
+// trigger_vishanka =========================================================
+
+static void trigger_vishanka( attack_t* a )
+{
+  hunter_t* p = a -> player -> cast_hunter();
+
+  if ( ! p -> vishanka )
+    return;
+
+  if ( p -> cooldowns_vishanka -> remains() > 0 )
+    return;
+
+  if ( ! p -> active_vishanka )
+  {
+    struct vishanka_t : public hunter_attack_t
+    {
+      vishanka_t( hunter_t* p, uint32_t id ) :
+        hunter_attack_t( "vishanka_jaws_of_the_earth", p, id )
+      {
+        background  = true;
+        proc        = true;
+        trigger_gcd = 0;
+        init();
+
+        // FIX ME: Can this crit, miss, etc?
+      }
+    };
+
+    uint32_t id = p -> dbc.spell( p -> vishanka ) -> effect1().trigger_spell_id();
+    
+    p -> active_vishanka = new vishanka_t( p, id );
+  }
+
+  if ( a -> sim -> roll( p -> dbc.spell( p -> vishanka ) -> proc_chance() ) )
+  {
+    p -> active_vishanka -> execute();
+    p -> cooldowns_vishanka -> duration = 2.0; // Assume a ICD until testing proves one way or another
+    p -> cooldowns_vishanka -> start();
+  }
+}
 
 // ==========================================================================
 // Hunter Pet Attacks
@@ -964,7 +992,7 @@ struct hunter_pet_attack_t : public attack_t
     _init_hunter_pet_attack_t();
   }
 
-  virtual double swing_haste() SC_CONST
+  virtual double swing_haste() const
   {
     hunter_pet_t* p = ( hunter_pet_t* ) player -> cast_pet();
     hunter_t* o = p -> owner -> cast_hunter();
@@ -1136,7 +1164,7 @@ struct claw_t : public hunter_pet_attack_t
     p -> buffs_sic_em -> up();
   }
 
-  virtual double cost() SC_CONST
+  virtual double cost() const
   {
     hunter_pet_t* p = ( hunter_pet_t* ) player -> cast_pet();
     hunter_t* o     = p -> owner -> cast_hunter();
@@ -1733,19 +1761,21 @@ struct tendon_rip_t : public hunter_pet_spell_t
 
 // Chimera Froststorm Breath ================================================
 
-struct froststorm_breath_tick_t : public hunter_pet_spell_t
-{
-  froststorm_breath_tick_t( player_t* player ) :
-    hunter_pet_spell_t( "froststorm_breath_tick", player, 95725 )
-  {
-    direct_power_mod = 0.24; // hardcoded into tooltip, 17/10/2011
-    background  = true;
-    direct_tick = true;
-  }
-};
-
 struct froststorm_breath_t : public hunter_pet_spell_t
 {
+  struct froststorm_breath_tick_t : public hunter_pet_spell_t
+  {
+    froststorm_breath_tick_t( player_t* player ) :
+      hunter_pet_spell_t( "froststorm_breath_tick", player, 95725 )
+    {
+      direct_power_mod = 0.24; // hardcoded into tooltip, 17/10/2011
+      background  = true;
+      direct_tick = true;
+
+      stats = player -> get_stats( "froststorm_breath", this );
+    }
+  };
+
   froststorm_breath_tick_t* tick_spell;
 
   froststorm_breath_t( player_t* player, const std::string& options_str ) :
@@ -1753,6 +1783,8 @@ struct froststorm_breath_t : public hunter_pet_spell_t
   {
     hunter_pet_t* p = ( hunter_pet_t* ) player -> cast_pet();
     hunter_t*     o = p -> owner -> cast_hunter();
+
+    channeled = true;
 
     parse_options( NULL, options_str );
 
@@ -1777,7 +1809,7 @@ struct froststorm_breath_t : public hunter_pet_spell_t
 
 // hunter_attack_t::cost ====================================================
 
-double hunter_attack_t::cost() SC_CONST
+double hunter_attack_t::cost() const
 {
   hunter_t* p = player -> cast_hunter();
 
@@ -1794,6 +1826,8 @@ double hunter_attack_t::cost() SC_CONST
 
   return c;
 }
+ 
+// hunter_attack_t::consume_resouce =========================================
 
 void hunter_attack_t::consume_resource()
 {
@@ -1814,23 +1848,29 @@ void hunter_attack_t::consume_resource()
   }
 }
 
-// hunter_attack_t::swing_haste =============================================
+// hunter_attack_t::execute =================================================
 
-double hunter_attack_t::swing_haste() SC_CONST
+void hunter_attack_t::execute()
 {
+  attack_t::execute();
   hunter_t* p = player -> cast_hunter();
 
-  double h = attack_t::swing_haste();
+  if ( p -> talents.improved_steady_shot -> rank() )
+    trigger_improved_steady_shot();
 
-  if ( p -> buffs_improved_steady_shot -> up() )
-    h *= 1.0/ ( 1.0 + p -> talents.improved_steady_shot -> effect1().percent() );
+  if ( p -> buffs_pre_improved_steady_shot -> stack() == 2 )
+  {
+    p -> buffs_improved_steady_shot -> trigger();
+    p -> buffs_pre_improved_steady_shot -> expire();
+  }
 
-  return h;
+  if ( result_is_hit() )
+    trigger_vishanka( this );
 }
 
 // hunter_attack_t::execute_time ============================================
 
-double hunter_attack_t::execute_time() SC_CONST
+double hunter_attack_t::execute_time() const
 {
   double t = attack_t::execute_time();
 
@@ -1858,6 +1898,20 @@ void hunter_attack_t::player_buff()
     player_multiplier *= 1.0 + ( p -> buffs_culling_the_herd -> effect1().percent() );
 }
 
+// hunter_attack_t::swing_haste =============================================
+
+double hunter_attack_t::swing_haste() const
+{
+  hunter_t* p = player -> cast_hunter();
+
+  double h = attack_t::swing_haste();
+
+  if ( p -> buffs_improved_steady_shot -> up() )
+    h *= 1.0/ ( 1.0 + p -> talents.improved_steady_shot -> effect1().percent() );
+
+  return h;
+}
+
 // Ranged Attack ============================================================
 
 struct ranged_t : public hunter_attack_t
@@ -1883,7 +1937,7 @@ struct ranged_t : public hunter_attack_t
     special = false;
   }
 
-  virtual double execute_time() SC_CONST
+  virtual double execute_time() const
   {
     if ( ! player -> in_combat )
       return 0.01;
@@ -1947,7 +2001,7 @@ struct auto_shot_t : public hunter_attack_t
     return( p -> ranged_attack -> execute_event == 0 ); // not swinging
   }
 
-  virtual double execute_time() SC_CONST
+  virtual double execute_time() const
   {
     double h = 1.0;
 
@@ -2041,9 +2095,6 @@ struct aimed_shot_t : public hunter_attack_t
     check_spec ( TREE_MARKSMANSHIP );
     parse_options( NULL, options_str );
 
-    if ( ! p -> dbc.ptr ) // In 4.3 tooltip correctly reflects 2.9s
-      base_execute_time = 2.90;
-
     weapon = &( p -> ranged_weapon );
     assert( weapon -> group() == WEAPON_RANGED );
     normalize_weapon_speed = true;
@@ -2064,7 +2115,7 @@ struct aimed_shot_t : public hunter_attack_t
     consumes_tier12_4pc = true;
   }
 
-  virtual double cost() SC_CONST
+  virtual double cost() const
   {
     hunter_t* p = player -> cast_hunter();
 
@@ -2074,7 +2125,7 @@ struct aimed_shot_t : public hunter_attack_t
     return hunter_attack_t::cost();
   }
 
-  virtual double execute_time() SC_CONST
+  virtual double execute_time() const
   {
     hunter_t* p = player -> cast_hunter();
 
@@ -2165,7 +2216,7 @@ struct arcane_shot_t : public hunter_attack_t
     consumes_tier12_4pc = true;
   }
 
-  virtual double cost() SC_CONST
+  virtual double cost() const
   {
     hunter_t* p = player -> cast_hunter();
 
@@ -2187,7 +2238,6 @@ struct arcane_shot_t : public hunter_attack_t
     {
       p -> buffs_cobra_strikes -> trigger( 2 );
 
-      // PTR
       // Needs testing
       p -> buffs_tier13_4pc -> trigger();
 
@@ -2340,7 +2390,7 @@ struct explosive_trap_t : public hunter_attack_t
     trap_effect -> execute();
   }
 
-  virtual double cost() SC_CONST
+  virtual double cost() const
   {
     hunter_t* p = player -> cast_hunter();
 
@@ -2418,17 +2468,13 @@ struct cobra_shot_t : public hunter_attack_t
 
     direct_power_mod = 0.017; // hardcoded into tooltip
 
-    if ( ! p -> dbc.ptr ) // In 4.3 tooltip correctly reflects 2s
-      base_execute_time = 2.0;
-
     if ( p -> sets -> set ( SET_T11_4PC_MELEE ) -> ok() )
       base_execute_time -= 0.2;
 
     focus_gain = p -> dbc.spell( 77443 ) -> effect1().base_value();
 
-    // PTR
     // Needs testing
-    if ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_melee() )
+    if ( p -> set_bonus.tier13_2pc_melee() )
       focus_gain *= 2.0;
   }
 
@@ -2514,13 +2560,13 @@ struct explosive_shot_t : public hunter_attack_t
     crit_bonus = 0.5;
     crit_bonus_multiplier *= 2.0;
 
-    tick_power_mod = p -> dbc.ptr ? 0.273 : 0.232; // hardcoded into tooltip
+    tick_power_mod = 0.273; // hardcoded into tooltip
     tick_zero = true;
 
     consumes_tier12_4pc = true;
   }
 
-  virtual double cost() SC_CONST
+  virtual double cost() const
   {
     hunter_t* p = player -> cast_hunter();
 
@@ -2812,7 +2858,7 @@ struct multi_shot_t : public hunter_attack_t
       p -> buffs_bombardment -> trigger();
   }
 
-  virtual double cost() SC_CONST
+  virtual double cost() const
   {
     hunter_t* p = player -> cast_hunter();
 
@@ -2858,9 +2904,6 @@ struct steady_shot_t : public hunter_attack_t
 
     direct_power_mod = 0.021; // hardcoded into tooltip
 
-    if ( ! p -> dbc.ptr ) // In 4.3 tooltip correctly reflects 2s
-      base_execute_time = 2.0;
-
     if ( p -> sets -> set ( SET_T11_4PC_MELEE ) -> ok() )
       base_execute_time -= 0.2;
 
@@ -2869,9 +2912,8 @@ struct steady_shot_t : public hunter_attack_t
 
     focus_gain = p -> dbc.spell( 77443 ) -> effect1().base_value();
 
-    // PTR
     // Needs testing
-    if ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_melee() )
+    if ( p -> set_bonus.tier13_2pc_melee() )
       focus_gain *= 2.0;
   }
 
@@ -3003,7 +3045,7 @@ struct wild_quiver_trigger_t : public action_callback_t
 
 // hunter_spell_t::gcd()
 
-double hunter_spell_t::gcd() SC_CONST
+double hunter_spell_t::gcd() const
 {
   if ( ! harmful && ! player -> in_combat )
     return 0;
@@ -3014,7 +3056,7 @@ double hunter_spell_t::gcd() SC_CONST
 
 // hunter_spell_t::cost =====================================================
 
-double hunter_spell_t::cost() SC_CONST
+double hunter_spell_t::cost() const
 {
   hunter_t* p = player -> cast_hunter();
 
@@ -3325,7 +3367,7 @@ struct kill_command_t : public hunter_spell_t
     consumes_tier12_4pc = true;
   }
 
-  virtual double cost() SC_CONST
+  virtual double cost() const
   {
     hunter_t* p = player -> cast_hunter();
 
@@ -3842,6 +3884,7 @@ void hunter_t::init_buffs()
   buffs_killing_streak              = new buff_t( this, "killing_streak", 1, 8, 0, talents.killing_streak -> ok() );
   buffs_killing_streak_crits        = new buff_t( this, "killing_streak_crits", 2, 0, 0, 1.0, true );
   buffs_lock_and_load               = new buff_t( this, 56453, "lock_and_load", talents.tnt -> effect1().percent() );
+  if ( bugs ) buffs_lock_and_load -> cooldown -> duration = 10.0; // http://elitistjerks.com/f74/t65904-hunter_dps_analyzer/p31/#post2050744
   buffs_master_marksman             = new buff_t( this, 82925, "master_marksman", talents.master_marksman -> proc_chance() );
   buffs_master_marksman_fire        = new buff_t( this, 82926, "master_marksman_fire", 1 );
   buffs_sniper_training             = new buff_t( this, talents.sniper_training -> rank() == 3 ? 64420 : talents.sniper_training -> rank() == 2 ? 64419 : talents.sniper_training -> rank() == 1 ? 64418 : 0, "sniper_training", talents.sniper_training -> rank() );
@@ -4029,7 +4072,7 @@ void hunter_t::init_actions()
       action_list_str += "/steady_shot,if=buff.pre_improved_steady_shot.up&buff.improved_steady_shot.remains<3";
       action_list_str += "/kill_shot";
       action_list_str += "/aimed_shot,if=buff.master_marksman_fire.react";
-      if ( dbc.ptr && set_bonus.tier13_4pc_melee() )
+      if ( set_bonus.tier13_4pc_melee() )
       {
         action_list_str += "/arcane_shot,if=(focus>=66|cooldown.chimera_shot.remains>=4)&(target.health_pct<90&!buff.rapid_fire.up&!buff.bloodlust.react&!buff.berserking.up&!buff.tier13_4pc.react&cooldown.buff_tier13_4pc.remains<=0)";
         action_list_str += "/aimed_shot,if=(cooldown.chimera_shot.remains>5|focus>=80)&(buff.bloodlust.react|buff.tier13_4pc.react|cooldown.buff_tier13_4pc.remains>0)|buff.rapid_fire.up|target.health_pct>90";
@@ -4133,7 +4176,7 @@ void hunter_t::reset()
 
 // hunter_t::composite_attack_power =========================================
 
-double hunter_t::composite_attack_power() SC_CONST
+double hunter_t::composite_attack_power() const
 {
   double ap = player_t::composite_attack_power();
 
@@ -4146,7 +4189,7 @@ double hunter_t::composite_attack_power() SC_CONST
 
 // hunter_t::composite_attack_power_multiplier ==============================
 
-double hunter_t::composite_attack_power_multiplier() SC_CONST
+double hunter_t::composite_attack_power_multiplier() const
 {
   double mult = player_t::composite_attack_power_multiplier();
 
@@ -4160,21 +4203,20 @@ double hunter_t::composite_attack_power_multiplier() SC_CONST
 
 // hunter_t::composite_attack_haste =========================================
 
-double hunter_t::composite_attack_haste() SC_CONST
+double hunter_t::composite_attack_haste() const
 {
   double h = player_t::composite_attack_haste();
 
   h *= 1.0 / ( 1.0 + talents.pathing -> effect1().percent() );
   h *= 1.0 / ( 1.0 + buffs_focus_fire -> value() );
   h *= 1.0 / ( 1.0 + buffs_rapid_fire -> value() );
-  if ( dbc.ptr )
-    h *= 1.0 / ( 1.0 + buffs_tier13_4pc -> up() * buffs_tier13_4pc -> effect1().percent() );
+  h *= 1.0 / ( 1.0 + buffs_tier13_4pc -> up() * buffs_tier13_4pc -> effect1().percent() );
   return h;
 }
 
 // hunter_t::composite_player_multiplier ====================================
 
-double hunter_t::composite_player_multiplier( const school_type school, action_t* a ) SC_CONST
+double hunter_t::composite_player_multiplier( const school_type school, action_t* a ) const
 {
   double m = player_t::composite_player_multiplier( school, a );
 
@@ -4187,7 +4229,7 @@ double hunter_t::composite_player_multiplier( const school_type school, action_t
 
 // hunter_t::matching_gear_multiplier =======================================
 
-double hunter_t::matching_gear_multiplier( const attribute_type attr ) SC_CONST
+double hunter_t::matching_gear_multiplier( const attribute_type attr ) const
 {
   if ( attr == ATTR_AGILITY )
     return 0.05;
@@ -4445,6 +4487,15 @@ void hunter_t::armory_extensions( const std::string& region,
 
 int hunter_t::decode_set( item_t& item )
 {
+  const char* s = item.name();
+
+  // Check for Vishanka, Jaws of the Earth
+  if ( item.slot == SLOT_RANGED && strstr( s, "vishanka_jaws_of_the_earth" ) )
+  {
+    // Store the spell id, not just if we have it or not
+    vishanka = item.heroic() ? 109859 : item.lfr() ? 109857 : 107822;
+  }
+
   if ( item.slot != SLOT_HEAD      &&
        item.slot != SLOT_SHOULDERS &&
        item.slot != SLOT_CHEST     &&
@@ -4453,9 +4504,7 @@ int hunter_t::decode_set( item_t& item )
   {
     return SET_NONE;
   }
-
-  const char* s = item.name();
-
+  
   if ( strstr( s, "lightningcharged"      ) ) return SET_T11_MELEE;
   if ( strstr( s, "flamewakers"           ) ) return SET_T12_MELEE;
   if ( strstr( s, "wyrmstalkers"          ) ) return SET_T13_MELEE;

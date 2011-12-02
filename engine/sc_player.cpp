@@ -462,7 +462,7 @@ player_t::player_t( sim_t*             s,
   action_list( 0 ), action_list_default( 0 ), cooldown_list( 0 ), dot_list( 0 ),
   // Reporting
   quiet( 0 ), last_foreground_action( 0 ),
-  current_time( 0 ), iteration_fight_length( 0 ), arise_time( 0 ),
+  iteration_fight_length( 0 ), arise_time( 0 ),
   fight_length( s -> statistics_level < 2, true ), waiting_time( true ), executed_foreground_actions( s -> statistics_level < 3 ),
   iteration_waiting_time( 0 ), iteration_executed_foreground_actions( 0 ),
   rps_gain( 0 ), rps_loss( 0 ),
@@ -793,6 +793,8 @@ void player_t::init()
 
 void player_t::init_base()
 {
+  if ( sim -> debug ) log_t::output( sim, "Initializing base for player (%s)", name() );
+
   attribute_base[ ATTR_STRENGTH  ] = rating_t::get_attribute_base( sim, dbc, level, type, race, BASE_STAT_STRENGTH );
   attribute_base[ ATTR_AGILITY   ] = rating_t::get_attribute_base( sim, dbc, level, type, race, BASE_STAT_AGILITY );
   attribute_base[ ATTR_STAMINA   ] = rating_t::get_attribute_base( sim, dbc, level, type, race, BASE_STAT_STAMINA );
@@ -818,6 +820,8 @@ void player_t::init_base()
 void player_t::init_items()
 {
   if ( is_pet() ) return;
+
+  if ( sim -> debug ) log_t::output( sim, "Initializing items for player (%s)", name() );
 
   std::vector<std::string> splits;
   int num_splits = util_t::string_split( splits, items_str, "/" );
@@ -931,6 +935,8 @@ void player_t::init_meta_gem( gear_stats_t& item_stats )
 {
   if ( ! meta_gem_str.empty() ) meta_gem = util_t::parse_meta_gem_type( meta_gem_str );
 
+  if ( sim -> debug ) log_t::output( sim, "Initializing meta-gem for player (%s)", name() );
+
   if      ( meta_gem == META_AGILE_SHADOWSPIRIT         ) item_stats.attribute[ ATTR_AGILITY ] += 54;
   else if ( meta_gem == META_AUSTERE_EARTHSIEGE         ) item_stats.attribute[ ATTR_STAMINA ] += 32;
   else if ( meta_gem == META_AUSTERE_SHADOWSPIRIT       ) item_stats.attribute[ ATTR_STAMINA ] += 81;
@@ -1014,6 +1020,8 @@ void player_t::init_meta_gem( gear_stats_t& item_stats )
 
 void player_t::init_core()
 {
+  if ( sim -> debug ) log_t::output( sim, "Initializing core for player (%s)", name() );
+
   initial_stats.  hit_rating = gear.  hit_rating + enchant.  hit_rating + ( is_pet() ? 0 : sim -> enchant.  hit_rating );
   initial_stats. crit_rating = gear. crit_rating + enchant. crit_rating + ( is_pet() ? 0 : sim -> enchant. crit_rating );
   initial_stats.haste_rating = gear.haste_rating + enchant.haste_rating + ( is_pet() ? 0 : sim -> enchant.haste_rating );
@@ -1034,6 +1042,8 @@ void player_t::init_core()
 
 void player_t::init_position()
 {
+  if ( sim -> debug ) log_t::output( sim, "Initializing position for player (%s)", name() );
+
   if ( position_str.empty() )
   {
     position_str = util_t::position_type_string( position );
@@ -1056,6 +1066,8 @@ void player_t::init_position()
 
 void player_t::init_race()
 {
+  if ( sim -> debug ) log_t::output( sim, "Initializing race for player (%s)", name() );
+
   if ( race_str.empty() )
   {
     race_str = util_t::race_type_string( race );
@@ -1070,6 +1082,8 @@ void player_t::init_race()
 
 void player_t::init_racials()
 {
+  if ( sim -> debug ) log_t::output( sim, "Initializing racials for player (%s)", name() );
+
   if ( race == RACE_GNOME )
   {
     mana_per_intellect *= 1.05;
@@ -1080,6 +1094,8 @@ void player_t::init_racials()
 
 void player_t::init_spell()
 {
+  if ( sim -> debug ) log_t::output( sim, "Initializing spells for player (%s)", name() );
+
   initial_stats.spell_power       = gear.spell_power       + enchant.spell_power       + ( is_pet() ? 0 : sim -> enchant.spell_power );
   initial_stats.spell_penetration = gear.spell_penetration + enchant.spell_penetration + ( is_pet() ? 0 : sim -> enchant.spell_penetration );
   initial_stats.mp5               = gear.mp5               + enchant.mp5               + ( is_pet() ? 0 : sim -> enchant.mp5 );
@@ -1115,6 +1131,8 @@ void player_t::init_spell()
 
 void player_t::init_attack()
 {
+  if ( sim -> debug ) log_t::output( sim, "Initializing attack for player (%s)", name() );
+
   initial_stats.attack_power     = gear.attack_power     + enchant.attack_power     + ( is_pet() ? 0 : sim -> enchant.attack_power );
   initial_stats.expertise_rating = gear.expertise_rating + enchant.expertise_rating + ( is_pet() ? 0 : sim -> enchant.expertise_rating );
 
@@ -1146,6 +1164,8 @@ void player_t::init_attack()
 
 void player_t::init_defense()
 {
+  if ( sim -> debug ) log_t::output( sim, "Initializing defense for player (%s)", name() );
+
   if ( type != ENEMY && type != ENEMY_ADD )
     base_dodge = dbc.dodge_base( type );
 
@@ -1187,6 +1207,7 @@ void player_t::init_weapon( weapon_t* w )
 
 void player_t::init_unique_gear()
 {
+  if ( sim -> debug ) log_t::output( sim, "Initializing unique gear for player (%s)", name() );
   unique_gear_t::init( this );
 }
 
@@ -1194,6 +1215,7 @@ void player_t::init_unique_gear()
 
 void player_t::init_enchant()
 {
+  if ( sim -> debug ) log_t::output( sim, "Initializing enchants for player (%s)", name() );
   enchant_t::init( this );
 }
 
@@ -1201,6 +1223,7 @@ void player_t::init_enchant()
 
 void player_t::init_resources( bool force )
 {
+  if ( sim -> debug ) log_t::output( sim, "Initializing resources for player (%s)", name() );
   // The first 20pts of intellect/stamina only provide 1pt of mana/health.
 
   for ( int i=0; i < RESOURCE_MAX; i++ )
@@ -1245,8 +1268,9 @@ void player_t::init_resources( bool force )
     timeline_resource_chart.resize( RESOURCE_MAX );
 
     int size = ( int ) ( sim -> max_time * ( 1.0 + sim -> vary_combat_length ) );
-    if ( size == 0 ) size = 600; // Default to 10 minutes
+    if ( size <= 0 ) size = 600; // Default to 10 minutes
     size *= 2;
+    size += 3; // Buffer against rounding.
 
     for ( int i = RESOURCE_NONE; i < RESOURCE_MAX; i++ )
       timeline_resource[i].assign( size, 0 );
@@ -1258,6 +1282,8 @@ void player_t::init_resources( bool force )
 void player_t::init_professions()
 {
   if ( professions_str.empty() ) return;
+
+  if ( sim -> debug ) log_t::output( sim, "Initializing professions for player (%s)", name() );
 
   std::vector<std::string> splits;
   int size = util_t::string_split( splits, professions_str, ",/" );
@@ -1288,6 +1314,8 @@ void player_t::init_professions()
 
 void player_t::init_professions_bonus()
 {
+  if ( sim -> debug ) log_t::output( sim, "Initializing professions bonuses for player (%s)", name() );
+
   // This has to be called after init_attack() and init_core()
 
   // Miners gain additional stamina
@@ -1964,7 +1992,7 @@ item_t* player_t::find_item( const std::string& str )
 
 // player_t::energy_regen_per_second ========================================
 
-double player_t::energy_regen_per_second() SC_CONST
+double player_t::energy_regen_per_second() const
 {
   double r = base_energy_regen_per_second * ( 1.0 / composite_attack_haste() );
 
@@ -1973,7 +2001,7 @@ double player_t::energy_regen_per_second() SC_CONST
 
 // player_t::focus_regen_per_second =========================================
 
-double player_t::focus_regen_per_second() SC_CONST
+double player_t::focus_regen_per_second() const
 {
   double r = base_focus_regen_per_second * ( 1.0 / composite_attack_haste() );
 
@@ -1982,7 +2010,7 @@ double player_t::focus_regen_per_second() SC_CONST
 
 // player_t::chi_regen_per_second ========================================
 
-double player_t::chi_regen_per_second() SC_CONST
+double player_t::chi_regen_per_second() const
 {
   // FIXME: Just assuming it scale with haste right now.
   double r = base_chi_regen_per_second * ( 1.0 / composite_attack_haste() );
@@ -1992,7 +2020,7 @@ double player_t::chi_regen_per_second() SC_CONST
 
 // player_t::composite_attack_haste =========================================
 
-double player_t::composite_attack_haste() SC_CONST
+double player_t::composite_attack_haste() const
 {
   double h = attack_haste;
 
@@ -2035,7 +2063,7 @@ double player_t::composite_attack_haste() SC_CONST
 
 // player_t::composite_attack_speed =========================================
 
-double player_t::composite_attack_speed() SC_CONST
+double player_t::composite_attack_speed() const
 {
   double h = composite_attack_haste();
 
@@ -2049,7 +2077,7 @@ double player_t::composite_attack_speed() SC_CONST
 
 // player_t::composite_attack_power =========================================
 
-double player_t::composite_attack_power() SC_CONST
+double player_t::composite_attack_power() const
 {
   double ap = attack_power;
 
@@ -2064,7 +2092,7 @@ double player_t::composite_attack_power() SC_CONST
 
 // player_t::composite_attack_crit ==========================================
 
-double player_t::composite_attack_crit() SC_CONST
+double player_t::composite_attack_crit() const
 {
   double ac = attack_crit + attack_crit_per_agility * agility();
 
@@ -2090,7 +2118,7 @@ double player_t::composite_attack_crit() SC_CONST
 
 // player_t::composite_attack_hit ===========================================
 
-double player_t::composite_attack_hit() SC_CONST
+double player_t::composite_attack_hit() const
 {
   double ah = attack_hit;
 
@@ -2103,7 +2131,7 @@ double player_t::composite_attack_hit() SC_CONST
 
 // player_t::composite_armor ================================================
 
-double player_t::composite_armor() SC_CONST
+double player_t::composite_armor() const
 {
   double a = armor;
 
@@ -2129,7 +2157,7 @@ double player_t::composite_armor() SC_CONST
 
 // player_t::composite_armor_multiplier =====================================
 
-double player_t::composite_armor_multiplier() SC_CONST
+double player_t::composite_armor_multiplier() const
 {
   double a = armor_multiplier;
 
@@ -2138,7 +2166,7 @@ double player_t::composite_armor_multiplier() SC_CONST
 
 // player_t::composite_spell_resistance =====================================
 
-double player_t::composite_spell_resistance( const school_type school ) SC_CONST
+double player_t::composite_spell_resistance( const school_type school ) const
 {
   double a = spell_resistance[ school ];
 
@@ -2147,7 +2175,7 @@ double player_t::composite_spell_resistance( const school_type school ) SC_CONST
 
 // player_t::composite_tank_miss ============================================
 
-double player_t::composite_tank_miss( const school_type school ) SC_CONST
+double player_t::composite_tank_miss( const school_type school ) const
 {
   double m = 0;
 
@@ -2167,7 +2195,7 @@ double player_t::composite_tank_miss( const school_type school ) SC_CONST
 
 // player_t::composite_tank_dodge ===========================================
 
-double player_t::composite_tank_dodge() SC_CONST
+double player_t::composite_tank_dodge() const
 {
   double d = dodge;
 
@@ -2178,7 +2206,7 @@ double player_t::composite_tank_dodge() SC_CONST
 
 // player_t::composite_tank_parry ===========================================
 
-double player_t::composite_tank_parry() SC_CONST
+double player_t::composite_tank_parry() const
 {
   double p = parry;
 
@@ -2189,7 +2217,7 @@ double player_t::composite_tank_parry() SC_CONST
 
 // player_t::composite_tank_block ===========================================
 
-double player_t::composite_tank_block() SC_CONST
+double player_t::composite_tank_block() const
 {
   double b = block;
 
@@ -2198,7 +2226,7 @@ double player_t::composite_tank_block() SC_CONST
 
 // player_t::composite_tank_block_reduction =================================
 
-double player_t::composite_tank_block_reduction() SC_CONST
+double player_t::composite_tank_block_reduction() const
 {
   double b = block_reduction;
 
@@ -2212,21 +2240,21 @@ double player_t::composite_tank_block_reduction() SC_CONST
 
 // player_t::composite_tank_crit_block ======================================
 
-double player_t::composite_tank_crit_block() SC_CONST
+double player_t::composite_tank_crit_block() const
 {
   return 0;
 }
 
 // player_t::composite_tank_crit ============================================
 
-double player_t::composite_tank_crit( const school_type /* school */ ) SC_CONST
+double player_t::composite_tank_crit( const school_type /* school */ ) const
 {
   return 0;
 }
 
 // player_t::diminished_dodge ===============================================
 
-double player_t::diminished_dodge() SC_CONST
+double player_t::diminished_dodge() const
 {
   if ( diminished_kfactor == 0 || diminished_dodge_capi == 0 ) return 0;
 
@@ -2247,7 +2275,7 @@ double player_t::diminished_dodge() SC_CONST
 
 // player_t::diminished_parry ===============================================
 
-double player_t::diminished_parry() SC_CONST
+double player_t::diminished_parry() const
 {
   if ( diminished_kfactor == 0 || diminished_parry_capi == 0 ) return 0;
 
@@ -2268,7 +2296,7 @@ double player_t::diminished_parry() SC_CONST
 
 // player_t::composite_spell_haste ==========================================
 
-double player_t::composite_spell_haste() SC_CONST
+double player_t::composite_spell_haste() const
 {
   double h = spell_haste;
 
@@ -2311,7 +2339,7 @@ double player_t::composite_spell_haste() SC_CONST
 
 // player_t::composite_spell_power ==========================================
 
-double player_t::composite_spell_power( const school_type school ) SC_CONST
+double player_t::composite_spell_power( const school_type school ) const
 {
   double sp = spell_power[ school ];
 
@@ -2344,7 +2372,7 @@ double player_t::composite_spell_power( const school_type school ) SC_CONST
 
 // player_t::composite_spell_power_multiplier ===============================
 
-double player_t::composite_spell_power_multiplier() SC_CONST
+double player_t::composite_spell_power_multiplier() const
 {
   double m = spell_power_multiplier;
   if ( type != PLAYER_GUARDIAN && ! is_enemy() && ! is_add() )
@@ -2364,7 +2392,7 @@ double player_t::composite_spell_power_multiplier() SC_CONST
 
 // player_t::composite_spell_crit ===========================================
 
-double player_t::composite_spell_crit() SC_CONST
+double player_t::composite_spell_crit() const
 {
   double sc = spell_crit + spell_crit_per_intellect * intellect();
 
@@ -2394,7 +2422,7 @@ double player_t::composite_spell_crit() SC_CONST
 
 // player_t::composite_spell_hit ============================================
 
-double player_t::composite_spell_hit() SC_CONST
+double player_t::composite_spell_hit() const
 {
   double sh = spell_hit;
 
@@ -2407,14 +2435,14 @@ double player_t::composite_spell_hit() SC_CONST
 
 // player_t::composite_mp5 ==================================================
 
-double player_t::composite_mp5() SC_CONST
+double player_t::composite_mp5() const
 {
   return mp5 + mp5_per_intellect * floor( intellect() );
 }
 
 // player_t::composite_attack_power_multiplier ==============================
 
-double player_t::composite_attack_power_multiplier() SC_CONST
+double player_t::composite_attack_power_multiplier() const
 {
   double m = attack_power_multiplier;
 
@@ -2424,7 +2452,7 @@ double player_t::composite_attack_power_multiplier() SC_CONST
     {
       //FIXME: Since we don't currently model the difference between ranged and melee
       //       attack power, this ugly hack just checks if the player is a hunter instead.
-      m *= ( dbc.ptr && type != HUNTER ) ? 1.20 : 1.10;
+      m *= ( type != HUNTER ) ? 1.20 : 1.10;
     }
     else if ( ! is_enemy() && ! is_add() )
     {
@@ -2437,7 +2465,7 @@ double player_t::composite_attack_power_multiplier() SC_CONST
 
 // player_t::composite_attribute_multiplier =================================
 
-double player_t::composite_attribute_multiplier( int attr ) SC_CONST
+double player_t::composite_attribute_multiplier( int attr ) const
 {
   double m = attribute_multiplier[ attr ];
 
@@ -2455,7 +2483,7 @@ double player_t::composite_attribute_multiplier( int attr ) SC_CONST
 
 // player_t::composite_player_multiplier ====================================
 
-double player_t::composite_player_multiplier( const school_type /* school */, action_t* /* a */ ) SC_CONST
+double player_t::composite_player_multiplier( const school_type /* school */, action_t* /* a */ ) const
 {
   double m = 1.0;
 
@@ -2476,7 +2504,7 @@ double player_t::composite_player_multiplier( const school_type /* school */, ac
       m *= 1.0 + buffs.tricks_of_the_trade -> value();
     }
 
-    if ( ! is_pet() && ! is_enemy() && ! is_add() )
+    if ( ! is_enemy() && ! is_add() )
       if ( sim -> auras.ferocious_inspiration -> up() ||
            sim -> auras.communion             -> up() ||
            sim -> auras.arcane_tactics        -> up() )
@@ -2495,7 +2523,7 @@ double player_t::composite_player_multiplier( const school_type /* school */, ac
 
 // player_t::composite_player_td_multiplier =================================
 
-double player_t::composite_player_td_multiplier( const school_type /* school */, action_t* /* a */ ) SC_CONST
+double player_t::composite_player_td_multiplier( const school_type /* school */, action_t* /* a */ ) const
 {
   double m = 1.0;
 
@@ -2506,7 +2534,7 @@ double player_t::composite_player_td_multiplier( const school_type /* school */,
 
 // player_t::composite_player_heal_multiplier ===============================
 
-double player_t::composite_player_heal_multiplier( const school_type /* school */ ) SC_CONST
+double player_t::composite_player_heal_multiplier( const school_type /* school */ ) const
 {
   double m = 1.0;
 
@@ -2524,7 +2552,7 @@ double player_t::composite_player_heal_multiplier( const school_type /* school *
 
 // player_t::composite_player_th_multiplier =================================
 
-double player_t::composite_player_th_multiplier( const school_type /* school */ ) SC_CONST
+double player_t::composite_player_th_multiplier( const school_type /* school */ ) const
 {
   double m = 1.0;
 
@@ -2535,7 +2563,7 @@ double player_t::composite_player_th_multiplier( const school_type /* school */ 
 
 // player_t::composite_player_absorb_multiplier =============================
 
-double player_t::composite_player_absorb_multiplier( const school_type /* school */ ) SC_CONST
+double player_t::composite_player_absorb_multiplier( const school_type /* school */ ) const
 {
   double m = 1.0;
 
@@ -2553,7 +2581,7 @@ double player_t::composite_player_absorb_multiplier( const school_type /* school
 
 // player_t::composite_movement_speed =======================================
 
-double player_t::composite_movement_speed() SC_CONST
+double player_t::composite_movement_speed() const
 {
   double speed = base_movement_speed;
 
@@ -2589,7 +2617,7 @@ double player_t::composite_movement_speed() SC_CONST
 
 // player_t::strength() =====================================================
 
-double player_t::strength() SC_CONST
+double player_t::strength() const
 {
   double a = attribute[ ATTR_STRENGTH ];
 
@@ -2608,7 +2636,7 @@ double player_t::strength() SC_CONST
 
 // player_t::agility() ======================================================
 
-double player_t::agility() SC_CONST
+double player_t::agility() const
 {
   double a = attribute[ ATTR_AGILITY ];
 
@@ -2627,7 +2655,7 @@ double player_t::agility() SC_CONST
 
 // player_t::stamina() ======================================================
 
-double player_t::stamina() SC_CONST
+double player_t::stamina() const
 {
   double a = attribute[ ATTR_STAMINA ];
 
@@ -2643,7 +2671,7 @@ double player_t::stamina() SC_CONST
 
 // player_t::intellect() ====================================================
 
-double player_t::intellect() SC_CONST
+double player_t::intellect() const
 {
   double a = attribute[ ATTR_INTELLECT ];
 
@@ -2654,7 +2682,7 @@ double player_t::intellect() SC_CONST
 
 // player_t::spirit() =======================================================
 
-double player_t::spirit() SC_CONST
+double player_t::spirit() const
 {
   double a = attribute[ ATTR_SPIRIT ];
 
@@ -2671,7 +2699,7 @@ double player_t::spirit() SC_CONST
 /*
 // player_t::haste_rating() =================================================
 
-double player_t::haste_rating() SC_CONST
+double player_t::haste_rating() const
 {
   double a = stats.haste_rating;
 
@@ -2680,7 +2708,7 @@ double player_t::haste_rating() SC_CONST
 
 // player_t::crit_rating() ==================================================
 
-double player_t::crit_rating() SC_CONST
+double player_t::crit_rating() const
 {
   double a = stats.crit_rating;
 
@@ -2689,7 +2717,7 @@ double player_t::crit_rating() SC_CONST
 
 // player_t::mastery_rating() ===============================================
 
-double player_t::mastery_rating() SC_CONST
+double player_t::mastery_rating() const
 {
   double a = stats.mastery_rating;
 
@@ -2698,7 +2726,7 @@ double player_t::mastery_rating() SC_CONST
 
 // player_t::hit_rating() ===================================================
 
-double player_t::hit_rating() SC_CONST
+double player_t::hit_rating() const
 {
   double a = stats.hit_rating;
 
@@ -2707,7 +2735,7 @@ double player_t::hit_rating() SC_CONST
 
 // player_t::expertise_rating() =============================================
 
-double player_t::expertise_rating() SC_CONST
+double player_t::expertise_rating() const
 {
   double a = stats.expertise_rating;
 
@@ -2716,7 +2744,7 @@ double player_t::expertise_rating() SC_CONST
 
 // player_t::dodge_rating() =================================================
 
-double player_t::dodge_rating() SC_CONST
+double player_t::dodge_rating() const
 {
   double a = stats.dodge_rating;
 
@@ -2725,7 +2753,7 @@ double player_t::dodge_rating() SC_CONST
 
 // player_t::parry_rating() =================================================
 
-double player_t::parry_rating() SC_CONST
+double player_t::parry_rating() const
 {
   double a = stats.parry_rating;
 
@@ -2883,7 +2911,7 @@ void player_t::combat_end()
   compound_heal.add( iteration_heal );
 
   hps.add( iteration_fight_length ? iteration_heal / iteration_fight_length : 0 );
-  hpse.add( sim -> current_time ? iteration_heal / current_time : 0 );
+  hpse.add( sim -> current_time ? iteration_heal / sim -> current_time : 0 );
 
   dmg_taken.add( iteration_dmg_taken );
   dtps.add( iteration_fight_length ? iteration_dmg_taken / iteration_fight_length : 0 );
@@ -3047,7 +3075,6 @@ void player_t::reset()
   }
 
   last_foreground_action = 0;
-  current_time = 0;
 
   executing = 0;
   channeling = 0;
@@ -3120,6 +3147,9 @@ void player_t::schedule_ready( double delta_time,
   }
   action_t* was_executing = ( channeling ? channeling : executing );
 
+  if ( sleeping )
+    return;
+
   executing = 0;
   channeling = 0;
   action_queued = false;
@@ -3129,7 +3159,7 @@ void player_t::schedule_ready( double delta_time,
   double gcd_adjust = gcd_ready - ( sim -> current_time + delta_time );
   if ( gcd_adjust > 0 ) delta_time += gcd_adjust;
 
-  if ( waiting )
+  if ( unlikely( waiting ) )
   {
     iteration_waiting_time += delta_time;
   }
@@ -3191,8 +3221,6 @@ void player_t::schedule_ready( double delta_time,
     last_foreground_action -> stats -> total_execute_time += delta_time;
   }
 
-  if ( delta_time == 0 ) delta_time = SC_EPSILON;
-
   readying = new ( sim ) player_ready_event_t( sim, this, delta_time );
 
   if ( was_executing && was_executing -> gcd() > 0 && ! was_executing -> background && ! was_executing -> proc && ! was_executing -> repeating )
@@ -3248,7 +3276,12 @@ void player_t::demise()
   arise_time = -1;
 
   sleeping = 1;
-  readying = 0;
+  if ( readying )
+  {
+    event_t::cancel( readying );
+    readying = 0;
+  }
+
 
   for ( buff_t* b = buff_list; b; b = b -> next )
   {
@@ -3261,7 +3294,7 @@ void player_t::demise()
     a -> cancel();
   }
 
-  sim -> cancel_events( this );
+  //sim -> cancel_events( this );
 
   for ( pet_t* pet = pet_list; pet; pet = pet -> next_pet )
   {
@@ -3329,7 +3362,7 @@ void player_t::clear_debuffs()
 
   for ( action_t* a = action_list; a; a = a -> next )
   {
-    if ( a -> dot -> ticking ) a -> cancel();
+    if ( a -> dot -> ticking ) a -> dot -> cancel();
   }
 }
 
@@ -3391,7 +3424,7 @@ action_t* player_t::execute_action()
 
 // player_t::regen ==========================================================
 
-void player_t::regen( double periodicity )
+void player_t::regen( const double periodicity )
 {
   int resource_type = primary_resource();
 
@@ -3437,7 +3470,7 @@ void player_t::regen( double periodicity )
 
     if ( buffs.replenishment -> up() )
     {
-      double replenishment_regen = periodicity * resource_max[ RESOURCE_MANA ] * 0.0010 / 1.0;
+      double replenishment_regen = periodicity * resource_max[ RESOURCE_MANA ] * 0.0010;
 
       resource_gain( RESOURCE_MANA, replenishment_regen, gains.replenishment );
     }
@@ -3466,15 +3499,11 @@ void player_t::regen( double periodicity )
     }
   }
 
-  int index = ( int ) sim -> current_time;
+  int index = (int) ( sim -> current_time );
 
   for ( int i = RESOURCE_NONE; i < RESOURCE_MAX; i++ )
   {
     if ( resource_max[ i ] == 0 ) continue;
-
-    int size = ( int ) timeline_resource[ i ].size();
-    if ( index >= size )
-      timeline_resource[ i ].resize( index + 1, 0 );
 
     timeline_resource[ i ][ index ] += resource_current[ i ] * periodicity;
   }
@@ -3577,7 +3606,7 @@ double player_t::resource_gain( int       resource,
 // player_t::resource_available =============================================
 
 bool player_t::resource_available( int    resource,
-                                   double cost ) SC_CONST
+                                   double cost ) const
 {
   if ( resource == RESOURCE_NONE || cost <= 0 || infinite_resource[ resource ] == 1 )
   {
@@ -3660,21 +3689,21 @@ int player_t::primary_tab()
 
 // player_t::primary_role ===================================================
 
-int player_t::primary_role() SC_CONST
+int player_t::primary_role() const
 {
   return role;
 }
 
 // player_t::primary_tree_name ==============================================
 
-const char* player_t::primary_tree_name() SC_CONST
+const char* player_t::primary_tree_name() const
 {
   return util_t::talent_tree_string( primary_tree() );
 }
 
 // player_t::primary_tree ===================================================
 
-int player_t::primary_tree() SC_CONST
+int player_t::primary_tree() const
 {
   if ( specialization == TALENT_TAB_NONE )
     return TREE_NONE;
@@ -3684,7 +3713,7 @@ int player_t::primary_tree() SC_CONST
 
 // player_t::normalize_by ===================================================
 
-int player_t::normalize_by() SC_CONST
+int player_t::normalize_by() const
 {
   if ( sim -> normalized_stat != STAT_NONE )
   {
@@ -3705,14 +3734,14 @@ int player_t::normalize_by() SC_CONST
 
 // player_t::health_percentage() ============================================
 
-double player_t::health_percentage() SC_CONST
+double player_t::health_percentage() const
 {
   return resource_current[ RESOURCE_HEALTH ] / resource_max[ RESOURCE_HEALTH ] * 100 ;
 }
 
 // target_t::time_to_die ====================================================
 
-double player_t::time_to_die() SC_CONST
+double player_t::time_to_die() const
 {
   // FIXME: Someone can figure out a better way to do this, for now, we NEED to
   // wait a minimum gcd before starting to estimate fight duration based on health,
@@ -3730,7 +3759,7 @@ double player_t::time_to_die() SC_CONST
 
 // player_t::total_reaction_time ============================================
 
-double player_t::total_reaction_time() SC_CONST
+double player_t::total_reaction_time() const
 {
   return rngs.lag_reaction -> exgauss( reaction_mean, reaction_stddev, reaction_nu );
 }
@@ -4013,7 +4042,7 @@ double player_t::assess_damage( double            amount,
     {
       if ( ! sleeping )
       {
-        deaths.add( current_time );
+        deaths.add( sim -> current_time );
       }
       if ( sim -> log ) log_t::output( sim, "%s has died.", name() );
       demise();
@@ -4292,7 +4321,7 @@ void player_t::recalculate_haste()
 
 // player_t::recent_cast ====================================================
 
-bool player_t::recent_cast()
+bool player_t::recent_cast() const
 {
   return ( last_cast > 0 ) && ( ( last_cast + 5.0 ) > sim -> current_time );
 }
@@ -4331,7 +4360,7 @@ void player_t::aura_loss( const char* aura_name , double /* value */ )
 
 // player_t::find_cooldown ==================================================
 
-cooldown_t* player_t::find_cooldown( const std::string& name )
+cooldown_t* player_t::find_cooldown( const std::string& name ) const
 {
   for ( cooldown_t* c = cooldown_list; c; c = c -> next )
   {
@@ -4344,12 +4373,26 @@ cooldown_t* player_t::find_cooldown( const std::string& name )
 
 // player_t::find_dot =======================================================
 
-dot_t* player_t::find_dot( const std::string& name )
+dot_t* player_t::find_dot( const std::string& name ) const
 {
   for ( dot_t* d = dot_list; d; d = d -> next )
   {
     if ( d -> name_str == name )
       return d;
+  }
+
+  return 0;
+}
+
+// player_t::find_action_priority_list( const std::string& name ) ===========
+
+action_priority_list_t* player_t::find_action_priority_list( const std::string& name ) const
+{
+  for ( unsigned int i = 0; i < action_priority_list.size(); i++ )
+  {
+    action_priority_list_t* a = action_priority_list[i];
+    if ( a -> name_str == name )
+      return a;
   }
 
   return 0;
@@ -4593,20 +4636,6 @@ double player_t::get_position_distance( double m, double v ) const
 
 double player_t::get_player_distance( const player_t* p ) const
 { return get_position_distance( p -> x_position, p -> y_position ); }
-
-// player_t::find_action_priority_list( const std::string& name ) ===========
-
-action_priority_list_t* player_t::find_action_priority_list( const std::string& name )
-{
-  for ( unsigned int i = 0; i < action_priority_list.size(); i++ )
-  {
-    action_priority_list_t* a = action_priority_list[i];
-    if ( a -> name_str == name )
-      return a;
-  }
-
-  return 0;
-}
 
 // player_t::get_action_priority_list( const std::string& name ) ============
 
@@ -5071,7 +5100,6 @@ struct snapshot_stats_t : public action_t
     action_t( ACTION_OTHER, "snapshot_stats", player ), attack( 0 ), spell( 0 )
   {
     parse_options( NULL, options_str );
-    base_execute_time = 0.001; // Needs to be non-zero to ensure all the buffs have been setup.
     trigger_gcd = 0;
   }
 
@@ -5174,11 +5202,15 @@ struct wait_fixed_t : public wait_action_base_t
     time_expr = action_expr_t::parse( this, sec_str );
   }
 
-  virtual double execute_time() SC_CONST
+  virtual double execute_time() const
   {
     int result = time_expr -> evaluate();
     assert( result == TOK_NUM ); ( void )result;
-    return time_expr -> result_num + SC_EPSILON;
+    double wait = time_expr -> result_num;
+
+    if ( wait <= 0 ) wait = player -> available();
+
+    return wait;
   }
 };
 
@@ -5190,7 +5222,7 @@ struct wait_until_ready_t : public wait_fixed_t
     wait_fixed_t( player, options_str )
   {}
 
-  virtual double execute_time() SC_CONST
+  virtual double execute_time() const
   {
     double wait = wait_fixed_t::execute_time();
     double remains = 0;
@@ -5206,7 +5238,9 @@ struct wait_until_ready_t : public wait_fixed_t
       if ( remains > 0 && remains < wait ) wait = remains;
     }
 
-    return wait + SC_EPSILON;
+    if ( wait <= 0 ) wait = player -> available();
+
+    return wait;
   }
 };
 
@@ -5217,8 +5251,8 @@ wait_for_cooldown_t::wait_for_cooldown_t( player_t* player, const char* cd_name 
   wait_cd( player -> get_cooldown( cd_name ) )
 {}
 
-double wait_for_cooldown_t::execute_time() SC_CONST
-{ return wait_cd -> remains() + SC_EPSILON; }
+double wait_for_cooldown_t::execute_time() const
+{ return wait_cd -> remains(); }
 
 // Use Item Action ==========================================================
 

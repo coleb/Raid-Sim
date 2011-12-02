@@ -206,10 +206,11 @@ static void print_html_sim_summary( FILE*  file, sim_t* sim )
   fprintf( file,
            "\t\t\t\t\t\t\t<tr class=\"left\">\n"
            "\t\t\t\t\t\t\t\t<th>Fight Length:</th>\n"
-           "\t\t\t\t\t\t\t\t<td>%.0f - %.0f</td>\n"
+           "\t\t\t\t\t\t\t\t<td>%.0f - %.0f ( %.1f )</td>\n"
            "\t\t\t\t\t\t\t</tr>\n",
-           sim -> iteration_timeline[ 0 ],
-           sim -> iteration_timeline [sim -> iteration_timeline.size() - 1 ] );
+           sim -> simulation_length.min,
+           sim -> simulation_length.max,
+           sim -> simulation_length.mean );
   fprintf( file,
            "\t\t\t\t\t\t\t<tr class=\"left\">\n"
            "\t\t\t\t\t\t\t\t<th><h2>Performance:</h2></th>\n"
@@ -1486,7 +1487,7 @@ void report_t::print_html( sim_t* sim )
 
   // jQuery
   fprintf ( file,
-            "\t\t<script type=\"text/javascript\" src=\"http://ajax.googleapis.com/ajax/libs/jquery/1.2/jquery.min.js\"></script>\n" );
+            "\t\t<script type=\"text/javascript\" src=\"http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js\"></script>\n" );
 
   // Toggles, image load-on-demand, etc. Load from simulationcraft.org if
   // hosted_html=1, otherwise embed

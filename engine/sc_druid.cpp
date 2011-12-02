@@ -73,14 +73,20 @@ struct druid_t : public player_t
 
   // DoTs
   dot_t* dots_insect_swarm;
+  dot_t* dots_insect_swarm2;
+  dot_t* dots_insect_swarm3;
   dot_t* dots_lacerate;
   dot_t* dots_lifebloom;
   dot_t* dots_moonfire;
+  dot_t* dots_moonfire2;
+  dot_t* dots_moonfire3;
   dot_t* dots_rake;
   dot_t* dots_regrowth;
   dot_t* dots_rejuvenation;
   dot_t* dots_rip;
   dot_t* dots_sunfire;
+  dot_t* dots_sunfire2;
+  dot_t* dots_sunfire3;
   dot_t* dots_wild_growth;
 
   // Gains
@@ -107,6 +113,7 @@ struct druid_t : public player_t
   struct glyphs_t
   {
     glyph_t* berserk;
+    glyph_t* bloodletting;
     glyph_t* ferocious_bite;
     glyph_t* focus;
     glyph_t* frenzied_regeneration;
@@ -124,7 +131,6 @@ struct druid_t : public player_t
     glyph_t* rejuvenation;
     glyph_t* rip;
     glyph_t* savage_roar;
-    glyph_t* shred;
     glyph_t* starfall;
     glyph_t* starfire;
     glyph_t* starsurge;
@@ -294,16 +300,22 @@ struct druid_t : public player_t
     cooldowns_mangle_bear    = get_cooldown( "mangle_bear"    );
     cooldowns_starsurge      = get_cooldown( "starsurge"      );
 
-    dots_insect_swarm = get_dot( "insect_swarm" );
-    dots_lacerate     = get_dot( "lacerate"     );
-    dots_lifebloom    = get_dot( "lifebloom"    );
-    dots_moonfire     = get_dot( "moonfire"     );
-    dots_rake         = get_dot( "rake"         );
-    dots_regrowth     = get_dot( "regrowth"     );
-    dots_rejuvenation = get_dot( "rejuvenation" );
-    dots_rip          = get_dot( "rip"          );
-    dots_sunfire      = get_dot( "sunfire"      );
-    dots_wild_growth  = get_dot( "wild_growth"  );
+    dots_insect_swarm  = get_dot( "insect_swarm"  );
+    dots_insect_swarm2 = get_dot( "insect_swarm2" );
+    dots_insect_swarm3 = get_dot( "insect_swarm3" );
+    dots_lacerate      = get_dot( "lacerate"      );
+    dots_lifebloom     = get_dot( "lifebloom"     );
+    dots_moonfire      = get_dot( "moonfire"      );
+    dots_moonfire2     = get_dot( "moonfire2"     );
+    dots_moonfire3     = get_dot( "moonfire3"     );
+    dots_rake          = get_dot( "rake"          );
+    dots_regrowth      = get_dot( "regrowth"      );
+    dots_rejuvenation  = get_dot( "rejuvenation"  );
+    dots_rip           = get_dot( "rip"           );
+    dots_sunfire       = get_dot( "sunfire"       );
+    dots_sunfire2      = get_dot( "sunfire2"      );
+    dots_sunfire3      = get_dot( "sunfire3"      );
+    dots_wild_growth   = get_dot( "wild_growth"   );
 
     cat_melee_attack = 0;
     bear_melee_attack = 0;
@@ -335,39 +347,39 @@ struct druid_t : public player_t
   virtual void      reset();
   virtual void      clear_debuffs();
   virtual void      regen( double periodicity );
-  virtual double    available() SC_CONST;
-  virtual double    composite_armor_multiplier() SC_CONST;
-  virtual double    composite_attack_power() SC_CONST;
-  virtual double    composite_attack_power_multiplier() SC_CONST;
-  virtual double    composite_attack_crit() SC_CONST;
-  virtual double    composite_player_multiplier( const school_type school, action_t* a = NULL ) SC_CONST;
-  virtual double    composite_spell_hit() SC_CONST;
-  virtual double    composite_spell_crit() SC_CONST;
-  virtual double    composite_attribute_multiplier( int attr ) SC_CONST;
-  virtual double    matching_gear_multiplier( const attribute_type attr ) SC_CONST;
-  virtual double    composite_block_value() SC_CONST { return 0; }
-  virtual double    composite_tank_parry() SC_CONST { return 0; }
-  virtual double    composite_tank_block() SC_CONST { return 0; }
-  virtual double    composite_tank_crit( const school_type school ) SC_CONST;
+  virtual double    available() const;
+  virtual double    composite_armor_multiplier() const;
+  virtual double    composite_attack_power() const;
+  virtual double    composite_attack_power_multiplier() const;
+  virtual double    composite_attack_crit() const;
+  virtual double    composite_player_multiplier( const school_type school, action_t* a = NULL ) const;
+  virtual double    composite_spell_hit() const;
+  virtual double    composite_spell_crit() const;
+  virtual double    composite_attribute_multiplier( int attr ) const;
+  virtual double    matching_gear_multiplier( const attribute_type attr ) const;
+  virtual double    composite_block_value() const { return 0; }
+  virtual double    composite_tank_parry() const { return 0; }
+  virtual double    composite_tank_block() const { return 0; }
+  virtual double    composite_tank_crit( const school_type school ) const;
   virtual action_expr_t* create_expression( action_t*, const std::string& name );
   virtual action_t* create_action( const std::string& name, const std::string& options );
   virtual pet_t*    create_pet( const std::string& name, const std::string& type = std::string() );
   virtual void      create_pets();
   virtual int       decode_set( item_t& item );
-  virtual int       primary_resource() SC_CONST;
-  virtual int       primary_role() SC_CONST;
+  virtual int       primary_resource() const;
+  virtual int       primary_role() const;
   virtual double    assess_damage( double amount, const school_type school, int dmg_type, int result, action_t* a );
   virtual heal_info_t assess_heal( double amount, const school_type school, int type, int result, action_t* a );
   virtual double    intellect() const;
 
   // Utilities
-  double combo_point_rank( double* cp_list ) SC_CONST
+  double combo_point_rank( double* cp_list ) const
   {
     assert( buffs_combo_points -> check() );
     return cp_list[ buffs_combo_points -> stack() - 1 ];
   }
 
-  double combo_point_rank( double cp1, double cp2, double cp3, double cp4, double cp5 ) SC_CONST
+  double combo_point_rank( double cp1, double cp2, double cp3, double cp4, double cp5 ) const
   {
     double cp_list[] = { cp1, cp2, cp3, cp4, cp5 };
     return combo_point_rank( cp_list );
@@ -428,7 +440,7 @@ struct druid_cat_attack_t : public attack_t
     requires_stealth      = false;
   }
 
-  virtual double cost() SC_CONST;
+  virtual double cost() const;
   virtual void   execute();
   virtual void   consume_resource();
   virtual void   player_buff();
@@ -452,9 +464,9 @@ struct druid_bear_attack_t : public attack_t
     tick_may_crit = true;
   }
 
-  virtual double cost() SC_CONST;
+  virtual double cost() const;
   virtual void   execute();
-  virtual double haste() SC_CONST;
+  virtual double haste() const;
   virtual void   consume_resource();
   virtual void   player_buff();
 };
@@ -483,11 +495,11 @@ struct druid_heal_t : public heal_t
   }
 
   virtual void   consume_resource();
-  virtual double cost() SC_CONST;
-  virtual double cost_reduction() SC_CONST;
+  virtual double cost() const;
+  virtual double cost_reduction() const;
   virtual void   execute();
-  virtual double execute_time() SC_CONST;
-  virtual double haste() SC_CONST;
+  virtual double execute_time() const;
+  virtual double haste() const;
   virtual void   player_buff();
 };
 
@@ -512,11 +524,11 @@ struct druid_spell_t : public spell_t
   }
 
   virtual void   consume_resource();
-  virtual double cost() SC_CONST;
-  virtual double cost_reduction() SC_CONST;
+  virtual double cost() const;
+  virtual double cost_reduction() const;
   virtual void   execute();
-  virtual double execute_time() SC_CONST;
-  virtual double haste() SC_CONST;
+  virtual double execute_time() const;
+  virtual double haste() const;
   virtual void   player_tick();
   virtual void   player_buff();
   virtual void   schedule_execute();
@@ -573,19 +585,19 @@ struct treants_pet_t : public pet_t
     main_hand_attack = new melee_t( this );
   }
 
-  virtual double composite_attack_power() SC_CONST
+  virtual double composite_attack_power() const
   {
     double ap = pet_t::composite_attack_power();
-    ap += 0.57 * owner -> composite_spell_power( SCHOOL_MAX );
+    ap += 0.57 * owner -> composite_spell_power( SCHOOL_MAX ) * owner -> composite_spell_power_multiplier();
     return ap;
   }
 
-  virtual double composite_attack_hit() SC_CONST
+  virtual double composite_attack_hit() const
   {
     return owner -> composite_spell_hit();
   }
 
-  virtual double composite_attack_expertise() SC_CONST
+  virtual double composite_attack_expertise() const
   {
     // Hit scales that if they are hit capped, you're expertise capped.
     return owner -> composite_spell_hit() * 26.0 / 17.0;
@@ -626,12 +638,12 @@ struct burning_treant_pet_t : public pet_t
     }
   }
 
-  virtual double composite_spell_crit() SC_CONST
+  virtual double composite_spell_crit() const
   {
     return snapshot_crit;
   }
 
-  virtual double composite_spell_haste() SC_CONST
+  virtual double composite_spell_haste() const
   {
     return 1.0;
   }
@@ -1128,7 +1140,7 @@ static void trigger_tier12_2pc_melee( attack_t* s, double dmg )
                        name(), target_multiplier, target_hit, target_crit, target_attack_power, target_spell_power, target_penetration );
     }
 
-    virtual double total_td_multiplier() SC_CONST { return 1.0; }
+    virtual double total_td_multiplier() const { return 1.0; }
   };
 
   double total_dot_dmg = dmg * p -> dbc.spell( 99001 ) -> effect1().percent();
@@ -1178,7 +1190,7 @@ static void trigger_tier12_2pc_melee( attack_t* s, double dmg )
 
 // druid_cat_attack_t::cost =================================================
 
-double druid_cat_attack_t::cost() SC_CONST
+double druid_cat_attack_t::cost() const
 {
   double c = attack_t::cost();
   druid_t* p = player -> cast_druid();
@@ -1313,7 +1325,7 @@ struct cat_melee_t : public druid_cat_attack_t
     player_multiplier *= 1.0 + p -> buffs_savage_roar -> value();
   }
 
-  virtual double execute_time() SC_CONST
+  virtual double execute_time() const
   {
     if ( ! player -> in_combat )
       return 0.01;
@@ -1456,7 +1468,7 @@ struct ferocious_bite_t : public druid_cat_attack_t
       }
     }
 
-    double health_percentage = ( p -> dbc.ptr && p -> set_bonus.tier13_2pc_melee() ) ? 60.0 : p -> talents.blood_in_the_water -> base_value();
+    double health_percentage = ( p -> set_bonus.tier13_2pc_melee() ) ? 60.0 : p -> talents.blood_in_the_water -> base_value();
     if ( result_is_hit() && target -> health_percentage() <= health_percentage )
     {
       // Proc chance is not stored in the talent anymore
@@ -1533,7 +1545,7 @@ struct frenzied_regeneration_buff_t : public buff_t
           if ( p -> buffs_frenzied_regeneration -> check() )
           {
             int rage_consumed = ( int ) ( std::min( p -> resource_current[ RESOURCE_RAGE ], 10.0 ) );
-            double health_pct = ( p -> dbc.ptr ) ? p -> dbc.spell( 22842 ) -> effect1().percent() / 100 : 0.30 / 100; // Value is really 30, fixed on PTR
+            double health_pct = p -> dbc.spell( 22842 ) -> effect1().percent() / 100;
             double rage_health = rage_consumed * health_pct * p -> resource_max[ RESOURCE_HEALTH ];
             p -> resource_gain( RESOURCE_HEALTH, rage_health, p -> gains_frenzied_regeneration );
             p -> resource_loss( RESOURCE_RAGE, rage_consumed );
@@ -1549,7 +1561,7 @@ struct frenzied_regeneration_buff_t : public buff_t
       // FIXME: Glyph should increase healing received
     }
 
-    double health_pct = ( p -> dbc.ptr ) ? effect2().percent() : 0.30; // Value is really 30, fixed on PTR
+    double health_pct = effect2().percent(); 
 
     health_gain = ( int ) floor( player -> resource_max[ RESOURCE_HEALTH ] * health_pct );
     p -> stat_gain( STAT_MAX_HEALTH, health_gain );
@@ -1648,7 +1660,7 @@ struct mangle_cat_t : public druid_cat_attack_t
     {
       druid_t* p = player -> cast_druid();
 
-      if ( p -> dbc.ptr && p -> glyphs.shred -> enabled() &&
+      if ( p -> glyphs.bloodletting -> enabled() &&
            p -> dots_rip -> ticking  &&
            p -> dots_rip -> added_ticks < 4 )
       {
@@ -1677,8 +1689,8 @@ struct mangle_cat_t : public druid_cat_attack_t
   {
     druid_t* p = player -> cast_druid();
 
-    if ( p -> dbc.ptr && extend_rip )
-      if ( ! p -> glyphs.shred -> enabled() ||
+    if ( extend_rip )
+      if ( ! p -> glyphs.bloodletting -> enabled() ||
            ! p -> dots_rip -> ticking ||
            ( p -> dots_rip -> added_ticks == 4 ) )
         return false;
@@ -1769,7 +1781,7 @@ struct ravage_t : public druid_cat_attack_t
     p -> buffs_stampede_cat -> up();
   }
 
-  virtual double cost() SC_CONST
+  virtual double cost() const
   {
     druid_t* p = player -> cast_druid();
 
@@ -1852,7 +1864,7 @@ struct rip_t : public druid_cat_attack_t
     may_crit              = false;
     base_multiplier      *= 1.0 + p -> glyphs.rip -> mod_additive( P_TICK_DAMAGE );
 
-    dot_behavior          = DOT_REFRESH; // Tested on PTR server.
+    dot_behavior          = DOT_REFRESH; 
   }
 
   virtual void execute()
@@ -1961,7 +1973,7 @@ struct shred_t : public druid_cat_attack_t
 
     if ( result_is_hit() )
     {
-      if ( p -> glyphs.shred -> enabled() &&
+      if ( p -> glyphs.bloodletting -> enabled() &&
            p -> dots_rip -> ticking  &&
            p -> dots_rip -> added_ticks < 4 )
       {
@@ -1997,7 +2009,7 @@ struct shred_t : public druid_cat_attack_t
     druid_t* p = player -> cast_druid();
 
     if ( extend_rip )
-      if ( ! p -> glyphs.shred -> enabled() ||
+      if ( ! p -> glyphs.bloodletting -> enabled() ||
            ! p -> dots_rip -> ticking ||
            ( p -> dots_rip -> added_ticks == 4 ) )
         return false;
@@ -2093,7 +2105,7 @@ struct tigers_fury_t : public druid_cat_attack_t
 
 // druid_bear_attack_t::cost ================================================
 
-double druid_bear_attack_t::cost() SC_CONST
+double druid_bear_attack_t::cost() const
 {
   druid_t* p = player -> cast_druid();
 
@@ -2145,7 +2157,7 @@ void druid_bear_attack_t::execute()
 
 // druid_bear_attack_t::haste ===============================================
 
-double druid_bear_attack_t::haste() SC_CONST
+double druid_bear_attack_t::haste() const
 {
   double h = attack_t::haste();
   druid_t* p = player -> cast_druid();
@@ -2186,7 +2198,7 @@ struct bear_melee_t : public druid_bear_attack_t
     may_crit    = true;
   }
 
-  virtual double execute_time() SC_CONST
+  virtual double execute_time() const
   {
     if ( ! player -> in_combat )
       return 0.01;
@@ -2457,7 +2469,7 @@ struct pulverize_t : public druid_bear_attack_t
       if ( p -> dots_lacerate -> ticking )
       {
         p -> buffs_pulverize -> trigger( 1, p -> buffs_lacerate -> stack() * 0.03 );
-        p -> dots_lacerate -> action -> cancel();
+        p -> dots_lacerate -> cancel();
         p -> buffs_lacerate -> expire();
       }
     }
@@ -2546,7 +2558,7 @@ void druid_heal_t::consume_resource()
 
 // druid_heal_t::cost =======================================================
 
-double druid_heal_t::cost() SC_CONST
+double druid_heal_t::cost() const
 {
   druid_t* p = player -> cast_druid();
 
@@ -2565,7 +2577,7 @@ double druid_heal_t::cost() SC_CONST
 
 // druid_heal_t::cost_reduction =============================================
 
-double druid_heal_t::cost_reduction() SC_CONST
+double druid_heal_t::cost_reduction() const
 {
   druid_t* p = player -> cast_druid();
 
@@ -2597,7 +2609,7 @@ void druid_heal_t::execute()
 
 // druid_heal_t::execute_time ===============================================
 
-double druid_heal_t::execute_time() SC_CONST
+double druid_heal_t::execute_time() const
 {
   druid_t* p = player -> cast_druid();
 
@@ -2609,7 +2621,7 @@ double druid_heal_t::execute_time() SC_CONST
 
 // druid_heal_t::haste ======================================================
 
-double druid_heal_t::haste() SC_CONST
+double druid_heal_t::haste() const
 {
   double h =  heal_t::haste();
   druid_t* p = player -> cast_druid();
@@ -2848,7 +2860,7 @@ struct regrowth_t : public druid_heal_t
     }
   }
 
-  virtual double execute_time() SC_CONST
+  virtual double execute_time() const
   {
     druid_t* p = player -> cast_druid();
 
@@ -2934,20 +2946,20 @@ struct swiftmend_t : public druid_heal_t
       {
         if ( p -> dots_regrowth -> remains() > p -> dots_rejuvenation -> remains() )
         {
-          p -> dots_rejuvenation -> action -> cancel();
+          p -> dots_rejuvenation -> cancel();
         }
         else
         {
-          p -> dots_regrowth -> action -> cancel();
+          p -> dots_regrowth -> cancel();
         }
       }
       else if ( p -> dots_regrowth -> ticking )
       {
-        p -> dots_regrowth -> action -> cancel();
+        p -> dots_regrowth -> cancel();
       }
       else if ( p -> dots_rejuvenation -> ticking )
       {
-        p -> dots_rejuvenation -> action -> cancel();
+        p -> dots_rejuvenation -> cancel();
       }
     }
 
@@ -3028,7 +3040,7 @@ struct wild_growth_t : public druid_heal_t
 
 // druid_spell_t::cost_reduction ============================================
 
-double druid_spell_t::cost_reduction() SC_CONST
+double druid_spell_t::cost_reduction() const
 {
   druid_t* p = player -> cast_druid();
 
@@ -3041,7 +3053,7 @@ double druid_spell_t::cost_reduction() SC_CONST
 
 // druid_spell_t::cost ======================================================
 
-double druid_spell_t::cost() SC_CONST
+double druid_spell_t::cost() const
 {
   druid_t* p = player -> cast_druid();
 
@@ -3060,7 +3072,7 @@ double druid_spell_t::cost() SC_CONST
 
 // druid_spell_t::haste =====================================================
 
-double druid_spell_t::haste() SC_CONST
+double druid_spell_t::haste() const
 {
   double h =  spell_t::haste();
   druid_t* p = player -> cast_druid();
@@ -3072,7 +3084,7 @@ double druid_spell_t::haste() SC_CONST
 
 // druid_spell_t::execute_time ==============================================
 
-double druid_spell_t::execute_time() SC_CONST
+double druid_spell_t::execute_time() const
 {
   druid_t* p = player -> cast_druid();
 
@@ -3589,8 +3601,8 @@ struct insect_swarm_t : public druid_spell_t
 {
   cooldown_t* starsurge_cd;
 
-  insect_swarm_t( druid_t* p, const std::string& options_str ) :
-    druid_spell_t( "insect_swarm", 5570, p ),
+  insect_swarm_t( druid_t* p, const std::string& options_str, const char* name = "insect_swarm" ) :
+    druid_spell_t( name, 5570, p ),
     starsurge_cd( 0 )
   {
     parse_options( NULL, options_str );
@@ -3684,10 +3696,11 @@ struct mark_of_the_wild_t : public druid_spell_t
 struct moonfire_t : public druid_spell_t
 {
   cooldown_t* starsurge_cd;
+  dot_t* sf;
 
-  moonfire_t( druid_t* p, const std::string& options_str, bool dtr=false ) :
-    druid_spell_t( "moonfire", 8921, p ),
-    starsurge_cd( 0 )
+  moonfire_t( druid_t* p, const std::string& options_str, bool dtr=false, const char* name = "moonfire", dot_t* sf_=0 ) :
+    druid_spell_t( name, 8921, p ),
+    starsurge_cd( 0 ), sf( sf_ ? sf_ : p -> dots_sunfire )
   {
     parse_options( NULL, options_str );
 
@@ -3753,8 +3766,8 @@ struct moonfire_t : public druid_spell_t
 
     if ( result_is_hit() )
     {
-      if ( p -> dots_sunfire -> ticking )
-        p -> dots_sunfire -> action -> cancel();
+      if ( sf -> ticking )
+        sf -> cancel();
 
       if ( p -> talents.lunar_shower -> rank() )
       {
@@ -3767,7 +3780,7 @@ struct moonfire_t : public druid_spell_t
     }
   }
 
-  virtual double cost_reduction() SC_CONST
+  virtual double cost_reduction() const
   {
     double cr = druid_spell_t::cost_reduction();
     druid_t* p = player -> cast_druid();
@@ -3882,17 +3895,18 @@ struct druids_swiftness_t : public druid_spell_t
 
 struct starfire_t : public druid_spell_t
 {
-  std::string prev_str;
   int extend_moonfire;
+  dot_t* is;
+  dot_t* mf;
+  dot_t* sf;
 
-  starfire_t( druid_t* p, const std::string& options_str, bool dtr=false ) :
-    druid_spell_t( "starfire", 2912, p ),
-    extend_moonfire( 0 )
+  starfire_t( druid_t* p, const std::string& options_str, bool dtr=false, const char* name = "starfire", dot_t* is_ = 0, dot_t* mf_ = 0, dot_t* sf_ = 0 ) :
+    druid_spell_t( name, 2912, p ),
+    extend_moonfire( 0 ), is( is_ ? is_ : p -> dots_insect_swarm ), mf( mf_ ? mf_ : p -> dots_moonfire ), sf( sf_ ? sf_ : p -> dots_sunfire )
   {
     option_t options[] =
     {
-      { "extendmf", OPT_BOOL,   &extend_moonfire },
-      { "prev",     OPT_STRING, &prev_str        },
+      { "extendmf", OPT_BOOL, &extend_moonfire },
       { NULL, OPT_UNKNOWN, NULL }
     };
     parse_options( options, options_str );
@@ -3922,19 +3936,19 @@ struct starfire_t : public druid_spell_t
 
       if ( p -> glyphs.starfire -> enabled() )
       {
-        if ( p -> dots_moonfire -> ticking )
+        if ( mf -> ticking )
         {
-          if ( p -> dots_moonfire -> added_seconds < 9.0 )
-            p -> dots_moonfire -> extend_duration_seconds( 3.0 );
+          if ( mf -> added_seconds < 9.0 )
+            mf -> extend_duration_seconds( 3.0 );
           else
-            p -> dots_moonfire -> extend_duration_seconds( 0.0 );
+            mf -> extend_duration_seconds( 0.0 );
         }
-        else if ( p -> dots_sunfire -> ticking )
+        else if ( sf -> ticking )
         {
-          if ( p -> dots_sunfire -> added_seconds < 9.0 )
-            p -> dots_sunfire -> extend_duration_seconds( 3.0 );
+          if ( sf -> added_seconds < 9.0 )
+            sf -> extend_duration_seconds( 3.0 );
           else
-            p -> dots_sunfire -> extend_duration_seconds( 0.0 );
+            sf -> extend_duration_seconds( 0.0 );
         }
       }
 
@@ -3956,7 +3970,7 @@ struct starfire_t : public druid_spell_t
         {
           if ( p -> rng_euphoria -> roll( p -> talents.euphoria -> effect1().percent() ) )
           {
-            if ( !( p -> bugs && p -> eclipse_bar_value > 35 ) )
+            if ( ! ( p -> bugs && p -> eclipse_bar_value > 35 ) )
             {
               gain *= 2;
             }
@@ -3980,7 +3994,7 @@ struct starfire_t : public druid_spell_t
 
     // Balance, 2P -- Insect Swarm increases all damage done by your Starfire,
     // Starsurge, and Wrath spells against that target by 3%.
-    if ( p -> dots_insect_swarm -> ticking )
+    if ( is -> ticking )
       target_multiplier *= 1.0 + p -> set_bonus.tier13_2pc_caster() * 0.03;
   }
 
@@ -3993,26 +4007,17 @@ struct starfire_t : public druid_spell_t
       if ( ! p -> glyphs.starfire -> enabled() )
         return false;
 
-      if ( p -> dots_moonfire -> ticking )
+      if ( mf -> ticking )
       {
-        if ( p -> dots_moonfire -> added_seconds > 8 )
+        if ( mf -> added_seconds > 8 )
           return false;
       }
-      else if ( p -> dots_sunfire -> ticking )
+      else if ( sf -> ticking )
       {
-        if ( p -> dots_sunfire -> added_seconds > 8 )
+        if ( sf -> added_seconds > 8 )
           return false;
       }
       else
-        return false;
-    }
-
-    if ( ! prev_str.empty() )
-    {
-      if ( ! p -> last_foreground_action )
-        return false;
-
-      if ( p -> last_foreground_action -> name_str != prev_str )
         return false;
     }
 
@@ -4105,7 +4110,7 @@ struct starsurge_t : public druid_spell_t
     if ( p -> primary_tree() == TREE_BALANCE )
       crit_bonus_multiplier *= 1.0 + p -> spells.moonfury -> effect2().percent();
 
-    if ( p -> dbc.ptr && p -> set_bonus.tier13_4pc_caster() )
+    if ( p -> set_bonus.tier13_4pc_caster() )
       cooldown -> duration -= 5.0;
 
     starfall_cd = p -> get_cooldown( "starfall" );
@@ -4147,7 +4152,7 @@ struct starsurge_t : public druid_spell_t
     p -> buffs_shooting_stars -> expire();
   }
 
-  virtual double execute_time() SC_CONST
+  virtual double execute_time() const
   {
     druid_t* p = player -> cast_druid();
 
@@ -4214,12 +4219,13 @@ struct stealth_t : public spell_t
 struct sunfire_t : public druid_spell_t
 {
   cooldown_t* starsurge_cd;
+  dot_t* mf;
 
   // Identical to moonfire, except damage type and usability
 
-  sunfire_t( druid_t* p, const std::string& options_str, bool dtr=false ) :
-    druid_spell_t( "sunfire", 93402, p ),
-    starsurge_cd( 0 )
+  sunfire_t( druid_t* p, const std::string& options_str, bool dtr=false, const char* name = "sunfire", dot_t* mf_=0  ) :
+    druid_spell_t( name, 93402, p ),
+    starsurge_cd( 0 ), mf( mf_ ? mf_ : p -> dots_moonfire )
   {
     check_talent( p -> talents.sunfire -> rank() );
 
@@ -4287,8 +4293,8 @@ struct sunfire_t : public druid_spell_t
 
     if ( result_is_hit() )
     {
-      if ( p -> dots_moonfire -> ticking )
-        p -> dots_moonfire -> action -> cancel();
+      if ( mf -> ticking )
+        mf -> cancel();
 
       if ( p -> talents.lunar_shower -> rank() )
       {
@@ -4303,7 +4309,7 @@ struct sunfire_t : public druid_spell_t
     }
   }
 
-  virtual double cost_reduction() SC_CONST
+  virtual double cost_reduction() const
   {
     double cr = druid_spell_t::cost_reduction();
     druid_t* p = player -> cast_druid();
@@ -4503,17 +4509,10 @@ struct wild_mushroom_detonate_t : public druid_spell_t
 
 struct wrath_t : public druid_spell_t
 {
-  std::string prev_str;
-
   wrath_t( druid_t* p, const std::string& options_str, bool dtr=false ) :
     druid_spell_t( "wrath", 5176, p )
   {
-    option_t options[] =
-    {
-      { "prev",    OPT_STRING, &prev_str    },
-      { NULL, OPT_UNKNOWN, NULL }
-    };
-    parse_options( options, options_str );
+    parse_options( NULL, options_str );
 
     base_execute_time += p -> talents.starlight_wrath -> mod_additive( P_CAST_TIME );
     if ( p -> primary_tree() == TREE_BALANCE )
@@ -4526,7 +4525,7 @@ struct wrath_t : public druid_spell_t
     }
   }
 
-  virtual double execute_time() SC_CONST
+  virtual double execute_time() const
   {
     double t = druid_spell_t::execute_time();
     druid_t* p = player ->cast_druid();
@@ -4644,22 +4643,6 @@ struct wrath_t : public druid_spell_t
 
     trigger_burning_treant( this );
   }
-
-  virtual bool ready()
-  {
-    druid_t* p = player -> cast_druid();
-
-    if ( ! prev_str.empty() )
-    {
-      if ( ! p -> last_foreground_action )
-        return false;
-
-      if ( p -> last_foreground_action -> name_str != prev_str )
-        return false;
-    }
-
-    return druid_spell_t::ready();
-  }
 };
 
 } // ANONYMOUS NAMESPACE ====================================================
@@ -4689,6 +4672,8 @@ action_t* druid_t::create_action( const std::string& name,
   if ( name == "frenzied_regeneration"  ) return new  frenzied_regeneration_t( this, options_str );
   if ( name == "healing_touch"          ) return new          healing_touch_t( this, options_str );
   if ( name == "insect_swarm"           ) return new           insect_swarm_t( this, options_str );
+  if ( name == "insect_swarm2"          ) return new           insect_swarm_t( this, options_str, "insect_swarm2" );
+  if ( name == "insect_swarm3"          ) return new           insect_swarm_t( this, options_str, "insect_swarm3" );
   if ( name == "innervate"              ) return new              innervate_t( this, options_str );
   if ( name == "lacerate"               ) return new               lacerate_t( this, options_str );
   if ( name == "lifebloom"              ) return new              lifebloom_t( this, options_str );
@@ -4698,6 +4683,8 @@ action_t* druid_t::create_action( const std::string& name,
   if ( name == "mark_of_the_wild"       ) return new       mark_of_the_wild_t( this, options_str );
   if ( name == "maul"                   ) return new                   maul_t( this, options_str );
   if ( name == "moonfire"               ) return new               moonfire_t( this, options_str );
+  if ( name == "moonfire2"              ) return new               moonfire_t( this, options_str, false, "moonfire2", dots_sunfire2 );
+  if ( name == "moonfire3"              ) return new               moonfire_t( this, options_str, false, "moonfire3", dots_sunfire3 );
   if ( name == "moonkin_form"           ) return new           moonkin_form_t( this, options_str );
   if ( name == "natures_swiftness"      ) return new       druids_swiftness_t( this, options_str );
   if ( name == "nourish"                ) return new                nourish_t( this, options_str );
@@ -4713,10 +4700,14 @@ action_t* druid_t::create_action( const std::string& name,
   if ( name == "skull_bash_bear"        ) return new        skull_bash_bear_t( this, options_str );
   if ( name == "skull_bash_cat"         ) return new         skull_bash_cat_t( this, options_str );
   if ( name == "starfire"               ) return new               starfire_t( this, options_str );
+  if ( name == "starfire2"              ) return new               starfire_t( this, options_str, false, "starfire2", dots_insect_swarm2, dots_moonfire2, dots_sunfire2 );
+  if ( name == "starfire3"              ) return new               starfire_t( this, options_str, false, "starfire3", dots_insect_swarm3, dots_moonfire3, dots_sunfire3 );
   if ( name == "starfall"               ) return new               starfall_t( this, options_str );
   if ( name == "starsurge"              ) return new              starsurge_t( this, options_str );
   if ( name == "stealth"                ) return new                stealth_t( this, options_str );
   if ( name == "sunfire"                ) return new                sunfire_t( this, options_str );
+  if ( name == "sunfire2"               ) return new                sunfire_t( this, options_str, false, "sunfire2",dots_moonfire2 );
+  if ( name == "sunfire3"               ) return new                sunfire_t( this, options_str, false, "sunfire3",dots_moonfire3 );
   if ( name == "survival_instincts"     ) return new     survival_instincts_t( this, options_str );
   if ( name == "swipe_bear"             ) return new             swipe_bear_t( this, options_str );
   if ( name == "swipe_cat"              ) return new              swipe_cat_t( this, options_str );
@@ -4856,6 +4847,7 @@ void druid_t::init_spells()
 
   // Glyphs
   glyphs.berserk               = find_glyph( "Glyph of Berserk" );
+  glyphs.bloodletting          = find_glyph( "Glyph of Bloodletting" );
   glyphs.ferocious_bite        = find_glyph( "Glyph of Ferocious Bite" );
   glyphs.focus                 = find_glyph( "Glyph of Focus" );
   glyphs.frenzied_regeneration = find_glyph( "Glyph of Frenzied Regeneration" );
@@ -4873,7 +4865,6 @@ void druid_t::init_spells()
   glyphs.rejuvenation          = find_glyph( "Glyph of Rejuvenation" );
   glyphs.rip                   = find_glyph( "Glyph of Rip" );
   glyphs.savage_roar           = find_glyph( "Glyph of Savage Roar" );
-  glyphs.shred                 = dbc.ptr ? find_glyph( "Glyph of Bloodletting" ) : find_glyph( "Glyph of Shred" );
   glyphs.starfall              = find_glyph( "Glyph of Starfall" );
   glyphs.starfire              = find_glyph( "Glyph of Starfire" );
   glyphs.starsurge             = find_glyph( "Glyph of Starsurge" );
@@ -4949,7 +4940,7 @@ void druid_t::init_buffs()
   buffs_stampede_cat       = new buff_t( this, "stampede_cat"      , 1,  10.0,     0, talents.stampede -> ok() );
   buffs_t11_4pc_caster     = new buff_t( this, "t11_4pc_caster"    , 3,   8.0,     0, set_bonus.tier11_4pc_caster() );
   buffs_t11_4pc_melee      = new buff_t( this, "t11_4pc_melee"     , 3,  30.0,     0, set_bonus.tier11_4pc_melee()  );
-  buffs_t13_4pc_melee      = new buff_t( this, "t13_4pc_melee"     , 1,  10.0,     0, ( dbc.ptr && set_bonus.tier13_4pc_melee() ) ? 1.0 : 0 );
+  buffs_t13_4pc_melee      = new buff_t( this, "t13_4pc_melee"     , 1,  10.0,     0, ( set_bonus.tier13_4pc_melee() ) ? 1.0 : 0 );
   buffs_wild_mushroom      = new buff_t( this, "wild_mushroom"     , 3,     0,     0, 1.0, true );
 
   // buff_t ( sim, id, name, chance, cooldown, quiet, reverse, rng_type )
@@ -5170,7 +5161,7 @@ void druid_t::init_actions()
       }
       else
       {
-        std::string bitw_hp = ( dbc.ptr && set_bonus.tier13_2pc_melee() ) ? "60" : "25";
+        std::string bitw_hp = ( set_bonus.tier13_2pc_melee() ) ? "60" : "25";
         if ( level > 80 )
         {
           action_list_str += "flask,type=winds";
@@ -5297,16 +5288,7 @@ void druid_t::init_actions()
 
       if ( primary_tree() == TREE_BALANCE )
       {
-        if ( set_bonus.tier12_4pc_caster() )
-        {
-          // This has been suggested as superior, will need to test once we have a complete Tier 12 profile
-          // starsurge,if=buff.solar_eclipse.up|buff.lunar_eclipse.up
-          action_list_str += "/starsurge,if=!((eclipse<=-84&eclipse_dir=-1)|(eclipse>=75&eclipse_dir=1))";
-        }
-        else
-        {
-          action_list_str += "/starsurge,if=buff.solar_eclipse.up|buff.lunar_eclipse.up";
-        }
+        action_list_str += "/starsurge,if=buff.solar_eclipse.up|buff.lunar_eclipse.up";
       }
       action_list_str += "/innervate,if=mana_pct<50";
       if ( talents.force_of_nature -> rank() )
@@ -5316,16 +5298,16 @@ void druid_t::init_actions()
       if ( set_bonus.tier12_4pc_caster() )
       {
         action_list_str += "/starfire,if=eclipse_dir=1&eclipse<75";
-        action_list_str += "/starfire,prev=wrath,if=eclipse_dir=-1&eclipse<-84";
+        action_list_str += "/starfire,if=prev.wrath=1&eclipse_dir=-1&eclipse<-84";
         action_list_str += "/wrath,if=eclipse_dir=-1&eclipse>=-84";
-        action_list_str += "/wrath,prev=starfire,if=eclipse_dir=1&eclipse>=75";
+        action_list_str += "/wrath,if=prev.starfire=1&eclipse_dir=1&eclipse>=75";
       }
       else
       {
         action_list_str += "/starfire,if=eclipse_dir=1&eclipse<80";
-        action_list_str += "/starfire,prev=wrath,if=eclipse_dir=-1&eclipse<-87";
+        action_list_str += "/starfire,if=prev.wrath=1&eclipse_dir=-1&eclipse<-87";
         action_list_str += "/wrath,if=eclipse_dir=-1&eclipse>=-87";
-        action_list_str += "/wrath,prev=starfire,if=eclipse_dir=1&eclipse>=80";
+        action_list_str += "/wrath,if=prev.starfire=1&eclipse_dir=1&eclipse>=80";
       }
       action_list_str += "/starfire,if=eclipse_dir=1";
       action_list_str += "/wrath,if=eclipse_dir=-1";
@@ -5340,7 +5322,6 @@ void druid_t::init_actions()
   }
 
   player_t::init_actions();
-
 }
 
 // druid_t::reset ===========================================================
@@ -5394,7 +5375,7 @@ void druid_t::regen( double periodicity )
 
 // druid_t::available =======================================================
 
-double druid_t::available() SC_CONST
+double druid_t::available() const
 {
   if ( primary_resource() != RESOURCE_ENERGY )
     return 0.1;
@@ -5421,7 +5402,7 @@ void druid_t::combat_begin()
 
 // druid_t::composite_armor_multiplier ======================================
 
-double druid_t::composite_armor_multiplier() SC_CONST
+double druid_t::composite_armor_multiplier() const
 {
   double a = player_t::composite_armor_multiplier();
 
@@ -5433,7 +5414,7 @@ double druid_t::composite_armor_multiplier() SC_CONST
 
 // druid_t::composite_attack_power ==========================================
 
-double druid_t::composite_attack_power() SC_CONST
+double druid_t::composite_attack_power() const
 {
   double ap = player_t::composite_attack_power();
 
@@ -5448,7 +5429,7 @@ double druid_t::composite_attack_power() SC_CONST
 
 // druid_t::composite_attack_power_multiplier ===============================
 
-double druid_t::composite_attack_power_multiplier() SC_CONST
+double druid_t::composite_attack_power_multiplier() const
 {
   double multiplier = player_t::composite_attack_power_multiplier();
 
@@ -5463,7 +5444,7 @@ double druid_t::composite_attack_power_multiplier() SC_CONST
 
 // druid_t::composite_attack_crit ===========================================
 
-double druid_t::composite_attack_crit() SC_CONST
+double druid_t::composite_attack_crit() const
 {
   double c = player_t::composite_attack_crit();
 
@@ -5475,7 +5456,7 @@ double druid_t::composite_attack_crit() SC_CONST
 
 // druid_t::composite_player_multiplier =====================================
 
-double druid_t::composite_player_multiplier( const school_type school, action_t* a ) SC_CONST
+double druid_t::composite_player_multiplier( const school_type school, action_t* a ) const
 {
   double m = player_t::composite_player_multiplier( school, a );
 
@@ -5498,7 +5479,7 @@ double druid_t::composite_player_multiplier( const school_type school, action_t*
 
 // druid_t::composite_spell_hit =============================================
 
-double druid_t::composite_spell_hit() SC_CONST
+double druid_t::composite_spell_hit() const
 {
   double hit = player_t::composite_spell_hit();
 
@@ -5510,7 +5491,7 @@ double druid_t::composite_spell_hit() SC_CONST
 
 // druid_t::composite_spell_crit ============================================
 
-double druid_t::composite_spell_crit() SC_CONST
+double druid_t::composite_spell_crit() const
 {
   double crit = player_t::composite_spell_crit();
 
@@ -5521,7 +5502,7 @@ double druid_t::composite_spell_crit() SC_CONST
 
 // druid_t::composite_attribute_multiplier ==================================
 
-double druid_t::composite_attribute_multiplier( int attr ) SC_CONST
+double druid_t::composite_attribute_multiplier( int attr ) const
 {
   double m = player_t::composite_attribute_multiplier( attr );
 
@@ -5563,7 +5544,7 @@ double druid_t::intellect() const
 
 // druid_t::matching_gear_multiplier ========================================
 
-double druid_t::matching_gear_multiplier( const attribute_type attr ) SC_CONST
+double druid_t::matching_gear_multiplier( const attribute_type attr ) const
 {
   switch ( primary_tree() )
   {
@@ -5581,7 +5562,7 @@ double druid_t::matching_gear_multiplier( const attribute_type attr ) SC_CONST
 
 // druid_t::composite_tank_crit =============================================
 
-double druid_t::composite_tank_crit( const school_type school ) SC_CONST
+double druid_t::composite_tank_crit( const school_type school ) const
 {
   double c = player_t::composite_tank_crit( school );
 
@@ -5700,7 +5681,7 @@ int druid_t::decode_set( item_t& item )
 
 // druid_t::primary_role ====================================================
 
-int druid_t::primary_role() SC_CONST
+int druid_t::primary_role() const
 {
 
   if ( primary_tree() == TREE_BALANCE )
@@ -5733,12 +5714,11 @@ int druid_t::primary_role() SC_CONST
   }
 
   return ROLE_NONE;
-
 }
 
 // druid_t::primary_resource ================================================
 
-int druid_t::primary_resource() SC_CONST
+int druid_t::primary_resource() const
 {
   if ( primary_role() == ROLE_SPELL || primary_role() == ROLE_HEAL )
     return RESOURCE_MANA;
