@@ -98,6 +98,8 @@ def main(argv=[__name__]):
     optdps = RaidSim("TestOutput", "cenarion-circle", names, withStatScaling, **args)
     
     for name, dps, edps, active in dpschart.GetDPS():
+        if name not in optdps:
+            continue
         opt = optdps[name]
         
         percentOfOpt = 0.0
