@@ -26,6 +26,7 @@ void action_t::init_action_t_()
   channeled                      = false;
   background                     = false;
   sequence                       = false;
+  use_off_gcd                    = false;
   direct_tick                    = false;
   repeating                      = false;
   harmful                        = true;
@@ -384,6 +385,7 @@ void action_t::parse_options( option_t*          options,
     { "wait_on_ready",          OPT_BOOL,   &wait_on_ready         },
     { "target",                 OPT_STRING, &target_str            },
     { "label",                  OPT_STRING, &label_str             },
+    { "use_off_gcd",            OPT_BOOL,   &use_off_gcd           },
     { NULL,                     0,          NULL                   }
   };
 
@@ -1218,7 +1220,6 @@ void action_t::update_ready()
   double delay = 0;
   if ( cooldown -> duration > 0 && ! dual )
   {
-    if ( sim -> debug ) log_t::output( sim, "%s starts cooldown for %s (%s)", player -> name(), name(), cooldown -> name() );
 
     if ( ! background && ! proc )
     {
@@ -1231,6 +1232,8 @@ void action_t::update_ready()
     }
 
     cooldown -> start( -1, delay );
+
+    if ( sim -> debug ) log_t::output( sim, "%s starts cooldown for %s (%s). Will be ready at %.4f", player -> name(), name(), cooldown -> name(), cooldown -> ready );
   }
   if ( num_ticks )
   {

@@ -142,6 +142,7 @@ struct rogue_t : public player_t
   buff_t* buffs_stealthed;
   buff_t* buffs_tier11_4pc;
   buff_t* buffs_tier13_2pc;
+  buff_t* buffs_tot_trigger;
   buff_t* buffs_vanish;
   buff_t* buffs_vendetta;
 
@@ -332,8 +333,11 @@ struct rogue_t : public player_t
   combo_points_t* combo_points;
   action_callback_t* virtual_hat_callback;
 
+  player_t* tot_target;
+
   // Options
   double      virtual_hat_interval;
+  std::string tricks_of_the_trade_target_str;
 
   uint32_t fof_p1, fof_p2, fof_p3;
   int last_tier12_4pc;
@@ -371,6 +375,7 @@ struct rogue_t : public player_t
 
     // Options
     virtual_hat_interval = -1;
+    tricks_of_the_trade_target_str = "";
 
     distance = 3;
     default_distance = 3;
@@ -826,8 +831,11 @@ static void trigger_main_gauche( rogue_attack_t* a )
 static void trigger_tricks_of_the_trade( rogue_attack_t* a )
 {
   rogue_t* p = a -> player -> cast_rogue();
+  
+  if ( ! p -> buffs_tot_trigger -> check() )
+    return;
 
-  player_t* t = a -> target;
+  player_t* t = p -> tot_target;
 
   if ( t )
   {
@@ -841,8 +849,8 @@ static void trigger_tricks_of_the_trade( rogue_attack_t* a )
       t -> buffs.tricks_of_the_trade -> buff_duration = duration;
       t -> buffs.tricks_of_the_trade -> trigger( 1, value / 100.0 );
     }
-
-    p -> buffs_tier13_2pc -> trigger();
+    
+    p -> buffs_tot_trigger -> expire();
   }
 }
 
@@ -2327,6 +2335,10 @@ struct revealing_strike_t : public rogue_attack_t
     add_trigger_buff( p -> buffs_revealing_strike );
 
     parse_options( NULL, options_str );
+
+    // Legendary buff increases RS damage
+    if ( p -> fof_p1 || p -> fof_p2 || p -> fof_p3 )
+      base_multiplier *= 1.45; // FIX ME: once dbc data exists 1.0 + p -> dbc.spell( 110211 ) -> effect1().percent();
   }
 
   virtual void execute()
@@ -2643,22 +2655,45 @@ struct shadow_dance_t : public rogue_attack_t
 struct tricks_of_the_trade_t : public rogue_attack_t
 {
   tricks_of_the_trade_t( rogue_t* p, const std::string& options_str ) :
-    rogue_attack_t( "tricks_target", 57934, p, true )
+    rogue_attack_t( "tricks_of_the_trade", 57934, p, true )
   {
+
     parse_options( NULL, options_str );
 
     if ( p -> glyphs.tricks_of_the_trade -> ok() )
       base_cost = 0;
 
-    // If we don't specify a target, it's defaulted to the mob, so default to the player instead
-    if ( target -> is_enemy() || target -> is_add() )
+    if ( ! p -> tricks_of_the_trade_target_str.empty() )
+    {
+      target_str = p -> tricks_of_the_trade_target_str;
+    }
+
+    if ( target_str.empty() )
     {
       target = p;
     }
-    else if ( target_str == "self" ) // This is no longer needed, only for backwards compatibility
+    else
     {
-      target = p;
+      if ( target_str == "self" ) // This is only for backwards compatibility
+      {
+        target = p;
+      }
+      else
+      {
+        player_t* q = sim -> find_player( target_str );
+
+        if ( q )
+          target = q;
+        else
+        {
+          sim -> errorf( "%s %s: Unable to locate target '%s'.\n", player -> name(), name(), options_str.c_str() );
+          target = p;
+        }
+      }
+
     }
+
+    p -> tot_target = target;
   }
 
   virtual void execute()
@@ -2669,6 +2704,7 @@ struct tricks_of_the_trade_t : public rogue_attack_t
 
     trigger_tier12_4pc_melee( this );
     p -> buffs_tier13_2pc -> trigger();
+    p -> buffs_tot_trigger -> trigger();
   }
 };
 
@@ -2899,6 +2935,7 @@ struct wound_poison_t : public rogue_poison_t
         apply_poison_debuff( p, target );
         sim -> add_event( this, 15.0 );
       }
+
       virtual void execute()
       {
         rogue_t* p = player -> cast_rogue();
@@ -3841,8 +3878,8 @@ void rogue_t::init_buffs()
   buffs_shiv               = new buff_t( this, "shiv",          1  );
   buffs_stealthed          = new buff_t( this, "stealthed",     1  );
   buffs_tier11_4pc         = new buff_t( this, "tier11_4pc",    1, 15.0, 0.0, set_bonus.tier11_4pc_melee() * 0.01 );
-
   buffs_tier13_2pc         = new buff_t( this, "tier13_2pc",    1, spells.tier13_2pc -> duration(), 0.0, ( set_bonus.tier13_2pc_melee() ) ? 1.0 : 0 );
+  buffs_tot_trigger        = new buff_t( this, 57934, "tricks_of_the_trade_trigger", -1, -1, true );
   buffs_vanish             = new buff_t( this, "vanish",        1, 3.0 );
 
   buffs_tier12_4pc_haste   = new stat_buff_t( this, "future_on_fire",    STAT_HASTE_RATING,   0.0, 1, dbc.spell( 99186 ) -> duration() );
@@ -4108,8 +4145,9 @@ void rogue_t::create_options()
 
   option_t rogue_options[] =
   {
-    { "virtual_hat_interval", OPT_FLT,  &( virtual_hat_interval           ) },
-    { "initial_combo_points", OPT_FUNC, ( void * ) ::parse_combo_points     },
+    { "virtual_hat_interval",       OPT_FLT,    &( virtual_hat_interval           ) },
+    { "initial_combo_points",       OPT_FUNC,   ( void * ) ::parse_combo_points     },
+    { "tricks_of_the_trade_target", OPT_STRING, &( tricks_of_the_trade_target_str ) },
     { NULL, OPT_UNKNOWN, NULL }
   };
 

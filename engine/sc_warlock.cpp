@@ -3675,8 +3675,6 @@ struct hand_of_guldan_t : public warlock_spell_t
   {
     check_talent( p -> talent_hand_of_guldan -> rank() );
 
-    may_miss = false;
-
     parse_options( NULL, options_str );
 
     base_execute_time *= 1 + p -> sets -> set ( SET_T11_2PC_CASTER ) -> effect_base_value( 1 ) * 0.01;
@@ -4834,7 +4832,7 @@ void warlock_t::init_actions()
     action_list_str += "/life_tap,moving=1,if=mana_pct<80&mana_pct<target.health_pct";
     action_list_str += "/fel_flame,moving=1";
 
-    action_list_str += "/life_tap"; // to use when no mana or nothing else is possible
+    action_list_str += "/life_tap,if=mana_pct_nonproc<100"; // to use when no mana or nothing else is possible
 
     action_list_default = 1;
   }

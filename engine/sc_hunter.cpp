@@ -222,7 +222,7 @@ struct hunter_t : public player_t
     base_gcd = 1.0;
     flaming_arrow = NULL;
 
-    tier13_4pc_cooldown = 45.0;
+    tier13_4pc_cooldown = 105.0;
     vishanka = 0;
 
     create_talents();
@@ -945,6 +945,7 @@ static void trigger_vishanka( attack_t* a )
         init();
 
         // FIX ME: Can this crit, miss, etc?
+        may_miss    = false;
       }
     };
 
@@ -956,7 +957,7 @@ static void trigger_vishanka( attack_t* a )
   if ( a -> sim -> roll( p -> dbc.spell( p -> vishanka ) -> proc_chance() ) )
   {
     p -> active_vishanka -> execute();
-    p -> cooldowns_vishanka -> duration = 2.0; // Assume a ICD until testing proves one way or another
+    p -> cooldowns_vishanka -> duration = 15.0; // Assume a ICD until testing proves one way or another
     p -> cooldowns_vishanka -> start();
   }
 }
@@ -4020,11 +4021,13 @@ void hunter_t::init_actions()
     if ( glyphs.rapid_fire -> ok() )
       action_list_str += "|buff.rapid_fire.react";
 
-    action_list_str += "/auto_shot";
-    action_list_str += "/aspect_of_the_hawk,moving=0";
-    action_list_str += "/aspect_of_the_fox,moving=1";
+    if ( primary_tree() == TREE_SURVIVAL )
+      action_list_str += init_use_racial_actions();
     action_list_str += init_use_item_actions();
     action_list_str += init_use_profession_actions();
+    action_list_str += "/aspect_of_the_hawk,moving=0";
+    action_list_str += "/aspect_of_the_fox,moving=1";
+    action_list_str += "/auto_shot";
     action_list_str += "/explosive_trap,if=target.adds>0";
 
 
@@ -4099,23 +4102,27 @@ void hunter_t::init_actions()
 
     // SURVIVAL
     case TREE_SURVIVAL:
-
-      action_list_str += init_use_racial_actions();
       action_list_str += "/multi_shot,if=target.adds>2";
       action_list_str += "/cobra_shot,if=target.adds>2";
       action_list_str += "/serpent_sting,if=!ticking";
-      action_list_str += "/rapid_fire";
-      action_list_str += "/explosive_shot,if=(remains<tick_time+travel_time)&!in_flight";
-      if ( talents.black_arrow -> rank() ) action_list_str += "/black_arrow,if=!ticking";
+
+      action_list_str += "/explosive_shot,if=(remains<2.0)";
+      action_list_str += "/explosive_trap";
       action_list_str += "/kill_shot";
-      action_list_str += "/arcane_shot,if=focus>=70&!buff.lock_and_load.react";
+
+//    Not used on fights like Patchwerk where the boss stands still.
+//      if ( talents.black_arrow -> rank() ) action_list_str += "/black_arrow,if=!ticking";
+
+      action_list_str += "/rapid_fire";
+
+      action_list_str += "/arcane_shot,if=focus>=50&!buff.lock_and_load.react";
       if ( level >=81 )
         action_list_str += "/cobra_shot";
       else
         action_list_str += "/steady_shot";
 
       if ( summon_pet_str.empty() )
-        summon_pet_str = "wind_serpent";
+        summon_pet_str = "cat";
       break;
 
 

@@ -469,30 +469,30 @@ static void trigger_bloodsurge( action_t* a )
 // Deep Wounds ==============================================================
 
 struct deep_wounds_t : public warrior_attack_t
+{
+  deep_wounds_t( warrior_t* p ) :
+    warrior_attack_t( "deep_wounds", 12721, p )
+  {
+    background = true;
+    weapon_multiplier = p -> talents.deep_wounds -> rank() * 0.16; // hardcoded into tooltip, 02/11/2011
+    may_crit = false;
+    tick_may_crit = false;
+    hasted_ticks  = false;
+    tick_power_mod = 0;
+    dot_behavior  = DOT_REFRESH;
+  }
+  virtual double total_td_multiplier() const { return target_multiplier; }
+  virtual double travel_time() { return sim -> gauss( sim -> aura_delay, 0.25 * sim -> aura_delay ); }
+  virtual void impact( player_t* t, int impact_result, double deep_wounds_dmg )
+  {
+    warrior_attack_t::impact( t, impact_result, 0 );
+    if ( result_is_hit( impact_result ) )
     {
-      deep_wounds_t( warrior_t* p ) :
-        warrior_attack_t( "deep_wounds", 12721, p )
-      {
-        background = true;
-        weapon_multiplier = p -> talents.deep_wounds -> rank() * 0.16; // hardcoded into tooltip, 02/11/2011
-        may_crit = false;
-        tick_may_crit = false;
-        hasted_ticks  = false;
-        tick_power_mod = 0;
-        dot_behavior  = DOT_REFRESH;
-      }
-      virtual double total_td_multiplier() const { return target_multiplier; }
-      virtual double travel_time() { return sim -> gauss( sim -> aura_delay, 0.25 * sim -> aura_delay ); }
-      virtual void impact( player_t* t, int impact_result, double deep_wounds_dmg )
-      {
-        warrior_attack_t::impact( t, impact_result, 0 );
-        if ( result_is_hit( impact_result ) )
-        {
-          base_td = deep_wounds_dmg / dot -> num_ticks;
-          trigger_blood_frenzy( this );
-        }
-      }
-    };
+      base_td = deep_wounds_dmg / dot -> num_ticks;
+      trigger_blood_frenzy( this );
+    }
+  }
+};
 
 // trigger_deep_wounds ======================================================
 
@@ -505,7 +505,6 @@ static void trigger_deep_wounds( action_t* a )
     return;
 
   assert ( p -> active_deep_wounds );
-
 
   if ( a -> weapon )
     p -> active_deep_wounds -> weapon = a -> weapon;
@@ -522,9 +521,6 @@ static void trigger_deep_wounds( action_t* a )
   double deep_wounds_dmg = ( p -> active_deep_wounds -> calculate_weapon_damage() *
                              p -> active_deep_wounds -> weapon_multiplier *
                              p -> active_deep_wounds -> player_multiplier );
-
-  if ( p -> primary_tree() == TREE_FURY )
-    deep_wounds_dmg *= 1.0 + p -> spec.precision -> effect_base_value( 3 ) / 100.0;
 
   dot_t* dot = p -> active_deep_wounds -> dot;
 
@@ -632,6 +628,7 @@ struct opportunity_strike_t : public warrior_attack_t
     warrior_attack_t( "opportunity_strike", 76858, p, TREE_ARMS )
   {
     background = true;
+    proc = true; // No longer triggers deep wounds
   }
 };
 
@@ -1496,7 +1493,8 @@ struct cleave_t : public warrior_attack_t
   {
     warrior_t* p = player -> cast_warrior();
 
-    cooldown -> duration = spell_id_t::cooldown() * ( 1.0 + p -> buffs_inner_rage -> effect1().percent() );
+    if ( p -> buffs_inner_rage -> up() )
+      cooldown -> duration = spell_id_t::cooldown() * ( 1.0 + p -> buffs_inner_rage -> effect1().percent() );
 
     warrior_attack_t::update_ready();
   }
@@ -1719,6 +1717,7 @@ struct heroic_strike_t : public warrior_attack_t
     base_crit        += p -> talents.incite -> effect1().percent();
     base_dd_min       = base_dd_max = 8;
     direct_power_mod  = 0.6; // Hardcoded into tooltip, 02/11/2011
+    harmful           = true;
   }
 
   virtual double cost() const
@@ -1771,7 +1770,8 @@ struct heroic_strike_t : public warrior_attack_t
   {
     warrior_t* p = player -> cast_warrior();
 
-    cooldown -> duration = spell_id_t::cooldown() * ( 1.0 + p -> buffs_inner_rage -> effect1().percent() );
+    if ( p -> buffs_inner_rage -> up() )
+      cooldown -> duration = spell_id_t::cooldown() * ( 1.0 + p -> buffs_inner_rage -> effect1().percent() );
 
     warrior_attack_t::update_ready();
   }
@@ -2066,7 +2066,7 @@ struct rend_dot_t : public warrior_attack_t
   {
     base_td = base_td_init;
     if ( weapon )
-      base_td += sim -> range( weapon -> min_dmg, weapon -> max_dmg ) * 0.25 + weapon -> swing_time * weapon_power_mod * total_attack_power() / 6.0;
+      base_td += ( sim -> range( weapon -> min_dmg, weapon -> max_dmg ) + weapon -> swing_time * weapon_power_mod * total_attack_power() ) * 0.25;
 
     warrior_attack_t::execute();
 
@@ -3581,18 +3581,25 @@ void warrior_t::init_actions()
     // Arms
     if ( primary_tree() == TREE_ARMS )
     {
-      action_list_str += "/stance,choose=berserker,if=(buff.taste_for_blood.down&rage<75)";
-      action_list_str += "/stance,choose=battle,if=(dot.rend.remains=0|((buff.overpower.up|buff.taste_for_blood.up)&cooldown.mortal_strike.remains>1)&rage<=75)";
+      action_list_str += "/stance,choose=berserker,if=(buff.taste_for_blood.down&rage<75),use_off_gcd=1";
+      action_list_str += "/stance,choose=battle,if=(dot.rend.remains=0|((buff.overpower.up|buff.taste_for_blood.up)&cooldown.mortal_strike.remains>1)&rage<=75),use_off_gcd=1";
 
-      action_list_str += "/recklessness,if=((target.health_pct>20&target.time_to_die>320)|target.health_pct<=20)";
+      action_list_str += "/recklessness,if=((target.health_pct>20&target.time_to_die>320)|target.health_pct<=20),use_off_gcd=1";
       if ( glyphs.berserker_rage -> ok() ) action_list_str += "/berserker_rage,if=!buff.deadly_calm.up&rage<70";
-      if ( talents.deadly_calm -> ok() ) action_list_str += "/deadly_calm,if=rage<30";
+      if ( talents.deadly_calm -> ok() ) action_list_str += "/deadly_calm,if=rage<30,use_off_gcd=1";
       if ( talents.sweeping_strikes -> ok() ) action_list_str += "/sweeping_strikes,if=target.adds>0";
       // Don't want to bladestorm during SS as it's only 1 extra hit per WW not per target
       action_list_str += "/bladestorm,if=target.adds>0&!buff.deadly_calm.up&!buff.sweeping_strikes.up";
-      action_list_str += "/cleave,if=target.adds>0";
-      action_list_str += "/inner_rage,if=!buff.deadly_calm.up&rage>80&cooldown.deadly_calm.remains>15";
-      action_list_str += "/heroic_strike,if=((rage>=85&target.health_pct>=20)|buff.deadly_calm.up|buff.battle_trance.up|((buff.incite.up|buff.colossus_smash.up)&((rage>=50&target.health_pct>=20)|(rage>=75&target.health_pct<20))))";
+      action_list_str += "/cleave,if=target.adds>0,use_off_gcd=1";
+      if ( set_bonus.tier13_2pc_melee() )
+      {
+        action_list_str += "/inner_rage,if=target.adds=0&!buff.deadly_calm.up&cooldown.deadly_calm.remains>15&((rage>=75&target.health_pct>=20)|((buff.incite.up|buff.colossus_smash.up)&((rage>=40&target.health_pct>=20)|(rage>=65&target.health_pct<20))))";
+      }
+      else
+      {
+        action_list_str += "/inner_rage,if=!buff.deadly_calm.up&rage>80&cooldown.deadly_calm.remains>15";
+      }
+      action_list_str += "/heroic_strike,if=(((rage>=85|(set_bonus.tier13_2pc_melee&buff.inner_rage.up&rage>=75))&target.health_pct>=20)|buff.deadly_calm.up|buff.battle_trance.up|((buff.incite.up|buff.colossus_smash.up)&(((rage>=50|(set_bonus.tier13_2pc_melee&buff.inner_rage.up&rage>=40))&target.health_pct>=20)|((rage>=75|(set_bonus.tier13_2pc_melee&buff.inner_rage.up&rage>=65))&target.health_pct<20)))),use_off_gcd=1";
       action_list_str += "/overpower,if=buff.taste_for_blood.remains<=1.5";
       action_list_str += "/mortal_strike,if=target.health_pct>20|rage>=30";
       action_list_str += "/execute,if=buff.battle_trance.up";
@@ -3611,13 +3618,13 @@ void warrior_t::init_actions()
     else if ( primary_tree() == TREE_FURY )
     {
       action_list_str += "/stance,choose=berserker";
-      action_list_str += "/recklessness";
-      if ( talents.death_wish -> ok() ) action_list_str += "/death_wish";
-      action_list_str += "/cleave,if=target.adds>0";
+      action_list_str += "/recklessness,use_off_gcd=1";
+      if ( talents.death_wish -> ok() ) action_list_str += "/death_wish,use_off_gcd=1";
+      action_list_str += "/cleave,if=target.adds>0,use_off_gcd=1";
       action_list_str += "/whirlwind,if=target.adds>0";
       if ( set_bonus.tier13_2pc_melee() )
-        action_list_str += "/inner_rage,if=rage>=80";
-      action_list_str += "/heroic_strike,if=((rage>=85&target.health_pct>=20)|buff.battle_trance.up|((buff.incite.up|buff.colossus_smash.up)&((rage>=50&target.health_pct>=20)|(rage>=75&target.health_pct<20))))";
+        action_list_str += "/inner_rage,use_off_gcd=1,if=target.adds=0&((rage>=75&target.health_pct>=20)|((buff.incite.up|buff.colossus_smash.up)&((rage>=40&target.health_pct>=20)|(rage>=65&target.health_pct<20))))";
+      action_list_str += "/heroic_strike,use_off_gcd=1,if=(((rage>=85|(set_bonus.tier13_2pc_melee&buff.inner_rage.up&rage>=75))&target.health_pct>=20)|buff.battle_trance.up|((buff.incite.up|buff.colossus_smash.up)&(((rage>=50|(rage>=40&set_bonus.tier13_2pc_melee&buff.inner_rage.up))&target.health_pct>=20)|((rage>=75|(rage>=65&set_bonus.tier13_2pc_melee&buff.inner_rage.up))&target.health_pct<20))))";
       action_list_str += "/execute,if=buff.executioner_talent.remains<1.5";
       if ( level >= 81 ) action_list_str += "/colossus_smash";
       action_list_str += "/execute,if=buff.executioner_talent.stack<5";

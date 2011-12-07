@@ -456,7 +456,7 @@ player_t::player_t( sim_t*             s,
   flask( FLASK_NONE ),
   food( FOOD_NONE ),
   // Events
-  executing( 0 ), channeling( 0 ), readying( 0 ), in_combat( false ), action_queued( false ),
+  executing( 0 ), channeling( 0 ), readying( 0 ), off_gcd( 0 ), in_combat( false ), action_queued( false ),
   cast_delay_reaction( 0 ), cast_delay_occurred( 0 ),
   // Actions
   action_list( 0 ), action_list_default( 0 ), cooldown_list( 0 ), dot_list( 0 ),
@@ -1618,6 +1618,9 @@ void player_t::init_actions()
   for ( action_t* action = action_list; action; action = action -> next )
   {
     action -> init();
+    if ( action -> trigger_gcd == 0 && ! action -> background && action -> use_off_gcd )
+      off_gcd_actions.push_back( action );
+    
   }
 
   int capacity = std::max( 1200, ( int ) ( sim -> max_time / 2.0 ) );
@@ -2047,11 +2050,6 @@ double player_t::composite_attack_haste() const
       if ( buffs.mongoose_oh && buffs.mongoose_oh -> up() ) h *= 1.0 / ( 1.0 + 30 / rating.attack_haste );
     }
 
-    if ( race == RACE_GOBLIN )
-    {
-      h *= 1.0 / ( 1.0 + 0.01 );
-    }
-
     if ( buffs.berserking -> up() )
     {
       h *= 1.0 / ( 1.0 + buffs.berserking -> effect1().percent() );
@@ -2066,6 +2064,11 @@ double player_t::composite_attack_haste() const
 double player_t::composite_attack_speed() const
 {
   double h = composite_attack_haste();
+
+  if ( race == RACE_GOBLIN )
+  {
+    h *= 1.0 / ( 1.0 + 0.01 );
+  }
 
   if ( ! is_enemy() && ! is_add() )
     h *= 1.0 / ( 1.0 + std::max( sim -> auras.hunting_party       -> value(),
@@ -2148,9 +2151,6 @@ double player_t::composite_armor() const
              std::max( debuffs.corrosive_spit -> check() * debuffs.corrosive_spit -> value() * 0.01,
                        debuffs.tear_armor -> check() * debuffs.tear_armor -> value() * 0.01 ) ) ) )
              - debuffs.shattering_throw -> stack() * 0.20;
-
-  if ( buffs.stoneform -> up() )
-    a *= 1.10;
 
   return a;
 }
@@ -3079,6 +3079,7 @@ void player_t::reset()
   executing = 0;
   channeling = 0;
   readying = 0;
+  off_gcd = 0;
   in_combat = false;
 
   cast_delay_reaction = 0;
@@ -3255,6 +3256,7 @@ void player_t::arise()
   init_resources( true );
 
   readying = 0;
+  off_gcd = 0;
 
   arise_time = sim -> current_time;
 
@@ -3282,6 +3284,7 @@ void player_t::demise()
     readying = 0;
   }
 
+  event_t::cancel( off_gcd );
 
   for ( buff_t* b = buff_list; b; b = b -> next )
   {
@@ -3316,6 +3319,7 @@ void player_t::interrupt()
   if ( buffs.stunned -> check() )
   {
     if ( readying ) event_t::cancel( readying );
+    if ( off_gcd ) event_t::cancel( off_gcd );
   }
   else
   {
@@ -3389,6 +3393,7 @@ std::string player_t::print_action_map( int iterations, int precision )
 action_t* player_t::execute_action()
 {
   readying = 0;
+  off_gcd = 0;
 
   action_t* action=0;
 
@@ -4000,6 +4005,9 @@ double player_t::assess_damage( double            amount,
 
   if ( buffs.pain_supression -> up() )
     amount *= 1.0 + buffs.pain_supression -> effect1().percent();
+
+  if ( buffs.stoneform -> up() )
+    amount *= 1.0 + buffs.stoneform -> effect1().percent();
 
   double mitigated_amount = target_mitigation( amount, school, dmg_type, result, action );
 
@@ -5248,8 +5256,10 @@ struct wait_until_ready_t : public wait_fixed_t
 
 wait_for_cooldown_t::wait_for_cooldown_t( player_t* player, const char* cd_name ) :
   wait_action_base_t( player, ( "wait_for_" + std::string( cd_name ) ).c_str() ),
-  wait_cd( player -> get_cooldown( cd_name ) )
-{}
+  wait_cd( player -> get_cooldown( cd_name ) ), a( player -> find_action( cd_name ) )
+{
+  assert( a );
+}
 
 double wait_for_cooldown_t::execute_time() const
 { return wait_cd -> remains(); }

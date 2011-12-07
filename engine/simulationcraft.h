@@ -92,7 +92,7 @@
 #include "data_definitions.hh"
 
 #define SC_MAJOR_VERSION "430"
-#define SC_MINOR_VERSION "1"
+#define SC_MINOR_VERSION "2"
 #define SC_USE_PTR ( 0 )
 #define SC_BETA ( 0 )
 #define SC_EPSILON ( 0.000001 )
@@ -139,6 +139,7 @@ struct proc_t;
 struct raid_event_t;
 struct rating_t;
 struct reforge_plot_t;
+struct reforge_plot_data_t;
 struct report_t;
 struct rng_t;
 struct talent_t;
@@ -3342,6 +3343,12 @@ struct reforge_plot_t
   void create_options();
 };
 
+struct reforge_plot_data_t
+{
+  double value;
+  double error;
+};
+
 // Event ====================================================================
 
 struct event_t : public noncopyable
@@ -3806,6 +3813,7 @@ struct player_t : public noncopyable
   action_t* executing;
   action_t* channeling;
   event_t*  readying;
+  event_t*  off_gcd;
   bool      in_combat;
   bool      action_queued;
 
@@ -3829,6 +3837,7 @@ struct player_t : public noncopyable
 
   // Action Priority List
   action_t*   action_list;
+  std::vector<action_t*> off_gcd_actions;
   std::string action_list_str;
   std::string choose_action_list;
   std::string action_list_skip;
@@ -3859,7 +3868,7 @@ struct player_t : public noncopyable
   benefit_t* benefit_list;
   uptime_t* uptime_list;
   std::vector<double> dps_plot_data[ STAT_MAX ];
-  std::vector<std::vector<double> > reforge_plot_data;
+  std::vector<std::vector<reforge_plot_data_t> > reforge_plot_data;
   std::vector<std::vector<double> > timeline_resource;
 
   // Damage
@@ -4527,7 +4536,7 @@ struct action_t : public spell_id_t
   uint32_t id;
   school_type school;
   int resource, tree, result, aoe;
-  bool dual, callbacks, special, binary, channeled, background, sequence;
+  bool dual, callbacks, special, binary, channeled, background, sequence, use_off_gcd;
   bool direct_tick, repeating, harmful, proc, item_proc, may_trigger_dtr, discharge_proc, auto_cast, initialized;
   bool may_hit, may_miss, may_resist, may_dodge, may_parry, may_glance, may_block, may_crush, may_crit;
   bool tick_may_crit, tick_zero, hasted_ticks;
@@ -4953,6 +4962,12 @@ struct action_priority_list_t
 struct player_ready_event_t : public event_t
 {
   player_ready_event_t( sim_t* sim, player_t* p, double delta_time );
+  virtual void execute();
+};
+
+struct player_gcd_event_t : public event_t
+{
+  player_gcd_event_t( sim_t* sim, player_t* p, double delta_time );
   virtual void execute();
 };
 
@@ -5551,7 +5566,9 @@ struct wait_action_base_t : public action_t
 struct wait_for_cooldown_t : public wait_action_base_t
 {
   cooldown_t* wait_cd;
+  action_t* a;
   wait_for_cooldown_t( player_t* player, const char* cd_name );
+  virtual bool usable_moving() { return a -> usable_moving(); }
   virtual double execute_time() const;
 };
 
