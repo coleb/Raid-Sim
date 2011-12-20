@@ -365,7 +365,6 @@ struct death_knight_t : public player_t
   virtual void      init_procs();
   virtual void      init_resources( bool force );
   virtual void      init_benefits();
-  double            composite_pet_attack_crit();
   virtual double    composite_armor_multiplier() const;
   virtual double    composite_attack_haste() const;
   virtual double    composite_attack_hit() const;
@@ -955,8 +954,6 @@ struct army_ghoul_pet_t : public pet_t
   {
     death_knight_t* o = owner -> cast_death_knight();
     pet_t::summon( duration );
-    // Pets don't seem to inherit their master's crit at the moment.
-    // fixed on the PTR: http://us.battle.net/wow/en/forum/topic/3424465781?page=4#71
     snapshot_crit     = o -> composite_attack_crit();
     snapshot_haste    = o -> composite_attack_haste();
     snapshot_speed    = o -> composite_attack_speed();
@@ -1117,12 +1114,6 @@ struct gargoyle_pet_t : public pet_t
 
     snapshot_haste      = o -> composite_attack_speed();
     snapshot_power      = o -> composite_attack_power() * o -> composite_attack_power_multiplier();
-    // Pets don't seem to inherit their master's crit at the moment.
-    // fixed on the PTR: http://us.battle.net/wow/en/forum/topic/3424465781?page=4#71
-    // TODO: it can crit on live, but not 5%, or 7% or even 12% with spell crit debuff.
-    // Not sure what the % is, but 2-6% with 5% crit debuff seems on par. Hord to crunch numbers with samples of 30/60 hits.
-    // for now, for live, going with 0 base crit %, but boosted by crit debuff.
-    //snapshot_spell_crit = o -> dbc.ptr ? o -> composite_spell_crit() : o -> composite_pet_attack_crit();
     snapshot_spell_crit = o -> composite_spell_crit();
 
   }
@@ -1318,8 +1309,6 @@ struct ghoul_pet_t : public pet_t
   {
     death_knight_t* o = owner -> cast_death_knight();
     pet_t::summon( duration );
-    // Pets don't seem to inherit their master's crit at the moment.
-    // fixed on the PTR: http://us.battle.net/wow/en/forum/topic/3424465781?page=4#71
     snapshot_crit     = o -> composite_attack_crit();
     snapshot_haste    = o -> composite_attack_haste();
     snapshot_speed    = o -> composite_attack_speed();
@@ -1327,8 +1316,6 @@ struct ghoul_pet_t : public pet_t
     snapshot_strength = o -> strength();
   }
 
-  // Pets don't seem to inherit their master's crit at the moment.
-  // fixed on the PTR: http://us.battle.net/wow/en/forum/topic/3424465781?page=4#71
   virtual double composite_attack_crit() const
   {
     death_knight_t* o = owner -> cast_death_knight();
@@ -1337,7 +1324,7 @@ struct ghoul_pet_t : public pet_t
 
     if ( o -> primary_tree() == TREE_UNHOLY )
     {
-      return snapshot_crit;
+      return o -> composite_attack_crit();
     }
     else
     {
@@ -1701,6 +1688,7 @@ static void trigger_blood_caked_blade( action_t* a )
         trigger_gcd    = false;
         weapon = &( player -> main_hand_weapon );
         normalize_weapon_speed = false;
+        init();
       }
 
       virtual void target_debuff( player_t* t, int dmg_type )
@@ -2099,11 +2087,12 @@ struct melee_t : public death_knight_attack_t
           {
             p -> buffs_sudden_doom -> trigger( new_stacks );
           }
-          // Refresh the 1 stack we already have
-          // refresh( 0 ) means we don't add any stacks
+          // refresh stacks. However if we have a double stack and only 1 procced, it refreshes to 1 stack
           else
           {
             p -> buffs_sudden_doom -> refresh( 0 );
+            if ( p -> buffs_sudden_doom -> check() == 2 && new_stacks == 1)
+              p -> buffs_sudden_doom -> decrement( 1 );
           }
         }
       }
@@ -2599,7 +2588,7 @@ struct death_coil_t : public death_knight_spell_t
     base_dd_min      = p -> dbc.effect_min( effect_id( 1 ), p -> level );
     base_dd_max      = p -> dbc.effect_max( effect_id( 1 ), p -> level );
 
-    base_multiplier *= 1 + p -> talents.morbidity -> effect1().percent()
+    base_multiplier *= 1.0 + p -> talents.morbidity -> effect1().percent()
                        + p -> glyphs.death_coil -> effect1().percent();
 
     base_crit     += p -> sets -> set( SET_T11_2PC_MELEE ) -> effect1().percent();
@@ -2615,7 +2604,6 @@ struct death_coil_t : public death_knight_spell_t
     if ( p -> buffs_sudden_doom -> check() ) return 0;
 
     return death_knight_spell_t::cost();
-
   }
 
   void execute()
@@ -3289,11 +3277,12 @@ struct obliterate_t : public death_knight_attack_t
         {
           p -> buffs_rime -> trigger( new_stacks );
         }
-        // Refresh the 1 stack we already have
-        // refresh( 0 ) means we don't add any stacks
+        // refresh stacks. However if we have a double stack and only 1 procced, it refreshes to 1 stack
         else
         {
           p -> buffs_rime -> refresh( 0 );
+          if ( p -> buffs_rime -> check() == 2 && new_stacks == 1)
+            p -> buffs_rime -> decrement( 1 );
         }
 
         p -> cooldowns_howling_blast -> reset();
@@ -3928,6 +3917,7 @@ action_t* death_knight_t::create_action( const std::string& name, const std::str
   if ( name == "death_strike"             ) return new death_strike_t             ( this, options_str );
   if ( name == "festering_strike"         ) return new festering_strike_t         ( this, options_str );
   if ( name == "outbreak"                 ) return new outbreak_t                 ( this, options_str );
+  if ( name == "necrotic_strike"          ) return new necrotic_strike_t          ( this, options_str );
   if ( name == "plague_strike"            ) return new plague_strike_t            ( this, options_str );
   if ( name == "raise_dead"               ) return new raise_dead_t               ( this, options_str );
   if ( name == "scourge_strike"           ) return new scourge_strike_t           ( this, options_str );
@@ -4339,7 +4329,8 @@ void death_knight_t::init_actions()
 {
   if ( main_hand_weapon.type == WEAPON_NONE )
   {
-    sim -> errorf( "Player %s has no weapon equipped at the Main-Hand slot.", name() );
+    if ( !quiet )
+      sim -> errorf( "Player %s has no weapon equipped at the Main-Hand slot.", name() );
     quiet = true;
     return;
   }
@@ -4854,14 +4845,6 @@ double death_knight_t::assess_damage( double            amount,
     buffs_scent_of_blood -> trigger();
 
   return player_t::assess_damage( amount, school, dmg_type, result, action );
-}
-
-// death_knight_t::composite_pet_attack_crit ================================
-
-double death_knight_t::composite_pet_attack_crit()
-{
-  // Latest value as of 4.2
-  return 0.07;
 }
 
 // death_knight_t::composite_armor_multiplier ===============================

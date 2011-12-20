@@ -492,8 +492,11 @@ public:
     }
 
     // Needs testing
-    c *= 1.0 + p -> buffs_tier13_2pc_heal -> check() * -0.25;
-    c  = floor( c );
+    if ( p -> buffs_tier13_2pc_heal -> check() )
+    {
+      c *= 1.0 + p -> buffs_tier13_2pc_heal -> effect1().percent();
+      c  = floor( c );
+    }
 
     return c;
   }
@@ -569,6 +572,7 @@ struct priest_heal_t : public heal_t
 
   bool can_trigger_DA;
   divine_aegis_t* da;
+  cooldown_t* min_interval;
 
   void trigger_echo_of_light( heal_t* a, player_t* /* t */ )
   {
@@ -644,11 +648,15 @@ struct priest_heal_t : public heal_t
 
   priest_heal_t( const char* n, player_t* player, const char* sname, int t = TREE_NONE ) :
     heal_t( n, player, sname, t ), can_trigger_DA( true ), da()
-  {}
+  {
+    min_interval = player -> get_cooldown( "min_interval_" + name_str );
+  }
 
   priest_heal_t( const char* n, player_t* player, const uint32_t id, int t = TREE_NONE ) :
     heal_t( n, player, id, t ), can_trigger_DA( true ), da()
-  {}
+  {
+    min_interval = player -> get_cooldown( "min_interval_" + name_str );
+  }
 
   virtual void player_buff();
 
@@ -688,8 +696,11 @@ struct priest_heal_t : public heal_t
     }
 
     // Needs testing
-    c *= 1.0 + p -> buffs_tier13_2pc_heal -> check() * -0.25;
-    c  = floor( c );
+    if ( p -> buffs_tier13_2pc_heal -> check() )
+    {
+      c *= 1.0 + p -> buffs_tier13_2pc_heal -> effect1().percent();
+      c  = floor( c );
+    }
 
     return c;
   }
@@ -785,6 +796,38 @@ struct priest_heal_t : public heal_t
       t -> buffs.weakened_soul -> extend_duration( p, -1 * p -> talents.strength_of_soul -> effect1().base_value() );
   }
 
+  void update_ready()
+  {
+    heal_t::update_ready();
+
+    if ( min_interval -> duration > 0 && ! dual )
+    {
+      min_interval -> start( -1, 0 );
+
+      if ( sim -> debug ) log_t::output( sim, "%s starts min_interval for %s (%s). Will be ready at %.4f", player -> name(), name(), cooldown -> name(), cooldown -> ready );
+    }
+  }
+
+  bool ready()
+  {
+    if ( ! heal_t::ready() )
+      return false;
+
+    return ( min_interval -> remains() <= 0 );
+  }
+
+  void parse_options( option_t*          options,
+                      const std::string& options_str )
+  {
+    const option_t base_options[] =
+    {
+      { "min_interval", OPT_FLT,     &(min_interval -> duration ) },
+      { NULL,           OPT_UNKNOWN, NULL      }
+    };
+
+    std::vector<option_t> merged_options;
+    heal_t::parse_options( option_t::merge( merged_options, options, base_options ), options_str );
+  }
 };
 
 // Atonement heal ===========================================================
@@ -3151,6 +3194,16 @@ struct divine_hymn_t : public priest_heal_t
     add_child( divine_hymn_tick );
   }
 
+  virtual void execute()
+  {
+    priest_t* p = player -> cast_priest();
+
+    priest_heal_t::execute();
+
+    // Needs testing
+    p -> buffs_tier13_2pc_heal -> trigger();
+  }
+
   virtual void tick( dot_t* d )
   {
     if ( sim -> debug ) log_t::output( sim, "%s ticks (%d of %d)", name(), d -> current_tick, d -> num_ticks );
@@ -3539,6 +3592,12 @@ struct holy_word_sanctuary_t : public priest_heal_t
 
     // Needs testing
     cooldown -> duration *= 1.0 + p -> set_bonus.tier13_4pc_heal() * -0.2;
+
+    // HW: Sanctuary is treated as a instant cast spell, both affected by Inner Will and Mental Agility
+    // Implemented 06/12/2011 ( Patch 4.3 ),
+    // see Issue1023 and http://elitistjerks.com/f77/t110245-cataclysm_holy_priest_compendium/p25/#post2054467
+    base_cost        *= 1.0 + p -> talents.mental_agility -> mod_additive( P_RESOURCE_COST );
+    base_cost         = floor( base_cost );
   }
 
   virtual void tick( dot_t* d )
@@ -3555,6 +3614,29 @@ struct holy_word_sanctuary_t : public priest_heal_t
       return false;
 
     return priest_heal_t::ready();
+  }
+
+  // HW: Sanctuary is treated as a instant cast spell, both affected by Inner Will and Mental Agility
+
+  virtual double cost() const
+  {
+    priest_t* p = player -> cast_priest();
+
+    double c = priest_heal_t::cost();
+
+    c *= 1.0 - p -> buffs_inner_will -> check() * p -> buffs_inner_will -> effect1().percent();
+    c  = floor( c );
+
+    return c;
+  }
+
+  virtual void consume_resource()
+  {
+    priest_heal_t::consume_resource();
+
+    priest_t* p = player -> cast_priest();
+
+    p -> buffs_inner_will -> up();
   }
 };
 
@@ -3719,9 +3801,6 @@ struct lightwell_t : public priest_spell_t
     priest_t* p = player -> cast_priest();
 
     priest_spell_t::execute();
-
-    // Needs testing
-    p -> buffs_tier13_2pc_heal -> trigger();
 
     p -> pet_lightwell -> get_cooldown( "lightwell_renew" ) -> duration = consume_interval;
     p -> pet_lightwell -> summon( duration() );
@@ -4812,8 +4891,9 @@ void priest_t::init_buffs()
   buffs_inner_fire                 = new buff_t( this, "inner_fire", "Inner Fire" );
   buffs_inner_focus                = new buff_t( this, "inner_focus", "Inner Focus" );
   buffs_inner_focus -> cooldown -> duration = 0;
-  buffs_inner_will                 = new buff_t( this, "inner_will", "Inner Will"                                );
-  buffs_tier13_2pc_heal            = new buff_t( this, "tier13_2pc_heal", 1, 0, ( primary_tree() == TREE_DISCIPLINE ) ? 10.0 : 15.0, set_bonus.tier13_2pc_heal() );
+  buffs_inner_will                 = new buff_t( this, "inner_will", "Inner Will" );
+  buffs_tier13_2pc_heal            = new buff_t( this, sets -> set( SET_T13_2PC_HEAL ) -> effect1().trigger_spell_id(), "tier13_2pc_heal", set_bonus.tier13_2pc_heal() );
+  buffs_tier13_2pc_heal -> buff_duration = ( primary_tree() == TREE_DISCIPLINE ) ? 10.0 : buffs_tier13_2pc_heal -> buff_duration;
 
   for ( unsigned int i = 0; i < sim -> actor_list.size(); i++ )
   {
@@ -5029,8 +5109,7 @@ void priest_t::init_actions()
 
         buffer += "/holy_fire";
         buffer += "/penance";
-        if ( ! talents.archangel -> ok() )
-          buffer += "/mind_blast";
+        buffer += "/mind_blast";
 
         buffer += "/smite";
       }

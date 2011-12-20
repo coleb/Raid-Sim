@@ -1701,9 +1701,6 @@ struct seal_of_truth_dot_t : public paladin_attack_t
 
     base_multiplier *= 1.0 + ( p -> talents.seals_of_the_pure -> effect1().percent() +
                                p -> talents.inquiry_of_faith -> mod_additive( P_TICK_DAMAGE ) );
-
-    // Hotfix 40% increased damage needs testing
-    base_multiplier *= 1.40;
   }
 
   virtual void player_buff()
@@ -2032,6 +2029,8 @@ struct consecration_tick_t : public paladin_spell_t
     direct_power_mod             = 1.0;
 
     base_multiplier *= 1.0 + p -> talents.hallowed_ground -> mod_additive( P_GENERIC );
+
+    stats = player -> get_stats( "consecration", this );
   }
 };
 
@@ -3164,7 +3163,8 @@ void paladin_t::init_actions()
 {
   if ( main_hand_weapon.type == WEAPON_NONE )
   {
-    sim -> errorf( "Player %s has no weapon equipped at the Main-Hand slot.", name() );
+    if ( !quiet )
+      sim -> errorf( "Player %s has no weapon equipped at the Main-Hand slot.", name() );
     quiet = true;
     return;
   }

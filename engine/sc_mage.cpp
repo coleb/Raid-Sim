@@ -667,18 +667,22 @@ struct mirror_image_pet_t : public pet_t
       }
       else
       {
-        num_rotations = 2;
-        for ( int j=0; j < num_rotations; j++ )
-        {
-          // Mirror Image casts 10 Frostbolts, 4 Fire Blasts
-          front = new frostbolt_t ( this, front );
-          front = new frostbolt_t ( this, front );
-          front = new frostbolt_t ( this, front );
-          front = new fire_blast_t( this, front );
-          front = new frostbolt_t ( this, front );
-          front = new frostbolt_t ( this, front );
-          front = new fire_blast_t( this, front );
-        }
+        // Mirror Image casts 11 Frostbolts, 4 Fire Blasts
+        front = new fire_blast_t( this, front );
+        front = new frostbolt_t ( this, front );
+        front = new frostbolt_t ( this, front );
+        front = new frostbolt_t ( this, front );
+        front = new fire_blast_t( this, front );
+        front = new frostbolt_t ( this, front );
+        front = new frostbolt_t ( this, front );
+        front = new frostbolt_t ( this, front );
+        front = new fire_blast_t( this, front );
+        front = new frostbolt_t ( this, front );
+        front = new frostbolt_t ( this, front );
+        front = new frostbolt_t ( this, front );
+        front = new fire_blast_t( this, front );
+        front = new frostbolt_t ( this, front );
+        front = new frostbolt_t ( this, front );
       }
       sequences.push_back( front );
     }
@@ -715,6 +719,8 @@ struct mirror_image_pet_t : public pet_t
     snapshot_frost_sp  = o -> composite_spell_power( SCHOOL_FROST  );
 
     sequence_finished = 0;
+
+    distance = o -> distance;
 
     for ( int i=0; i < num_images; i++ )
     {
@@ -754,6 +760,7 @@ struct tier12_mirror_image_pet_t : public pet_t
     {
       snapshot_crit = 0.00; // Rough guess
     }
+    distance = owner -> distance;
   }
 
   virtual double composite_spell_crit() const
@@ -2824,6 +2831,16 @@ struct mirror_image_t : public mage_spell_t
   {
     parse_options( NULL, options_str );
     harmful = false;
+
+    num_ticks = 0;
+
+    if ( p -> pet_mirror_image_3 )
+    {
+      stats -> add_child( p -> pet_mirror_image_3 -> get_stats( "mirror_arcane_blast" ) );
+      stats -> add_child( p -> pet_mirror_image_3 -> get_stats( "mirror_fire_blast" ) );
+      stats -> add_child( p -> pet_mirror_image_3 -> get_stats( "mirror_fireball" ) );
+      stats -> add_child( p -> pet_mirror_image_3 -> get_stats( "mirror_frost_bolt" ) );
+    }
   }
 
   virtual void execute()
@@ -2980,20 +2997,14 @@ struct pyroblast_hs_t : public mage_spell_t
     }
   }
 
-  virtual double cost() const
+  virtual bool ready()
   {
-    mage_t* p = player -> cast_mage();
-    if ( p -> buffs_hot_streak -> check() )
-      return 0;
-    return mage_spell_t::cost();
-  }
+    if ( ! mage_spell_t::ready() )
+      return false;
 
-  virtual double execute_time() const
-  {
     mage_t* p = player -> cast_mage();
-    if ( p -> buffs_hot_streak -> check() )
-      return 0;
-    return mage_spell_t::execute_time();
+
+    return ( p -> buffs_hot_streak -> check() > 0 );
   }
 };
 

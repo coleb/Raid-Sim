@@ -802,7 +802,7 @@ static void trigger_eclipse_gain_delay( spell_t* s, int gain )
       s( spell ), g( gain )
     {
       name = "Eclipse gain delay";
-      sim -> add_event( this, sim -> aura_delay );
+      sim -> add_event( this, sim -> gauss( sim -> default_aura_delay, sim -> default_aura_delay_stddev ) );
     }
 
     virtual void execute()
@@ -1267,14 +1267,7 @@ void druid_cat_attack_t::execute()
 
 void druid_cat_attack_t::player_buff()
 {
-  druid_t* p = player -> cast_druid();
-
   attack_t::player_buff();
-
-  player_multiplier *= 1.0 + p -> buffs_tigers_fury -> value();
-
-  if ( school == SCHOOL_BLEED && p -> primary_tree() == TREE_FERAL )
-    player_multiplier *= 1.0 + p -> spells.razor_claws -> effect1().coeff() * 0.01 * p -> composite_mastery();
 }
 
 // druid_cat_attack_t::ready ================================================
@@ -3158,27 +3151,17 @@ void druid_spell_t::player_buff()
 
   spell_t::player_buff();
 
-  if ( p -> buffs_moonkin_form -> check() )
-    player_multiplier *= 1.0 + p -> talents.master_shapeshifter -> base_value() * 0.01;
-
   if ( school == SCHOOL_ARCANE || school == SCHOOL_NATURE || school == SCHOOL_SPELLSTORM )
   {
-    player_multiplier *= 1.0 + p -> talents.balance_of_power -> effect1().percent();
-
     // Moonfury is actually additive with other player_multipliers, like glyphs, etc.
     if ( p -> primary_tree() == TREE_BALANCE )
     {
       double m = p -> spells.moonfury -> effect1().percent();
       additive_multiplier += m;
     }
-
-    if ( p -> buffs_moonkin_form -> check() )
-      player_multiplier *= 1.10;
   }
 
-  player_multiplier *= 1.0 + p -> talents.earth_and_moon -> effect2().percent();
-
-  // Add in Additive Multipliers
+   // Add in Additive Multipliers
   player_multiplier *= 1.0 + additive_multiplier;
 
   // Reset Additive_Multiplier
@@ -5107,7 +5090,8 @@ void druid_t::init_actions()
 {
   if ( primary_role() == ROLE_ATTACK && main_hand_weapon.type == WEAPON_NONE )
   {
-    sim -> errorf( "Player %s has no weapon equipped at the Main-Hand slot.", name() );
+    if ( !quiet )
+      sim -> errorf( "Player %s has no weapon equipped at the Main-Hand slot.", name() );
     quiet = true;
     return;
   }
@@ -5188,7 +5172,14 @@ void druid_t::init_actions()
         action_list_str += "/feral_charge_cat,if=!in_combat";
         action_list_str += "/auto_attack";
         action_list_str += "/skull_bash_cat";
-        action_list_str += "/tigers_fury,if=energy<=35";
+        if ( set_bonus.tier13_4pc_melee() )
+        {
+          action_list_str += "/tigers_fury,if=energy<=45&(!buff.omen_of_clarity.react)";
+        }
+        else
+        {
+          action_list_str += "/tigers_fury,if=energy<=35&(!buff.omen_of_clarity.react)";
+        }
         if ( talents.berserk -> rank() )
         {
           action_list_str += "/berserk,if=buff.tigers_fury.up|(target.time_to_die<";
@@ -5208,11 +5199,11 @@ void druid_t::init_actions()
           action_list_str += "/mangle_cat,if=set_bonus.tier11_4pc_melee&buff.t11_4pc_melee.remains<4";
         action_list_str += "/faerie_fire_feral,if=debuff.faerie_fire.stack<3|!(debuff.sunder_armor.up|debuff.expose_armor.up)";
         action_list_str += "/mangle_cat,if=debuff.mangle.remains<=2&(!debuff.mangle.up|debuff.mangle.remains>=0.0)";
-        action_list_str += "/ravage,if=buff.stampede_cat.up&buff.stampede_cat.remains<=1";
+        action_list_str += "/ravage,if=(buff.stampede_cat.up|buff.t13_4pc_melee.up)&(buff.stampede_cat.remains<=1|buff.t13_4pc_melee.remains<=1)";
 
         if ( talents.blood_in_the_water -> rank() )
         {
-          action_list_str += "/ferocious_bite,if=buff.combo_points.stack>=1&dot.rip.ticking&dot.rip.remains<=1&target.health_pct<=" + bitw_hp;
+          action_list_str += "/ferocious_bite,if=buff.combo_points.stack>=1&dot.rip.ticking&dot.rip.remains<=2.1&target.health_pct<=" + bitw_hp;
           action_list_str += "/ferocious_bite,if=buff.combo_points.stack>=5&dot.rip.ticking&target.health_pct<=" + bitw_hp;
         }
         action_list_str += use_str;
@@ -5226,6 +5217,7 @@ void druid_t::init_actions()
         action_list_str += "/rake,if=target.time_to_die>=dot.rake.remains&dot.rake.remains<3.0&(buff.berserk.up|energy>=71|(cooldown.tigers_fury.remains+0.8)>=dot.rake.remains)";
         action_list_str += "/shred,if=buff.omen_of_clarity.react";
         action_list_str += "/savage_roar,if=buff.combo_points.stack>=1&buff.savage_roar.remains<=1";
+        action_list_str += "/ravage,if=(buff.stampede_cat.up|buff.t13_4pc_melee.up)&cooldown.tigers_fury.remains=0";
         action_list_str += "/ferocious_bite,if=(target.time_to_die<=4&buff.combo_points.stack>=5)|target.time_to_die<=1";
         if ( level <= 80 )
         {
@@ -5235,7 +5227,7 @@ void druid_t::init_actions()
         {
           action_list_str += "/ferocious_bite,if=buff.combo_points.stack>=5&dot.rip.remains>=14.0&buff.savage_roar.remains>=10.0";
         }
-        action_list_str += "/ravage,if=buff.stampede_cat.up&!buff.omen_of_clarity.react&buff.tigers_fury.up";
+        action_list_str += "/ravage,if=(buff.stampede_cat.up|buff.t13_4pc_melee.up)&!buff.omen_of_clarity.react&buff.tigers_fury.up&time_to_max_energy>1.0";
         if ( set_bonus.tier11_4pc_melee() )
           action_list_str += "/mangle_cat,if=set_bonus.tier11_4pc_melee&buff.t11_4pc_melee.stack<3";
         action_list_str += "/shred,if=buff.tigers_fury.up|buff.berserk.up";
@@ -5460,6 +5452,12 @@ double druid_t::composite_player_multiplier( const school_type school, action_t*
 {
   double m = player_t::composite_player_multiplier( school, a );
 
+  if ( ( school == SCHOOL_PHYSICAL ) || ( school == SCHOOL_BLEED ) )
+    m *= 1.0 + buffs_tigers_fury -> value();
+
+  if ( school == SCHOOL_BLEED && primary_tree() == TREE_FERAL )
+    m *= 1.0 + spells.razor_claws -> effect1().coeff() * 0.01 * composite_mastery();
+
   if ( primary_tree() == TREE_BALANCE )
   {
     // Both eclipse buffs need their own checks
@@ -5473,6 +5471,19 @@ double druid_t::composite_player_multiplier( const school_type school, action_t*
         m *= 1.0 + ( buffs_eclipse_solar -> effect1().percent()
                  + composite_mastery() * spells.total_eclipse -> effect1().coeff() * 0.01 );
   }
+
+  if ( buffs_moonkin_form -> check() )
+    m *= 1.0 + talents.master_shapeshifter -> base_value() * 0.01;
+
+  if ( school == SCHOOL_ARCANE || school == SCHOOL_NATURE || school == SCHOOL_SPELLSTORM )
+  {
+    m *= 1.0 + talents.balance_of_power -> effect1().percent();
+
+    if ( buffs_moonkin_form -> check() )
+      m *= 1.10;
+  }
+
+  m *= 1.0 + talents.earth_and_moon -> effect2().percent();
 
   return m;
 }

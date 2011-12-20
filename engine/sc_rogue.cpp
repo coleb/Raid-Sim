@@ -2655,9 +2655,8 @@ struct shadow_dance_t : public rogue_attack_t
 struct tricks_of_the_trade_t : public rogue_attack_t
 {
   tricks_of_the_trade_t( rogue_t* p, const std::string& options_str ) :
-    rogue_attack_t( "tricks_of_the_trade", 57934, p, true )
+    rogue_attack_t( "tricks_of_the_trade", 57934, p )
   {
-
     parse_options( NULL, options_str );
 
     if ( p -> glyphs.tricks_of_the_trade -> ok() )
@@ -2690,7 +2689,6 @@ struct tricks_of_the_trade_t : public rogue_attack_t
           target = p;
         }
       }
-
     }
 
     p -> tot_target = target;
@@ -3359,7 +3357,8 @@ void rogue_t::init_actions()
 {
   if ( main_hand_weapon.type == WEAPON_NONE )
   {
-    sim -> errorf( "Player %s has no weapon equipped at the Main-Hand slot.", name() );
+    if ( !quiet )
+      sim -> errorf( "Player %s has no weapon equipped at the Main-Hand slot.", name() );
     quiet = true;
     return;
   }
@@ -3531,11 +3530,11 @@ void rogue_t::init_actions()
 
       if ( talents.hemorrhage -> rank() )
       {
-        action_list_str += "/hemorrhage,if=combo_points<4&energy>40&dot.hemorrhage.remains<4";
+        action_list_str += "/hemorrhage,if=combo_points<4&dot.hemorrhage.remains<4";
         action_list_str += "/hemorrhage,if=combo_points<5&energy>80&dot.hemorrhage.remains<4";
       }
 
-      action_list_str += "/backstab,if=combo_points<4&energy>40";
+      action_list_str += "/backstab,if=combo_points<4";
       action_list_str += "/backstab,if=combo_points<5&energy>80";
     }
     else

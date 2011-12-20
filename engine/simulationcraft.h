@@ -92,7 +92,7 @@
 #include "data_definitions.hh"
 
 #define SC_MAJOR_VERSION "430"
-#define SC_MINOR_VERSION "2"
+#define SC_MINOR_VERSION "3"
 #define SC_USE_PTR ( 0 )
 #define SC_BETA ( 0 )
 #define SC_EPSILON ( 0.000001 )
@@ -3320,6 +3320,7 @@ struct plot_t
 struct reforge_plot_t
 {
   sim_t* sim;
+  sim_t* current_reforge_sim;
   std::string reforge_plot_stat_str;
   std::string reforge_plot_output_file_str;
   FILE* reforge_plot_output_file;
@@ -3673,7 +3674,8 @@ struct player_t : public noncopyable
   int         specialization;
   int         invert_scaling;
   bool        vengeance_enabled;
-  double      vengeance_damage, vengeance_value, vengeance_max; // a percentage of maximum possible vengeance (i.e. 1.0 means 10% of your health)
+  double      vengeance_damage, vengeance_value, vengeance_max;
+  bool        vengeance_was_attacked;
   int         active_pets;
   double      dtr_proc_chance;
   double      dtr_base_proc_chance;
