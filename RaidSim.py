@@ -6,6 +6,28 @@ from datetime import date
 
 dname = os.path.dirname(__file__)
 
+def GetAverageItemLevel(simcdata):
+    items = []
+    for line in simcdata.split('\n'):
+        if "ilevel" not in line:
+            continue
+
+        if line.startswith("shirt"):
+            continue
+
+        if line.startswith("tabard"):
+            continue
+        
+        for field in line.split(','):    
+            name, ilvl = tuple(field.split('='))
+            if name == "ilevel":
+                items.append(int(ilvl))
+                continue
+
+    print items
+    return sum(items)/len(items)
+    
+
 def RaidSim(outname, server, names, withStatScaling=True, *args, **kwargs):
     exe = os.path.join(dname, "engine", "simc")
     lname = "%s.log" % outname
@@ -13,6 +35,7 @@ def RaidSim(outname, server, names, withStatScaling=True, *args, **kwargs):
 
     simc = []
     args = [exe]
+    ilvls = {}
     for name in names:
         fname = "%s-%s.simc" % (date.today().isoformat(), name)
         while not os.path.exists(fname):
@@ -21,7 +44,11 @@ def RaidSim(outname, server, names, withStatScaling=True, *args, **kwargs):
             armory.append("save=%s" % fname)
             proc = Popen(armory, stdout=logfile)
             proc.wait()
-        simc.append(open(fname).read())
+
+        simcdata = open(fname).read()
+        simc.append(simcdata)
+        print name, 
+        ilvls[name] = GetAverageItemLevel(simcdata)
 
     simcfname = outname + ".simc"
     tmp = open(simcfname, 'w')
@@ -63,4 +90,4 @@ def RaidSim(outname, server, names, withStatScaling=True, *args, **kwargs):
         dps, percent, name = fields
         odps[name] = float(dps)
 
-    return odps
+    return odps, ilvls

@@ -98,7 +98,7 @@ def main(argv=[__name__]):
     args = {"max_time":"%i" % seconds,
             "vary_combat_length": "0.001"}
     reportName = os.path.split(os.getcwd())[-1]
-    optdps = RaidSim(reportName, "cenarion-circle", names, withStatScaling, **args)
+    optdps, ilvls = RaidSim(reportName, "cenarion-circle", names, withStatScaling, **args)
     
     for name, dps, edps, active in dpschart.GetDPS():
         if name not in optdps:
@@ -113,11 +113,11 @@ def main(argv=[__name__]):
 
     data.sort()
     print "<table>"
-    print "<tr><th>eDPS/oDPS</th><th>oDPS</th><th>eDPS</th><th>DPS</th><th>Activity</th><th>Name</th></tr>"
+    print "<tr><th>eDPS/oDPS</th><th>oDPS</th><th>eDPS</th><th>DPS</th><th>Activity</th><th>iLvL</th><th>Name</th></tr>"
     for percentOfOpt, opt, edps, dps, active, name in data:
         print "<tr>",
-        fmt = "<td>%6.1f</td><td>%6.0f</td><td>%6.0f</td><td>%6.0f</td><td>%6.1f</td><td>%s</td>"
-        print fmt % (percentOfOpt, opt, edps, dps, active, name)
+        fmt = "<td>%6.1f</td><td>%6.0f</td><td>%6.0f</td><td>%6.0f</td><td>%6.1f</td><td>%d</td><td>%s</td>"
+        print fmt % (percentOfOpt, opt, edps, dps, active, ilvls[name], name)
         print "</tr>"
 
     print "</table>"
