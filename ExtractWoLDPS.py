@@ -1,5 +1,7 @@
 #! /usr/bin/python
 import sys, re
+import os
+import os.path
 from urllib2 import urlopen
 from RaidSim import RaidSim
 
@@ -95,7 +97,8 @@ def main(argv=[__name__]):
     withStatScaling = True
     args = {"max_time":"%i" % seconds,
             "vary_combat_length": "0.001"}
-    optdps = RaidSim("TestOutput", "cenarion-circle", names, withStatScaling, **args)
+    reportName = os.path.split(os.getcwd())[-1]
+    optdps = RaidSim(reportName, "cenarion-circle", names, withStatScaling, **args)
     
     for name, dps, edps, active in dpschart.GetDPS():
         if name not in optdps:
