@@ -19,6 +19,37 @@ enum seal_type_t
   SEAL_MAX
 };
 
+struct paladin_targetdata_t : public targetdata_t
+{
+  dot_t* dots_flames_of_the_faithful;
+  dot_t* dots_exorcism;
+  dot_t* dots_word_of_glory;
+  dot_t* dots_holy_radiance;
+  dot_t* dots_censure;
+
+  buff_t* debuffs_censure;
+
+  paladin_targetdata_t( player_t* source, player_t* target )
+    : targetdata_t( source, target )
+  {
+    debuffs_censure = add_aura( new buff_t( this, 31803, "censure" ) );
+  }
+};
+
+void register_paladin_targetdata( sim_t* sim )
+{
+  player_type t = PALADIN;
+  typedef paladin_targetdata_t type;
+
+  REGISTER_DOT( censure );
+  REGISTER_DOT( exorcism );
+  REGISTER_DOT( word_of_glory );
+  REGISTER_DOT( flames_of_the_faithful );
+  REGISTER_DOT( holy_radiance );
+
+  REGISTER_DEBUFF( censure );
+}
+
 struct paladin_t : public player_t
 {
   // Active
@@ -40,7 +71,6 @@ struct paladin_t : public player_t
   // Buffs
   buff_t* buffs_ancient_power;
   buff_t* buffs_avenging_wrath;
-  buff_t* buffs_censure;
   buff_t* buffs_conviction;
   buff_t* buffs_daybreak;
   buff_t* buffs_divine_favor;
@@ -270,6 +300,7 @@ struct paladin_t : public player_t
     create_options();
   }
 
+  virtual targetdata_t* new_targetdata( player_t* source, player_t* target ) {return new paladin_targetdata_t( source, target );}
   virtual void      init_defense();
   virtual void      init_base();
   virtual void      init_gains();
@@ -453,9 +484,6 @@ struct paladin_heal_t : public heal_t
 
     heal_t::player_buff();
 
-    if ( p -> buffs_avenging_wrath -> up() )
-      player_multiplier *= 1.0 + p -> buffs_avenging_wrath -> effect2().percent();
-
     if ( p -> buffs_conviction -> up() )
     {
       player_multiplier *= 1.0 + p -> buffs_conviction -> effect2().percent();
@@ -512,8 +540,6 @@ struct paladin_attack_t : public attack_t
     may_crit = true;
 
     class_flag1 = ! use2hspec;
-
-    base_multiplier *= 1.0 + p() -> talents.communion -> effect3().percent();
   }
 
   paladin_t* p() const
@@ -539,6 +565,7 @@ struct paladin_attack_t : public attack_t
     if ( result_is_hit() )
     {
       paladin_t* pa = player -> cast_paladin();
+      paladin_targetdata_t* td = targetdata() -> cast_paladin();
       if ( trigger_seal || ( trigger_seal_of_righteousness && ( pa -> active_seal == SEAL_OF_RIGHTEOUSNESS ) ) )
       {
         switch ( pa -> active_seal )
@@ -553,7 +580,7 @@ struct paladin_attack_t : public attack_t
           pa -> active_seal_of_righteousness_proc -> execute();
           break;
         case SEAL_OF_TRUTH:
-          if ( pa -> buffs_censure -> stack() >= 1 ) pa -> active_seal_of_truth_proc -> execute();
+          if ( td -> debuffs_censure -> stack() >= 1 ) pa -> active_seal_of_truth_proc -> execute();
           break;
         default:
           ;
@@ -595,16 +622,12 @@ struct paladin_attack_t : public attack_t
   {
     paladin_t* p = player -> cast_paladin();
     attack_t::player_buff();
-    player_multiplier *= 1.0 + p -> buffs_avenging_wrath -> value();
-    if ( school == SCHOOL_HOLY )
-    {
-      player_multiplier *= 1.0 + p -> buffs_inquisition -> value();
-    }
+
     if ( p -> set_bonus.tier13_4pc_melee() && p -> buffs_zealotry -> check() )
     {
       player_multiplier *= 1.18;
     }
-    
+
     if ( p -> buffs_conviction -> up() )
     {
       player_multiplier *= 1.0 + p -> buffs_conviction -> effect1().percent();
@@ -671,15 +694,13 @@ struct paladin_spell_t : public spell_t
   }
 
   void initialize_()
-  {
-    base_multiplier *= 1.0 + p() -> talents.communion -> effect3().percent();
-  }
+  { }
 
   paladin_t* p() const
   {
     return static_cast<paladin_t*>( player );
   }
-  
+
   virtual void consume_resource()
   {
     spell_t::consume_resource();
@@ -734,7 +755,7 @@ struct paladin_spell_t : public spell_t
 
     if ( p -> buffs_divine_favor -> up() )
       h *= 1.0 / ( 1.0 + p -> buffs_divine_favor -> effect1().percent() );
-    
+
     h *= 1.0 / ( 1.0 + p -> talents.speed_of_light -> effect1().percent() );
 
     return h;
@@ -746,12 +767,6 @@ struct paladin_spell_t : public spell_t
 
     spell_t::player_buff();
 
-    player_multiplier *= 1.0 + p -> buffs_avenging_wrath -> value();
-
-    if ( school == SCHOOL_HOLY )
-    {
-      player_multiplier *= 1.0 + p -> buffs_inquisition -> value();
-    }
     if ( p -> set_bonus.tier13_4pc_melee() && p -> buffs_zealotry -> check() )
     {
       player_multiplier *= 1.12;
@@ -787,7 +802,7 @@ struct righteous_flames_t : public paladin_spell_t
     may_crit         = false;
   }
 
-  virtual double calculate_direct_damage()
+  virtual double calculate_direct_damage( int )
   {
     paladin_t* p = player -> cast_paladin();
     double dmg = base_dd_min * p -> sets -> set( SET_T12_2PC_TANK ) -> effect1().percent();
@@ -806,7 +821,7 @@ static void trigger_beacon_of_light( heal_t* h )
 
   if ( ! p -> beacon_target )
     return;
-  
+
   if ( ! p -> beacon_target -> buffs.beacon_of_light -> up() )
     return;
 
@@ -832,7 +847,7 @@ static void trigger_beacon_of_light( heal_t* h )
     };
     p -> active_beacon_of_light = new beacon_of_light_heal_t( p );
   }
-  
+
   p -> active_beacon_of_light -> base_dd_min = h -> direct_dmg * p -> beacon_target -> buffs.beacon_of_light -> effect1().percent();
   p -> active_beacon_of_light -> base_dd_max = h -> direct_dmg * p -> beacon_target -> buffs.beacon_of_light -> effect1().percent();
 
@@ -910,7 +925,7 @@ static void trigger_illuminated_healing( heal_t* h )
     return;
 
   paladin_t* p = h -> player -> cast_paladin();
-  
+
   // FIXME: Each player can have their own bubble, so this should probably be a vector as well
   if ( ! p -> active_illuminated_healing )
   {
@@ -931,7 +946,7 @@ static void trigger_illuminated_healing( heal_t* h )
 
   // FIXME: This should stack when the buff is present already
 
-  double bubble_value = p -> passives.illuminated_healing -> effect2().base_value() / 10000.0 
+  double bubble_value = p -> passives.illuminated_healing -> effect2().base_value() / 10000.0
                         * p -> composite_mastery()
                         * h -> direct_dmg;
 
@@ -1086,10 +1101,11 @@ static void trigger_tier12_2pc_melee( attack_t* s, double dmg )
       dot_behavior  = DOT_REFRESH;
       init();
     }
+
     virtual void impact( player_t* t, int impact_result, double total_dot_dmg )
     {
       paladin_attack_t::impact( t, impact_result, 0 );
-      int nticks = dot -> num_ticks;
+      int nticks = dot() -> num_ticks;
       base_td = total_dot_dmg / nticks;
     }
     virtual double travel_time()
@@ -1116,7 +1132,7 @@ static void trigger_tier12_2pc_melee( attack_t* s, double dmg )
 
   if ( ! p -> active_flames_of_the_faithful_proc ) p -> active_flames_of_the_faithful_proc = new flames_of_the_faithful_t( p );
 
-  dot_t* dot = p -> active_flames_of_the_faithful_proc -> dot;
+  dot_t* dot = p -> active_flames_of_the_faithful_proc -> dot();
 
   if ( dot -> ticking )
   {
@@ -1706,14 +1722,16 @@ struct seal_of_truth_dot_t : public paladin_attack_t
   virtual void player_buff()
   {
     paladin_attack_t::player_buff();
-    player_multiplier *= p() -> buffs_censure -> stack();
+    paladin_targetdata_t* td = targetdata() -> cast_paladin();
+    player_multiplier *= td -> debuffs_censure -> stack();
   }
 
   virtual void impact( player_t* t, int impact_result, double travel_dmg=0 )
   {
     if ( result_is_hit( impact_result ) )
     {
-      p() -> buffs_censure -> trigger();
+      paladin_targetdata_t* td = targetdata() -> cast_paladin();
+      td -> debuffs_censure -> trigger();
       player_buff(); // update with new stack of the debuff
     }
     paladin_attack_t::impact( t, impact_result, travel_dmg );
@@ -1721,9 +1739,9 @@ struct seal_of_truth_dot_t : public paladin_attack_t
 
   virtual void last_tick( dot_t* d )
   {
-    paladin_t* p = player -> cast_paladin();
+    paladin_targetdata_t* td = targetdata() -> cast_paladin();
     paladin_attack_t::last_tick( d );
-    p -> buffs_censure -> expire();
+    td -> debuffs_censure -> expire();
   }
 };
 
@@ -1742,9 +1760,9 @@ struct seal_of_truth_proc_t : public paladin_attack_t
   }
   virtual void player_buff()
   {
-    paladin_t* p = player -> cast_paladin();
+    paladin_targetdata_t* td = targetdata() -> cast_paladin();
     paladin_attack_t::player_buff();
-    player_multiplier *= p -> buffs_censure -> stack() * 0.2;
+    player_multiplier *= td -> debuffs_censure -> stack() * 0.2;
   }
 };
 
@@ -1775,9 +1793,9 @@ struct seal_of_truth_judgement_t : public paladin_attack_t
 
   virtual void player_buff()
   {
-    paladin_t* p = player -> cast_paladin();
+    paladin_targetdata_t* td = targetdata() -> cast_paladin();
     paladin_attack_t::player_buff();
-    player_multiplier *= 1.0 + p -> buffs_censure -> stack() * 0.20;
+    player_multiplier *= 1.0 + td -> debuffs_censure -> stack() * 0.20;
   }
 };
 
@@ -1853,7 +1871,6 @@ struct judgement_t : public paladin_attack_t
 
     if ( seal -> result_is_hit() )
     {
-
       if ( p -> talents.judgements_of_the_just -> rank() )
       {
         target -> debuffs.judgements_of_the_just -> trigger();
@@ -2242,6 +2259,9 @@ struct exorcism_t : public paladin_spell_t
   {
     paladin_t* p = player -> cast_paladin();
     paladin_spell_t::execute();
+
+    paladin_targetdata_t* td = targetdata() -> cast_paladin();
+
     // FIXME: Should this be wrapped in a result_is_hit() ?
     switch ( p -> active_seal )
     {
@@ -2255,7 +2275,7 @@ struct exorcism_t : public paladin_spell_t
       p -> active_seal_of_righteousness_proc -> execute();
       break;
     case SEAL_OF_TRUTH:
-      if ( p -> buffs_censure -> stack() >= 1 ) p -> active_seal_of_truth_proc -> execute();
+      if ( td -> debuffs_censure -> stack() >= 1 ) p -> active_seal_of_truth_proc -> execute();
       break;
     default:
       ;
@@ -2516,7 +2536,7 @@ struct divine_light_t : public paladin_heal_t
     p -> buffs_infusion_of_light -> expire();
     trigger_tower_of_radiance( this );
   }
-  
+
   virtual double execute_time() const
   {
     paladin_t* p = player -> cast_paladin();
@@ -2620,8 +2640,8 @@ struct holy_radiance_t : public paladin_heal_t
     paladin_heal_t( "holy_radiance", p, "Holy Radiance" )
   {
     parse_options( NULL, options_str );
-    
-     // FIXME: This is an AoE Hot, which isn't supported currently
+
+    // FIXME: This is an AoE Hot, which isn't supported currently
     aoe = effect2().base_value();
 
     base_execute_time += p -> talents.clarity_of_purpose -> effect1().seconds();
@@ -2666,7 +2686,7 @@ struct holy_shock_heal_t : public paladin_heal_t
 {
   double cd_duration;
 
-  holy_shock_heal_t( paladin_t* p, const std::string& options_str ) : 
+  holy_shock_heal_t( paladin_t* p, const std::string& options_str ) :
     paladin_heal_t( "holy_shock_heal", p, 20473 ), cd_duration( 0 )
   {
     check_spec( TREE_HOLY );
@@ -2681,7 +2701,7 @@ struct holy_shock_heal_t : public paladin_heal_t
 
     cd_duration = cooldown -> duration;
   }
-  
+
   virtual void execute()
   {
     paladin_t* p = player -> cast_paladin();
@@ -2718,11 +2738,11 @@ struct lay_on_hands_t : public paladin_heal_t
   virtual void execute()
   {
     paladin_t* p = player -> cast_paladin();
-    
+
     // Heal is based on paladin's current max health
     base_dd_min = base_dd_max = p -> resource_max[ RESOURCE_HEALTH ];
 
-    paladin_heal_t::execute();    
+    paladin_heal_t::execute();
 
     target -> debuffs.forbearance -> trigger();
 
@@ -3133,7 +3153,6 @@ void paladin_t::init_buffs()
 
   buffs_ancient_power          = new buff_t( this, 86700, "ancient_power" );
   buffs_avenging_wrath         = new buff_t( this, 31884, "avenging_wrath",  1, 0 ); // Let the ability handle the CD
-  buffs_censure                = new buff_t( this, 31803, "censure" );
   buffs_conviction             = new buff_t( this, talents.conviction -> effect1().trigger_spell_id(), "conviction", talents.conviction -> rank() );
   buffs_daybreak               = new buff_t( this, talents.daybreak -> effect_trigger_spell( 1 ), "daybreak", talents.daybreak -> proc_chance() );
   buffs_divine_favor           = new buff_t( this, talents.divine_favor -> spell_id(), "divine_favor", 1.0, 0 ); // Let the ability handle the CD
@@ -3145,7 +3164,7 @@ void paladin_t::init_buffs()
   buffs_gotak_prot             = new buff_t( this, 86659, "guardian_of_the_ancient_kings" );
   buffs_grand_crusader         = new buff_t( this, talents.grand_crusader -> effect_trigger_spell( 1 ), "grand_crusader", talents.grand_crusader -> proc_chance() );
   buffs_holy_shield            = new buff_t( this, 20925, "holy_shield" );
-  buffs_infusion_of_light      = new buff_t( this, talents.infusion_of_light -> effect_trigger_spell( 1 ), "infusion_of_light", talents.infusion_of_light -> rank() ); 
+  buffs_infusion_of_light      = new buff_t( this, talents.infusion_of_light -> effect_trigger_spell( 1 ), "infusion_of_light", talents.infusion_of_light -> rank() );
   buffs_inquisition            = new buff_t( this, 84963, "inquisition" );
   buffs_judgements_of_the_bold = new buff_t( this, 89906, "judgements_of_the_bold", ( primary_tree() == TREE_RETRIBUTION ? 1 : 0 ) );
   buffs_judgements_of_the_pure = new buff_t( this, talents.judgements_of_the_pure -> effect_trigger_spell( 1 ), "judgements_of_the_pure", talents.judgements_of_the_pure -> proc_chance() );
@@ -3218,21 +3237,22 @@ void paladin_t::init_actions()
       }
       action_list_str += init_use_profession_actions();
       action_list_str += init_use_racial_actions();
-      action_list_str += "/zealotry";
       if ( level >= 85 )
-        action_list_str += "/guardian_of_ancient_kings,if=(buff.zealotry.remains<31&buff.zealotry.up)|cooldown.zealotry.remains>60";
-      action_list_str += "/avenging_wrath,if=buff.zealotry.remains<21&buff.zealotry.up";
-      if ( level >= 81 )
-        action_list_str += "/inquisition,if=(buff.inquisition.down|buff.inquisition.remains<5)&(holy_power=3|buff.divine_purpose.react)";
+        action_list_str += "/guardian_of_ancient_kings,if=cooldown.zealotry.remains<10";
+      action_list_str += "/zealotry,if=cooldown.guardian_of_ancient_kings.remains>0&cooldown.guardian_of_ancient_kings.remains<292";
+      action_list_str += "/avenging_wrath,if=buff.zealotry.up";
       action_list_str += "/crusader_strike,if=holy_power<3";  // CS before TV if <3 power, even with DP up
-      action_list_str += "/judgement,if=set_bonus.tier13_2pc_melee&holy_power<3";
+      action_list_str += "/judgement,if=buff.zealotry.down&holy_power<3";
+      if ( level >= 81 )
+        action_list_str += "/inquisition,if=(buff.inquisition.down|buff.inquisition.remains<=2)&(holy_power>=3|buff.divine_purpose.react)";
       action_list_str += "/templars_verdict,if=buff.divine_purpose.react";
       action_list_str += "/templars_verdict,if=holy_power=3";
       action_list_str += "/exorcism,if=buff.the_art_of_war.react";
       action_list_str += "/hammer_of_wrath";
-      action_list_str += "/judgement";
+      action_list_str += "/judgement,if=set_bonus.tier13_2pc_melee&buff.zealotry.up&holy_power<3";
+      action_list_str += "/wait,sec=0.1,if=cooldown.crusader_strike.remains<0.2&cooldown.crusader_strike.remains>0";
       action_list_str += "/holy_wrath";
-      action_list_str += "/consecration,if=mana>17000";  // Consecration is expensive, only use if we have plenty of mana
+      action_list_str += "/consecration,if=mana>16000";  // Consecration is expensive, only use if we have plenty of mana
       action_list_str += "/divine_plea";
     }
     break;
@@ -3263,16 +3283,21 @@ void paladin_t::init_actions()
       action_list_str += init_use_profession_actions();
       action_list_str += init_use_racial_actions();
       action_list_str += "/avenging_wrath";
-      action_list_str += "/guardian_of_ancient_kings,if=health_pct<=30";
-      action_list_str += "/word_of_glory,if=health_pct<=50";
-      action_list_str += "/holy_shield";
-      action_list_str += "/shield_of_the_righteous,if=holy_power=3";
-      action_list_str += "/crusader_strike";
+      action_list_str += "/guardian_of_ancient_kings,if=health_pct<=30,use_off_gcd=1";
+      action_list_str += "/holy_shield,use_off_gcd=1";
+      action_list_str += "/shield_of_the_righteous,if=holy_power=3&(buff.sacred_duty.up|buff.inquisition.up)";
+      action_list_str += "/judgement,if=holy_power=3";
+      action_list_str += "/inquisition,if=holy_power=3&(buff.inquisition.down|buff.inquisition.remains<5)";
+      action_list_str += "/divine_plea,if=holy_power<2";
+      action_list_str += "/avengers_shield,if=buff.grand_crusader.up&holy_power<3";
+      action_list_str += "/judgement,if=buff.judgements_of_the_pure.down";
+      action_list_str += "/crusader_strike,if=holy_power<3";
+      action_list_str += "/hammer_of_wrath";
+      action_list_str += "/avengers_shield,if=cooldown.crusader_strike.remains>=0.2";
       action_list_str += "/judgement";
-      action_list_str += "/avengers_shield";
-      action_list_str += "/holy_wrath";
       action_list_str += "/consecration";
-      action_list_str += "/divine_plea";
+      action_list_str += "/holy_wrath";
+      action_list_str += "/divine_plea,if=holy_power<1";
     }
     break;
     case TREE_HOLY:
@@ -3375,7 +3400,7 @@ void paladin_t::init_talents()
   talents.selfless_healer    = find_talent( "Selfless Healer" );
   talents.inquiry_of_faith   = find_talent( "Inquiry of Faith" );
   talents.zealotry           = find_talent( "Zealotry" );
-  
+
   // NYI
   talents.ardent_defender = 0 ;
   talents.aura_mastery = 0;
@@ -3541,6 +3566,16 @@ double paladin_t::composite_player_multiplier( const school_type school, action_
 {
   double m = player_t::composite_player_multiplier( school, a );
 
+  // These affect all damage done by the paladin
+  m *= 1.0 + buffs_avenging_wrath -> value();
+
+  m *= 1.0 + talents.communion -> effect3().percent();
+
+  if ( school == SCHOOL_HOLY )
+  {
+    m *= 1.0 + buffs_inquisition -> value();
+  }
+
   if ( a && a -> type == ACTION_ATTACK && ! a -> class_flag1 && ( primary_tree() == TREE_RETRIBUTION ) && ( main_hand_weapon.group() == WEAPON_2H ) )
   {
     m *= 1.0 + passives.two_handed_weapon_spec -> base_value( E_APPLY_AURA, A_MOD_DAMAGE_PERCENT_DONE );
@@ -3666,7 +3701,7 @@ double paladin_t::assess_damage( double            amount,
   if ( buffs_divine_shield -> up() )
   {
     amount = 0;
-    
+
     // Return out, as you don't get to benefit from anything else
     return player_t::assess_damage( amount, school, dmg_type, result, action );
   }

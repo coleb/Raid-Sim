@@ -213,6 +213,7 @@ void heal_t::impact( player_t* t, int impact_result, double travel_heal=0 )
 
   if ( num_ticks > 0 )
   {
+    dot_t* dot = this -> dot();
     if ( dot_behavior != DOT_REFRESH ) dot -> cancel();
     dot -> action = this;
     dot -> num_ticks = hasted_num_ticks();
@@ -292,7 +293,7 @@ void heal_t::calculate_result()
 
 // heal_t::calculate_direct_damage ==========================================
 
-double heal_t::calculate_direct_damage()
+double heal_t::calculate_direct_damage( int )
 {
   double dmg = sim -> range( base_dd_min, base_dd_max );
 
@@ -388,6 +389,7 @@ void heal_t::assess_damage( player_t* t,
   {
     if ( sim -> log )
     {
+      dot_t* dot = this -> dot();
       log_t::output( sim, "%s %s ticks (%d of %d) %s for %.0f (%.0f) heal (%s)",
                      player -> name(), name(),
                      dot -> current_tick, dot -> num_ticks,
@@ -688,7 +690,7 @@ void absorb_t::calculate_result()
 
 // absorb_t::calculate_direct_damage ========================================
 
-double absorb_t::calculate_direct_damage()
+double absorb_t::calculate_direct_damage( int )
 {
   double dmg = sim -> range( base_dd_min, base_dd_max );
 

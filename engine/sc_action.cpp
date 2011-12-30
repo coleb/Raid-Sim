@@ -143,6 +143,12 @@ void action_t::init_action_t_()
   last_reaction_time             = 0.0;
   dtr_action                     = 0;
   is_dtr_action                  = false;
+  cached_targetdata = NULL;
+  cached_targetdata_target = NULL;
+  action_dot = NULL;
+  targetdata_dot_offset = -1;
+
+  init_dot( name_str );
 
   if ( sim -> debug ) log_t::output( sim, "Player %s creates action %s", player -> name(), name() );
 
@@ -159,7 +165,6 @@ void action_t::init_action_t_()
   range::fill( rng, 0 );
 
   cooldown = player -> get_cooldown( name_str );
-  dot      = player -> get_dot     ( name_str );
 
   stats = player -> get_stats( name_str, this );
 
@@ -177,6 +182,13 @@ void action_t::init_action_t_()
 
     background = true; // prevent action from being executed
   }
+}
+
+void action_t::init_dot( const std::string& name )
+{
+  std::unordered_map<std::string, std::pair<player_type, size_t> >::iterator doti = sim->targetdata_items[0].find( name );
+  if( doti != sim->targetdata_items[0].end() && doti->second.first == player->type )
+    targetdata_dot_offset = ( int )doti->second.second;
 }
 
 action_t::action_t( int               ty,
@@ -824,7 +836,7 @@ double action_t::calculate_tick_damage()
 
 // action_t::calculate_direct_damage ========================================
 
-double action_t::calculate_direct_damage()
+double action_t::calculate_direct_damage( int chain_target )
 {
   double dmg = sim -> range( base_dd_min, base_dd_max );
 
@@ -890,6 +902,9 @@ double action_t::calculate_direct_damage()
     dmg *= 1.0 - resistance();
   }
 
+  if ( chain_target > 0 && base_add_multiplier != 1.0 )
+    dmg *= pow( base_add_multiplier, chain_target );
+  
   if ( ! sim -> average_range ) dmg = floor( dmg + sim -> real() );
 
   if ( sim -> debug )
@@ -920,6 +935,48 @@ void action_t::consume_resource()
   stats -> consume_resource( resource_consumed );
 }
 
+// action_t::available_targets ==============================================
+
+size_t action_t::available_targets( std::vector< player_t* >& tl ) const
+{
+  // TODO: This does not work for heals at all, as it presumes enemies in the 
+  // actor list.
+
+  tl.push_back( target );
+
+  for ( size_t i = 0; i < sim -> actor_list.size(); i++ )
+  {
+    if ( ! sim -> actor_list[ i ] -> sleeping &&
+         sim -> actor_list[ i ] -> is_enemy() && 
+         sim -> actor_list[ i ] != target )
+      tl.push_back( sim -> actor_list[ i ] );
+  }
+  
+  return tl.size();
+}
+
+// action_t::target_list ====================================================
+
+std::vector< player_t* > action_t::target_list() const
+{
+  // A very simple target list for aoe spells, pick any and all targets, up to 
+  // aoe amount, or if aoe == -1, pick all (enemy) targets
+
+  std::vector< player_t* > t;
+  
+  size_t total_targets = available_targets( t );
+  
+  if ( aoe == -1 || total_targets <= static_cast< size_t >( aoe + 1 ) )
+    return t;
+  // Drop out targets from the end
+  else 
+  {
+    t.resize( aoe + 1 );
+    
+    return t;
+  }
+}
+
 // action_t::execute ========================================================
 
 void action_t::execute()
@@ -945,19 +1002,36 @@ void action_t::execute()
   }
 
   player_buff();
-
-  target_debuff( target, DMG_DIRECT );
-
-  calculate_result();
-
-  consume_resource();
-
-  if ( result_is_hit() )
+  
+  if ( aoe == -1 || aoe > 0 )
   {
-    direct_dmg = calculate_direct_damage();
+    std::vector< player_t* > tl = target_list();
+    
+    for ( size_t t = 0; t < tl.size(); t++ )
+    {
+      target_debuff( tl[ t ], DMG_DIRECT );
+
+      calculate_result();
+
+      if ( result_is_hit() )
+        direct_dmg = calculate_direct_damage( t + 1 );
+
+      schedule_travel( tl[ t ] );
+    }
+  }
+  else
+  {
+    target_debuff( target, DMG_DIRECT );
+    
+    calculate_result();
+    
+    if ( result_is_hit() )
+      direct_dmg = calculate_direct_damage();
+    
+    schedule_travel( target );
   }
 
-  schedule_travel( target );
+  consume_resource();
 
   update_ready();
 
@@ -1018,6 +1092,7 @@ void action_t::impact( player_t* t, int impact_result, double travel_dmg=0 )
   {
     if ( num_ticks > 0 )
     {
+      dot_t* dot = this -> dot();
       if ( dot_behavior != DOT_REFRESH ) dot -> cancel();
       dot -> action = this;
       dot -> num_ticks = hasted_num_ticks();
@@ -1077,7 +1152,7 @@ void action_t::assess_damage( player_t* t,
     {
       log_t::output( sim, "%s %s hits %s for %.0f %s damage (%s)",
                      player -> name(), name(),
-                     target -> name(), dmg_adjusted,
+                     t -> name(), dmg_adjusted,
                      util_t::school_type_string( school ),
                      util_t::result_type_string( dmg_result ) );
     }
@@ -1090,6 +1165,7 @@ void action_t::assess_damage( player_t* t,
   {
     if ( sim -> log )
     {
+      dot_t* dot = this -> dot();
       log_t::output( sim, "%s %s ticks (%d of %d) %s for %.0f %s damage (%s)",
                      player -> name(), name(),
                      dot -> current_tick, dot -> num_ticks,
@@ -1239,6 +1315,7 @@ void action_t::update_ready()
   {
     if ( result_is_miss() )
     {
+      dot_t* dot = this -> dot();
       last_reaction_time = player -> total_reaction_time();
       if ( sim -> debug )
         log_t::output( sim, "%s pushes out re-cast (%.2f) on miss for %s (%s)",
@@ -1403,7 +1480,8 @@ void action_t::init()
 void action_t::reset()
 {
   cooldown -> reset();
-  dot -> reset();
+  if( action_dot )
+    action_dot -> reset();
   result = RESULT_NONE;
   execute_event = 0;
   travel_event = 0;
@@ -1415,11 +1493,15 @@ void action_t::cancel()
 {
   if ( sim -> debug ) log_t::output( sim, "action %s of %s is canceled", name(), player -> name() );
 
-  if ( channeled && dot -> ticking )
+  if ( channeled )
   {
-    last_tick( dot );
-    event_t::cancel( dot -> tick_event );
-    dot -> reset();
+    dot_t* dot = this -> dot();
+    if( dot -> ticking )
+    {
+      last_tick( dot );
+      event_t::cancel( dot -> tick_event );
+      dot -> reset();
+    }
   }
 
   if ( player -> executing  == this ) player -> executing  = 0;
@@ -1446,6 +1528,7 @@ void action_t::interrupt_action()
   if ( player -> executing  == this ) player -> executing  = 0;
   if ( player -> channeling == this )
   {
+    dot_t* dot = this->dot();
     if ( dot -> ticking ) last_tick( dot );
     player -> channeling = 0;
     event_t::cancel( dot -> tick_event );
@@ -1511,7 +1594,7 @@ action_expr_t* action_t::create_expression( const std::string& name_str )
     struct ticking_expr_t : public action_expr_t
     {
       ticking_expr_t( action_t* a ) : action_expr_t( a, "ticking", TOK_NUM ) {}
-      virtual int evaluate() { result_num = action -> dot -> ticking; return TOK_NUM; }
+      virtual int evaluate() { result_num = action -> dot() -> ticking; return TOK_NUM; }
     };
     return new ticking_expr_t( this );
   }
@@ -1520,7 +1603,7 @@ action_expr_t* action_t::create_expression( const std::string& name_str )
     struct ticks_expr_t : public action_expr_t
     {
       ticks_expr_t( action_t* a ) : action_expr_t( a, "ticks", TOK_NUM ) {}
-      virtual int evaluate() { result_num = action -> dot -> current_tick; return TOK_NUM; }
+      virtual int evaluate() { result_num = action -> dot() -> current_tick; return TOK_NUM; }
     };
     return new ticks_expr_t( this );
   }
@@ -1529,7 +1612,7 @@ action_expr_t* action_t::create_expression( const std::string& name_str )
     struct ticks_remain_expr_t : public action_expr_t
     {
       ticks_remain_expr_t( action_t* a ) : action_expr_t( a, "ticks_remain", TOK_NUM ) {}
-      virtual int evaluate() { result_num = action -> dot -> ticks(); return TOK_NUM; }
+      virtual int evaluate() { result_num = action -> dot() -> ticks(); return TOK_NUM; }
     };
     return new ticks_remain_expr_t( this );
   }
@@ -1538,7 +1621,7 @@ action_expr_t* action_t::create_expression( const std::string& name_str )
     struct remains_expr_t : public action_expr_t
     {
       remains_expr_t( action_t* a ) : action_expr_t( a, "remains", TOK_NUM ) {}
-      virtual int evaluate() { result_num = action -> dot -> remains(); return TOK_NUM; }
+      virtual int evaluate() { result_num = action -> dot() -> remains(); return TOK_NUM; }
     };
     return new remains_expr_t( this );
   }
@@ -1565,7 +1648,7 @@ action_expr_t* action_t::create_expression( const std::string& name_str )
     struct tick_time_expr_t : public action_expr_t
     {
       tick_time_expr_t( action_t* a ) : action_expr_t( a, "tick_time", TOK_NUM ) {}
-      virtual int evaluate() { result_num = ( action -> dot -> ticking ) ? action -> dot -> action -> tick_time() : 0; return TOK_NUM; }
+      virtual int evaluate() { result_num = ( action -> dot() -> ticking ) ? action -> dot() -> action -> tick_time() : 0; return TOK_NUM; }
     };
     return new tick_time_expr_t( this );
   }
@@ -1603,8 +1686,9 @@ action_expr_t* action_t::create_expression( const std::string& name_str )
       miss_react_expr_t( action_t* a ) : action_expr_t( a, "miss_react", TOK_NUM ) {}
       virtual int evaluate()
       {
-        if ( action -> dot -> miss_time == -1 ||
-             action -> sim -> current_time >= ( action -> dot -> miss_time + action -> last_reaction_time ) )
+        dot_t* dot = action -> dot();
+        if ( dot -> miss_time == -1 ||
+             action -> sim -> current_time >= ( dot -> miss_time + action -> last_reaction_time ) )
         {
           result_num = 1;
         }
@@ -1651,16 +1735,7 @@ action_expr_t* action_t::create_expression( const std::string& name_str )
   std::vector<std::string> splits;
   int num_splits = util_t::string_split( splits, name_str, "." );
 
-  if ( num_splits == 3 )
-  {
-    if ( splits[ 0 ] == "debuff" )
-    {
-      buff_t* buff = buff_t::find( target, splits[ 1 ] );
-      if ( ! buff ) return 0;
-      return buff -> create_expression( this, splits[ 2 ] );
-    }
-  }
-  else if ( num_splits == 2 )
+  if ( num_splits == 2 )
   {
     if ( splits[ 0 ] == "prev" )
     {
@@ -1679,6 +1754,49 @@ action_expr_t* action_t::create_expression( const std::string& name_str )
     }
   }
 
+  if ( num_splits == 3 && ( splits[0] == "buff" || splits[0] == "debuff" || splits[0] == "aura" ) )
+  {
+    buff_t* buff = sim -> get_targetdata_aura( player, target, splits[1] );
+    if( buff )
+      return buff -> create_expression( this, splits[ 2 ] );
+  }
+
+  if ( num_splits >= 2 && ( splits[ 0 ] == "debuff" || splits[ 0 ] == "dot" ) )
+  {
+    return target -> create_expression( this, name_str );
+  }
+
+  if ( num_splits >= 2 && splits[ 0 ] == "aura" )
+  {
+    return sim -> create_expression( this, name_str );
+  }
+
+  if ( num_splits >= 2 && splits[ 0 ] == "target" )
+  {
+    std::string rest = splits[1];
+    for( int i = 2; i < num_splits; ++i )
+      rest += '.' + splits[i];
+    return target -> create_expression( this, rest );
+  }
+
+  // necessary for self.target.*, self.dot.*
+  if ( num_splits >= 2 && splits[ 0 ] == "self" )
+  {
+    std::string rest = splits[1];
+    for( int i = 2; i < num_splits; ++i )
+      rest += '.' + splits[i];
+    return player -> create_expression( this, rest );
+  }
+
+  // necessary for sim.target.*
+  if ( num_splits >= 2 && splits[ 0 ] == "sim" )
+  {
+    std::string rest = splits[1];
+    for( int i = 2; i < num_splits; ++i )
+      rest += '.' + splits[i];
+    return sim -> create_expression( this, rest );
+  }
+
   return player -> create_expression( this, name_str );
 }
 
@@ -1692,7 +1810,7 @@ double action_t::ppm_proc_chance( double PPM ) const
   }
   else
   {
-    double time = channeled ? dot -> time_to_tick : time_to_execute;
+    double time = channeled ? dot() -> time_to_tick : time_to_execute;
 
     if ( time == 0 ) time = player -> base_gcd;
 

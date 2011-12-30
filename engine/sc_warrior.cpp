@@ -75,6 +75,31 @@
 
 enum warrior_stance { STANCE_BATTLE=1, STANCE_BERSERKER, STANCE_DEFENSE=4 };
 
+struct warrior_targetdata_t : public targetdata_t
+{
+  dot_t* dots_deep_wounds;
+  dot_t* dots_rend;
+
+  buff_t* debuffs_colossus_smash;
+
+  warrior_targetdata_t( player_t* source, player_t* target )
+    : targetdata_t( source, target )
+  {
+    debuffs_colossus_smash            = add_aura( new buff_t( this, "colossus_smash",            1,  6.0 ) );
+  }
+};
+
+void register_warrior_targetdata( sim_t* sim )
+{
+  player_type t = WARRIOR;
+  typedef warrior_targetdata_t type;
+
+  REGISTER_DOT( deep_wounds );
+  REGISTER_DOT( rend );
+
+  REGISTER_DEBUFF( colossus_smash );
+}
+
 struct warrior_t : public player_t
 {
   int instant_flurry_haste;
@@ -96,7 +121,6 @@ struct warrior_t : public player_t
   buff_t* buffs_berserker_stance;
   buff_t* buffs_bloodsurge;
   buff_t* buffs_bloodthirst;
-  buff_t* buffs_colossus_smash;
   buff_t* buffs_deadly_calm;
   buff_t* buffs_death_wish;
   buff_t* buffs_defensive_stance;
@@ -131,10 +155,6 @@ struct warrior_t : public player_t
   cooldown_t* cooldowns_colossus_smash;
   cooldown_t* cooldowns_shield_slam;
   cooldown_t* cooldowns_strikes_of_opportunity;
-
-  // Dots
-  dot_t* dots_deep_wounds;
-  dot_t* dots_rend;
 
   // Gains
   gain_t* gains_anger_management;
@@ -311,10 +331,6 @@ struct warrior_t : public player_t
     cooldowns_shield_slam            = get_cooldown( "shield_slam"            );
     cooldowns_strikes_of_opportunity = get_cooldown( "strikes_of_opportunity" );
 
-    // Dots
-    dots_deep_wounds = get_dot( "deep_wounds" );
-    dots_rend        = get_dot( "rend"        );
-
     instant_flurry_haste = 1;
     initial_rage = 0;
 
@@ -327,6 +343,7 @@ struct warrior_t : public player_t
   }
 
   // Character Definition
+  virtual targetdata_t* new_targetdata( player_t* source, player_t* target ) {return new warrior_targetdata_t( source, target );}
   virtual void      init_talents();
   virtual void      init_spells();
   virtual void      init_defense();
@@ -488,7 +505,7 @@ struct deep_wounds_t : public warrior_attack_t
     warrior_attack_t::impact( t, impact_result, 0 );
     if ( result_is_hit( impact_result ) )
     {
-      base_td = deep_wounds_dmg / dot -> num_ticks;
+      base_td = deep_wounds_dmg / dot() -> num_ticks;
       trigger_blood_frenzy( this );
     }
   }
@@ -522,7 +539,7 @@ static void trigger_deep_wounds( action_t* a )
                              p -> active_deep_wounds -> weapon_multiplier *
                              p -> active_deep_wounds -> player_multiplier );
 
-  dot_t* dot = p -> active_deep_wounds -> dot;
+  dot_t* dot = p -> active_deep_wounds -> dot();
 
   if ( dot -> ticking )
   {
@@ -721,7 +738,7 @@ static void trigger_tier12_2pc_tank( attack_t* s, double dmg )
     {
       warrior_attack_t::impact( t, impact_result, 0 );
 
-      base_td = total_dot_dmg / dot -> num_ticks;
+      base_td = total_dot_dmg / dot() -> num_ticks;
     }
 
     virtual double travel_time()
@@ -750,7 +767,7 @@ static void trigger_tier12_2pc_tank( attack_t* s, double dmg )
 
   if ( ! p -> active_tier12_2pc_tank ) p -> active_tier12_2pc_tank = new combust_t( p );
 
-  dot_t* dot = p -> active_tier12_2pc_tank -> dot;
+  dot_t* dot = p -> active_tier12_2pc_tank -> dot();
 
   if ( dot -> ticking )
   {
@@ -900,11 +917,11 @@ static void trigger_tier12_4pc_melee( attack_t* a )
 
 double warrior_attack_t::armor() const
 {
-  warrior_t* p = player -> cast_warrior();
+  warrior_targetdata_t* td = targetdata() -> cast_warrior();
 
   double a = attack_t::armor();
 
-  a *= 1.0 - p -> buffs_colossus_smash -> value();
+  a *= 1.0 - td -> debuffs_colossus_smash -> value();
 
   return a;
 }
@@ -1521,10 +1538,11 @@ struct colossus_smash_t : public warrior_attack_t
   {
     warrior_attack_t::execute();
 
-    warrior_t* p = player -> cast_warrior();
-
     if ( result_is_hit() )
-      p -> buffs_colossus_smash -> trigger( 1, armor_pen_value );
+    {
+      warrior_targetdata_t* td = targetdata() -> cast_warrior();
+      td -> debuffs_colossus_smash -> trigger( 1, armor_pen_value );
+    }
   }
 };
 
@@ -1689,8 +1707,8 @@ struct execute_t : public warrior_attack_t
     direct_power_mod = 0.0437 * max_consumed;
 
     player_multiplier *= 1.0 + ( p -> buffs_lambs_to_the_slaughter -> ok() ?
-                              ( p -> buffs_lambs_to_the_slaughter -> stack()
-                             * p -> buffs_lambs_to_the_slaughter -> effect1().percent() ) : 0 );
+                                 ( p -> buffs_lambs_to_the_slaughter -> stack()
+                                   * p -> buffs_lambs_to_the_slaughter -> effect1().percent() ) : 0 );
   }
 
   virtual bool ready()
@@ -1809,6 +1827,7 @@ struct mortal_strike_t : public warrior_attack_t
 
     if ( result_is_hit() )
     {
+      warrior_targetdata_t* td = targetdata() -> cast_warrior();
       p -> buffs_lambs_to_the_slaughter -> trigger();
       p -> buffs_battle_trance -> trigger();
       p -> buffs_juggernaut -> expire();
@@ -1819,14 +1838,14 @@ struct mortal_strike_t : public warrior_attack_t
         p -> buffs_wrecking_crew -> trigger( 1, value );
       }
 
-      if ( p -> talents.lambs_to_the_slaughter -> rank() && p -> dots_rend -> ticking )
-        p -> dots_rend -> refresh_duration();
+      if ( p -> talents.lambs_to_the_slaughter -> rank() && td -> dots_rend -> ticking )
+        td -> dots_rend -> refresh_duration();
 
       trigger_tier12_4pc_melee( this );
 
       if ( p -> set_bonus.tier13_4pc_melee() && sim -> roll( 0.13 ) )
       {
-        p -> buffs_colossus_smash -> trigger();
+        td -> debuffs_colossus_smash -> trigger();
         p -> procs_tier13_4pc_melee -> occur();
       }
     }
@@ -1842,9 +1861,9 @@ struct mortal_strike_t : public warrior_attack_t
       player_crit += p -> buffs_juggernaut -> effect1().percent();
 
     player_multiplier *= 1.0 + ( p -> buffs_lambs_to_the_slaughter -> ok() ?
-                              ( p -> buffs_lambs_to_the_slaughter -> stack()
-                             * p -> buffs_lambs_to_the_slaughter -> effect1().percent() ) : 0 )
-                             + additive_multipliers;
+                                 ( p -> buffs_lambs_to_the_slaughter -> stack()
+                                   * p -> buffs_lambs_to_the_slaughter -> effect1().percent() ) : 0 )
+                         + additive_multipliers;
   }
 };
 
@@ -1904,8 +1923,8 @@ struct overpower_t : public warrior_attack_t
     warrior_t* p = player -> cast_warrior();
 
     player_multiplier *= 1.0 + ( p -> buffs_lambs_to_the_slaughter -> ok() ?
-                              ( p -> buffs_lambs_to_the_slaughter -> stack()
-                              * p -> buffs_lambs_to_the_slaughter -> effect1().percent() ) : 0 );
+                                 ( p -> buffs_lambs_to_the_slaughter -> stack()
+                                   * p -> buffs_lambs_to_the_slaughter -> effect1().percent() ) : 0 );
   }
 
   virtual bool ready()
@@ -2014,7 +2033,8 @@ struct raging_blow_t : public warrior_attack_t
       // PTR - is this triggered per attack or once
       if ( p -> set_bonus.tier13_4pc_melee() && sim -> roll( 0.13 ) )
       {
-        p -> buffs_colossus_smash -> trigger();
+        warrior_targetdata_t* td = targetdata() -> cast_warrior();
+        td -> debuffs_colossus_smash -> trigger();
         p -> procs_tier13_4pc_melee -> occur();
       }
     }
@@ -2044,12 +2064,11 @@ struct rend_dot_t : public warrior_attack_t
   rend_dot_t( warrior_t* p ) :
     warrior_attack_t( "rend_dot", 94009, p )
   {
+    init_dot( "rend" );
     background = true;
     tick_may_crit          = true;
     may_crit               = false;
     tick_zero              = true;
-
-    dot = p ->  get_dot( "rend" );
 
     weapon                 = &( p -> main_hand_weapon );
     normalize_weapon_speed = false;
@@ -2059,7 +2078,7 @@ struct rend_dot_t : public warrior_attack_t
 
   }
 
-  virtual double calculate_direct_damage()
+  virtual double calculate_direct_damage( int )
   {
     // Rend doesn't actually hit with the weapon, but ticks on application
     return 0.0;
@@ -2164,7 +2183,7 @@ struct revenge_t : public warrior_attack_t
       if ( result_is_hit( impact_result ) )
       {
         double amount = 0.20 * travel_dmg;
-        p -> buffs_tier13_2pc_tank -> trigger(1, amount);
+        p -> buffs_tier13_2pc_tank -> trigger( 1, amount );
         absorb_stats -> add_result( amount, amount, STATS_ABSORB, impact_result );
         absorb_stats -> add_execute( 0 );
       }
@@ -2373,9 +2392,9 @@ struct slam_attack_t : public warrior_attack_t
       player_multiplier *= 1.0 + p -> talents.bloodsurge -> effect1().percent();
 
     player_multiplier *= 1.0 + ( p -> buffs_lambs_to_the_slaughter -> ok() ?
-                              ( p -> buffs_lambs_to_the_slaughter -> stack()
-                             * p -> buffs_lambs_to_the_slaughter -> effect1().percent() ) : 0 )
-                             + additive_multipliers;
+                                 ( p -> buffs_lambs_to_the_slaughter -> stack()
+                                   * p -> buffs_lambs_to_the_slaughter -> effect1().percent() ) : 0 )
+                         + additive_multipliers;
   }
 };
 
@@ -2503,11 +2522,12 @@ struct thunder_clap_t : public warrior_attack_t
   {
     warrior_attack_t::execute();
     warrior_t* p = player -> cast_warrior();
+    warrior_targetdata_t* td = targetdata() -> cast_warrior();
 
     p -> buffs_thunderstruck -> trigger();
 
-    if ( p -> talents.blood_and_thunder -> rank() && p -> dots_rend && p -> dots_rend -> ticking )
-      p -> dots_rend -> refresh_duration();
+    if ( p -> talents.blood_and_thunder -> rank() && td -> dots_rend && td -> dots_rend -> ticking )
+      td -> dots_rend -> refresh_duration();
   }
 };
 
@@ -2892,7 +2912,7 @@ struct recklessness_t : public warrior_spell_t
 
 struct retaliation_t : public warrior_spell_t
 {
-  retaliation_t( warrior_t* p,  const std::string& options_str ) : 
+  retaliation_t( warrior_t* p,  const std::string& options_str ) :
     warrior_spell_t( "retaliation", 20230, p )
   {
     parse_options( NULL, options_str );
@@ -2903,9 +2923,9 @@ struct retaliation_t : public warrior_spell_t
   virtual void execute()
   {
     warrior_spell_t::execute();
-     warrior_t* p = player -> cast_warrior();
+    warrior_t* p = player -> cast_warrior();
 
-     p -> buffs_retaliation -> trigger( 20 );
+    p -> buffs_retaliation -> trigger( 20 );
   }
 };
 
@@ -3378,7 +3398,6 @@ void warrior_t::init_buffs()
   buffs_berserker_stance          = new buff_t( this, 7381, "berserker_stance" );
   buffs_bloodsurge                = new buff_t( this, "bloodsurge",                1, 10.0,   0, talents.bloodsurge -> proc_chance() );
   buffs_bloodthirst               = new buff_t( this, 23885, "bloodthirst" );
-  buffs_colossus_smash            = new buff_t( this, "colossus_smash",            1,  6.0 );
   buffs_deadly_calm               = new buff_t( this, "deadly_calm",               1, 10.0 );
   buffs_death_wish                = new buff_t( this, "death_wish",                1, 30.0 );
   buffs_defensive_stance          = new buff_t( this, 7376, "defensive_stance" );
@@ -3585,37 +3604,44 @@ void warrior_t::init_actions()
     // Arms
     if ( primary_tree() == TREE_ARMS )
     {
-      action_list_str += "/stance,choose=berserker,if=(buff.taste_for_blood.down&rage<75),use_off_gcd=1";
-      action_list_str += "/stance,choose=battle,if=(dot.rend.remains=0|((buff.overpower.up|buff.taste_for_blood.up)&cooldown.mortal_strike.remains>1)&rage<=75),use_off_gcd=1";
-
-      action_list_str += "/recklessness,if=((target.health_pct>20&target.time_to_die>320)|target.health_pct<=20),use_off_gcd=1";
-      if ( glyphs.berserker_rage -> ok() ) action_list_str += "/berserker_rage,if=!buff.deadly_calm.up&rage<70";
-      if ( talents.deadly_calm -> ok() ) action_list_str += "/deadly_calm,if=rage<30,use_off_gcd=1";
-      if ( talents.sweeping_strikes -> ok() ) action_list_str += "/sweeping_strikes,if=target.adds>0";
+      if ( glyphs.berserker_rage -> ok() ) action_list_str += "/berserker_rage,if=rage<=95,use_off_gcd=1";
+      if ( talents.deadly_calm -> ok() ) action_list_str += "/deadly_calm,use_off_gcd=1";
+      action_list_str += "/inner_rage,if=buff.deadly_calm.down&cooldown.deadly_calm.remains>15,use_off_gcd=1";
+      action_list_str += "/recklessness,if=target.health_pct>90|target.health_pct<=20,use_off_gcd=1";
+      action_list_str += "/stance,choose=berserker,if=buff.taste_for_blood.down&dot.rend.remains>0&rage<=75,use_off_gcd=1";
+      action_list_str += "/stance,choose=battle,if=dot.rend.remains=0,use_off_gcd=1";
+      action_list_str += "/rend,if=!ticking";
+      if ( talents.sweeping_strikes -> ok() ) action_list_str += "/sweeping_strikes,if=target.adds>0,use_off_gcd=1";
       // Don't want to bladestorm during SS as it's only 1 extra hit per WW not per target
       action_list_str += "/bladestorm,if=target.adds>0&!buff.deadly_calm.up&!buff.sweeping_strikes.up";
       action_list_str += "/cleave,if=target.adds>0,use_off_gcd=1";
+      action_list_str += "/mortal_strike,if=target.health_pct>20";
+      if ( level >= 81 ) action_list_str += "/colossus_smash,if=buff.colossus_smash.down";
+      action_list_str += "/mortal_strike,if=target.health_pct<=20&(buff.colossus_smash.down|dot.rend.remains<3|buff.wrecking_crew.down|rage<30)";
+      action_list_str += "/stance,choose=battle,if=target.health_pct>20&(buff.taste_for_blood.up|buff.overpower.up)&rage<=75&cooldown.mortal_strike.remains>=1.5,use_off_gcd=1";
+      action_list_str += "/overpower,if=buff.taste_for_blood.up|buff.overpower.up";
+      // Seperated to see usage
+      action_list_str += "/heroic_strike,if=buff.deadly_calm.up,use_off_gcd=1";
       if ( set_bonus.tier13_2pc_melee() )
       {
-        action_list_str += "/inner_rage,if=target.adds=0&!buff.deadly_calm.up&cooldown.deadly_calm.remains>15&((rage>=75&target.health_pct>=20)|((buff.incite.up|buff.colossus_smash.up)&((rage>=40&target.health_pct>=20)|(rage>=65&target.health_pct<20))))";
+        action_list_str += "/heroic_strike,if=target.health_pct>20&rage>85,use_off_gcd=1";
+        action_list_str += "/heroic_strike,if=rage>75&buff.inner_rage.up,use_off_gcd=1";
+        action_list_str += "/heroic_strike,if=buff.incite.up&(target.health_pct>20|(target.health_pct<=20&buff.battle_trance.up)),use_off_gcd=1";
+        action_list_str += "/heroic_strike,if=buff.inner_rage.up&target.health_pct>20&(rage>40|buff.battle_trance.up),use_off_gcd=1";
+        action_list_str += "/heroic_strike,if=buff.inner_rage.up&target.health_pct<=20&(rage>=50|buff.battle_trance.up),use_off_gcd=1";
       }
       else
       {
-        action_list_str += "/inner_rage,if=!buff.deadly_calm.up&rage>80&cooldown.deadly_calm.remains>15";
+        action_list_str += "/heroic_strike,if=target.health_pct>20&rage>95,use_off_gcd=1";
+        action_list_str += "/heroic_strike,if=rage>85&buff.inner_rage.up,use_off_gcd=1";
+        action_list_str += "/heroic_strike,if=buff.incite.up&(target.health_pct>20|(target.health_pct<=20&buff.battle_trance.up)),use_off_gcd=1";
+        action_list_str += "/heroic_strike,if=buff.inner_rage.up&target.health_pct>20&(rage>50|buff.battle_trance.up),use_off_gcd=1";
+        action_list_str += "/heroic_strike,if=buff.inner_rage.up&target.health_pct<=20&(rage>=60|buff.battle_trance.up),use_off_gcd=1";
       }
-      action_list_str += "/heroic_strike,if=(((rage>=85|(set_bonus.tier13_2pc_melee&buff.inner_rage.up&rage>=75))&target.health_pct>=20)|buff.deadly_calm.up|buff.battle_trance.up|((buff.incite.up|buff.colossus_smash.up)&(((rage>=50|(set_bonus.tier13_2pc_melee&buff.inner_rage.up&rage>=40))&target.health_pct>=20)|((rage>=75|(set_bonus.tier13_2pc_melee&buff.inner_rage.up&rage>=65))&target.health_pct<20)))),use_off_gcd=1";
-      action_list_str += "/overpower,if=buff.taste_for_blood.remains<=1.5";
-      action_list_str += "/mortal_strike,if=target.health_pct>20|rage>=30";
-      action_list_str += "/execute,if=buff.battle_trance.up";
-      action_list_str += "/rend,if=!ticking";
-      if ( level >= 81 ) action_list_str += "/colossus_smash,if=!buff.colossus_smash.up";
-      action_list_str += "/execute,if=(buff.deadly_calm.up|buff.recklessness.up)";
-      action_list_str += "/mortal_strike";
-      action_list_str += "/overpower";
       action_list_str += "/execute";
-      action_list_str += "/colossus_smash,if=buff.colossus_smash.remains<=1.5";
-      action_list_str += "/slam,if=(cooldown.mortal_strike.remains>=1.5&(rage>=35|buff.deadly_calm.up|buff.colossus_smash.up))|(cooldown.mortal_strike.remains>=1.2&buff.colossus_smash.remains>0.5&rage>=35)";
-      action_list_str += "/battle_shout,if=rage<20";
+      action_list_str += "/colossus_smash,if=buff.colossus_smash.remains<=1.5&buff.inner_rage.down";
+      action_list_str += "/slam,if=rage>=35|buff.battle_trance.up&buff.inner_rage.down";
+      action_list_str += "/battle_shout,if=rage<60";
     }
 
     // Fury
@@ -3635,14 +3661,14 @@ void warrior_t::init_actions()
       action_list_str += "/bloodthirst";
       if ( talents.raging_blow -> ok() && talents.titans_grip -> ok() )
       {
-        action_list_str += "/berserker_rage,if=!(buff.death_wish.up|buff.enrage.up|buff.unholy_frenzy.up)&rage>15&cooldown.raging_blow.remains<1";
+        action_list_str += "/berserker_rage,if=!(buff.death_wish.up|buff.enrage.up|buff.unholy_frenzy.up)&rage>15&cooldown.raging_blow.remains<1,use_off_gcd=1";
         action_list_str += "/raging_blow";
       }
       action_list_str += "/slam,if=buff.bloodsurge.react";
       action_list_str += "/execute,if=rage>=50";
       if ( talents.raging_blow -> ok() && ! talents.titans_grip -> ok() )
       {
-        action_list_str += "/berserker_rage,if=!(buff.death_wish.up|buff.enrage.up|buff.unholy_frenzy.up)&rage>15&cooldown.raging_blow.remains<1";
+        action_list_str += "/berserker_rage,if=!(buff.death_wish.up|buff.enrage.up|buff.unholy_frenzy.up)&rage>15&cooldown.raging_blow.remains<1,use_off_gcd=1";
         action_list_str += "/raging_blow";
       }
       action_list_str += "/battle_shout,if=rage<70";
@@ -3655,9 +3681,8 @@ void warrior_t::init_actions()
       action_list_str += "/stance,choose=defensive";
       if ( talents.last_stand -> ok() ) action_list_str += "/last_stand,if=health<30000";
       action_list_str += "/heroic_strike,if=rage>=50";
-      action_list_str += "/inner_rage,if=rage>=85";
-      action_list_str += "/berserker_rage";
-
+      action_list_str += "/inner_rage,if=rage>=85,use_off_gcd=1";
+      action_list_str += "/berserker_rage,use_off_gcd=1";
       action_list_str += "/shield_block,sync=shield_slam";
       action_list_str += "/shield_slam";
       action_list_str += "/thunder_clap,if=dot.rend.remains<=3";
@@ -3876,7 +3901,7 @@ void warrior_t::regen( double periodicity )
     resource_gain( RESOURCE_RAGE, ( periodicity / 3.0 ), gains_anger_management );
 
   uptimes_rage_cap -> update( resource_current[ RESOURCE_RAGE ] ==
-                                     resource_max    [ RESOURCE_RAGE] );
+                              resource_max    [ RESOURCE_RAGE] );
 }
 
 // warrior_t::primary_role() ================================================
@@ -3909,6 +3934,9 @@ double warrior_t::assess_damage( double            amount,
        result == RESULT_BLOCK  )
   {
     double rage_gain = amount * 18.92 / resource_max[ RESOURCE_HEALTH ];
+    if ( buffs_berserker_rage -> up() )
+      rage_gain *= 2.0;
+
     resource_gain( RESOURCE_RAGE, rage_gain, gains_incoming_damage );
   }
 
