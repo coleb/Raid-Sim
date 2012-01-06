@@ -56,6 +56,7 @@ def RaidSim(outname, server, names, withStatScaling=True, *args, **kwargs):
     tmp.close()
 
     args.append(simcfname)
+    args.append("fight_style=Ultraxion")
     args.append("optimal_raid=0")
     args.append("threads=12")
     args.append("html=%s.html" % outname)
