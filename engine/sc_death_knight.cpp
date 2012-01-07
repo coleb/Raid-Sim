@@ -4533,13 +4533,19 @@ void death_knight_t::init_actions()
         action_list_str += "/summon_gargoyle,time<=60";
         action_list_str += "/summon_gargoyle,if=buff.bloodlust.react|buff.unholy_frenzy.react";
       }
-      action_list_str += "/death_and_decay,if=unholy=2&runic_power<110";
+      if ( ! util_t::str_compare_ci( sim -> fight_style, "Ultraxion" ) )
+      {
+        action_list_str += "/death_and_decay,if=unholy=2&runic_power<110";
+      }
       action_list_str += "/scourge_strike,if=unholy=2&runic_power<110";
       action_list_str += "/festering_strike,if=blood=2&frost=2&runic_power<110";
       action_list_str += "/death_coil,if=runic_power>90";
       if ( talents.sudden_doom -> rank() )
         action_list_str += "/death_coil,if=buff.sudden_doom.react";
-      action_list_str += "/death_and_decay";
+      if ( ! util_t::str_compare_ci( sim -> fight_style, "Ultraxion" ) )
+      {
+        action_list_str += "/death_and_decay";
+      }
       action_list_str += "/scourge_strike";
       action_list_str += "/festering_strike";
       action_list_str += "/death_coil";
