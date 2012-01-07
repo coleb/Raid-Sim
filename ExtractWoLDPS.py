@@ -3,7 +3,7 @@ import sys, re
 import os
 import os.path
 from urllib2 import urlopen
-from RaidSim import RaidSim
+from RaidSim import RaidSim, RunRaidSim
 
 vname = r"rawTableData = "
 scriptRegEx = re.compile(vname)
@@ -55,9 +55,7 @@ class DPSChart:
             ret.extend(p.GetDPS(self.duration))
             yield ret
 
-def main(argv=[__name__]):
-    url = argv[1]
-
+def ExtractWoLDPS(url):
     data = urlopen(url).read()
     
     m = dataRegEx.search(data)
@@ -89,6 +87,16 @@ def main(argv=[__name__]):
 
     seconds = int(float(duration) / 1000)
 
+    return dpschart, seconds
+
+def main(argv=[__name__]):
+    simcprofile = None
+    if len(argv) == 3: # use provided simcraft profile
+        simcprofile = argv[2]
+
+    url = argv[1]
+    dpschart, seconds = ExtractWoLDPS(url)
+
     data = []
     names = []
     for name, dps, edps, active in dpschart.GetDPS():
@@ -98,7 +106,11 @@ def main(argv=[__name__]):
     args = {"max_time":"%i" % seconds,
             "vary_combat_length": "0.001"}
     reportName = os.path.split(os.getcwd())[-1]
-    optdps, ilvls = RaidSim(reportName, "cenarion-circle", names, withStatScaling, **args)
+
+    if simcprofile:
+        optdps = RunRaidSim(simcprofile, withStatScaling, **args)
+    else:
+        optdps = RaidSim(reportName, "cenarion-circle", names, withStatScaling, **args)
     
     for name, dps, edps, active in dpschart.GetDPS():
         if name not in optdps:
